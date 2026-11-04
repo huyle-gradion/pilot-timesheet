@@ -212,6 +212,33 @@ func TestWorkdayPartitionLateEveningPOW(t *testing.T) {
 	}
 }
 
+// TestWorkdayPartitionStampOnConfirmedClosingMinute: a commitment published at
+// the exact minute confirmed work closes proves that work's tail, and must not
+// grow a one-minute evidence block after it (the guard this pins once fell back
+// to [end, end+1)).
+func TestWorkdayPartitionStampOnConfirmedClosingMinute(t *testing.T) {
+	review := draftReview(nil,
+		[]Segment{{IntervalID: "i1", Date: "2026-11-04", Start: "08:00", End: "09:00", Project: "WORK", Description: "planned stretch"}},
+		[]TopicCandidate{{
+			Ref: "tc-close", Title: "Closing push",
+			FirstAt: "2026-11-04T09:00:00+07:00", LastAt: "2026-11-04T09:00:00+07:00",
+			Items: []EvidenceItem{{
+				Ref: "ev-close", Kind: "commit", Repo: "acme/api",
+				Title: "closing note", Time: "2026-11-04T09:00:00+07:00",
+			}},
+		}},
+		nil,
+	)
+	d := BuildDraft(review, "test")
+	if got := draftBlockIDs(d); !sameStrings(got, []string{"work-08:00-09:00"}) {
+		t.Fatalf("blocks = %v, want only the confirmed work block", got)
+	}
+	work := d.Blocks[0]
+	if len(work.TopicCandidates) != 1 || work.TopicCandidates[0] != "Closing push" {
+		t.Fatalf("work topics = %v, want the 09:00 stamp landing on the block it closes", work.TopicCandidates)
+	}
+}
+
 // TestWorkdayPartitionOverlappingMeetings: two calendar entries that overlap
 // each other merge into one meeting over their union, and both titles survive.
 func TestWorkdayPartitionOverlappingMeetings(t *testing.T) {
