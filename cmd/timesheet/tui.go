@@ -28,6 +28,9 @@ func runTui(args []string) error {
 	if f.do {
 		return fmt.Errorf("tui: --do is next's reserved flag; the tui verb takes no action flag")
 	}
+	if f.maxActionsSet {
+		return fmt.Errorf("tui: --max-actions is next's --do flag; the tui verb takes no action flag")
+	}
 	if !ttyGate() {
 		return fmt.Errorf("tui is interactive-only: run it in a terminal (both stdin and stdout must be terminals)")
 	}

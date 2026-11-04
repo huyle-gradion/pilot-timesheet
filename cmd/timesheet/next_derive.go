@@ -59,11 +59,12 @@ func deriveDayNext(o nextObservation) nextAction {
 			Day:         o.Day,
 			AnswerFile:  o.DescriptionsPath,
 			DraftDigest: o.DraftDigest,
+			Draft:       o.Draft,
 			Protocol: "write {\"draft_digest\":\"" + o.DraftDigest +
 				"\",\"notes\":\"<string>\",\"descriptions\":{\"<block_id>\":\"<prose>\"}} to " +
 				o.DescriptionsPath + "; copy draft_digest verbatim from this report (an answer bound to a different draft is " +
-				"stale and will be asked for again); block_ids come from the draft at " + o.DraftPath +
-				"; record validates every block's description and appends any prs_inline list — " + why,
+				"stale and will be asked for again); the blocks to describe are judgment.draft (the same document on disk at " +
+				o.DraftPath + "); record validates every block's description and appends any prs_inline list — " + why,
 		})
 	}
 	return n.withAction("record", o.recordArgv(),

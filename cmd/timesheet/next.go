@@ -1,11 +1,12 @@
 package main
 
-// next is the deterministic regular-Pi progression planner (issue #195). It is
-// READ ONLY: every invocation re-derives the day's next action from
-// observations that already exist — the store's durable day, evidence and
-// remote records, plus the artifact files the binary already owns — and prints
-// ONE typed action. It writes nothing, carries no state between invocations and
-// never executes anything.
+// next is the deterministic regular-Pi progression planner (issue #195). It
+// derives the day's next action from observations that already exist — the
+// store's durable day, evidence and remote records, plus the artifact files the
+// binary already owns — and prints ONE typed action. Without --do it writes
+// nothing, carries no state between invocations and never executes anything;
+// with --do it executes each deterministic action the derivation licenses and
+// stops at the first judgment, stop or human gate.
 //
 // The predicate order below IS the pipeline. It is grounded in what the binary
 // actually persists, which differs from the design sketch in two places:
@@ -85,6 +86,11 @@ type nextJudgment struct {
 	DraftDigest  string      `json:"draft_digest,omitempty"`
 	LedgerDigest string      `json:"ledger_digest,omitempty"`
 	Blocks       []nextBlock `json:"blocks,omitempty"`
+	// Draft is the exact document a descriptions answer must judge: the same
+	// parse record consumes, embedded instead of re-rendered, so the model
+	// never reads draft.json and no second read can disagree with the digest.
+	// Absent for the classifications judgment.
+	Draft *timesheet.Draft `json:"draft,omitempty"`
 }
 
 // nextBlock is one staged interval's current recorded content, so the
@@ -111,6 +117,9 @@ type nextHumanGates struct {
 	// write intents. Both are global, never day-scoped.
 	Unresolved       int `json:"unresolved_writes"`
 	NativeUnresolved int `json:"native_unresolved_writes"`
+	// Status is the read-only submission_status result, attached only when
+	// `next --do` reaches the gates so the caller needs no extra turn.
+	Status *timesheet.SubmissionStatusResult `json:"status,omitempty"`
 }
 
 // nextObservation is every fact the derivation may read. Each field is
@@ -140,6 +149,9 @@ type nextObservation struct {
 	// DraftDigest is the SHA-256 of the current draft bytes; the descriptions
 	// answer must carry it to be accepted.
 	DraftDigest string
+	// Draft is the parsed draft artifact, kept so the descriptions judgment can
+	// embed the exact document record will consume.
+	Draft *timesheet.Draft
 	// DescriptionsPresent/ChoicesPresent report the answer artifacts; the
 	// bindings are the digests those files carry ("" when absent/unbound).
 	DescriptionsPresent bool

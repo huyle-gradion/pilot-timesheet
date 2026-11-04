@@ -5,9 +5,9 @@ description: Log today's work into the personal timesheet from real git, pull-re
 
 # Pilot Timesheet
 
-The binary owns the pipeline; the model owns only the judgment it asks for and the human-gate report. Drive the day with one loop over `next` — never hold the step order in prose.
+The binary owns the pipeline; the model owns only the judgment it asks for and the human-gate report. Drive the day with `next --do`: one invocation executes every deterministic step in-process and stops at the one judgment or the human gates.
 
-## Setup (once per invocation)
+## Setup (one shell invocation)
 
 `SKILL_DIR` is this skill's absolute directory, supplied by the loader. Pass `--config <path>` / `--env-file <path>` to `next` only to override the defaults. Never read, print or copy the env file: only the binary reads it.
 
@@ -15,36 +15,31 @@ The binary owns the pipeline; the model owns only the judgment it asks for and t
 SKILL_DIR="<absolute directory of this loaded skill>"
 TS_BINARY="$("$SKILL_DIR/scripts/ts-env")"       # must succeed; its error names the fix
 TS_ROOT="$("$SKILL_DIR/scripts/ts-env" --root)"  # repository root, for the build and token script
-```
-
-`ts-env` resolves the repository from its own real path (symlinks included), then `<repo>/bin/timesheet`, `$TIMESHEET_ROOT/bin/timesheet`, or a `timesheet` on `PATH`. Prove the binary supports `next` before the loop; a found `bin/timesheet` may predate it:
-
-```sh
 "$TS_BINARY" next --help >/dev/null 2>&1 || {
-  ( cd "$TS_ROOT" && go build -trimpath -o bin/timesheet ./cmd/timesheet )
+  ( cd "$TS_ROOT" && { command -v go >/dev/null 2>&1 && go build -trimpath -o bin/timesheet ./cmd/timesheet || mise exec -- go build -trimpath -o bin/timesheet ./cmd/timesheet; } )
   TS_BINARY="$TS_ROOT/bin/timesheet"
   "$TS_BINARY" next --help >/dev/null 2>&1
 }
+"$TS_BINARY" next --do            # add --date YYYY-MM-DD for a past day
 ```
 
-Use the Go on `PATH`, or `( cd "$TS_ROOT" && mise exec -- go build -trimpath -o bin/timesheet ./cmd/timesheet )` when the shell has none. If the check or build fails, stop and report it. Build only here, never mid-loop. A mise-managed Go is environment troubleshooting, not a project dependency.
+Capture `DAY` from the first report's `day` and resume with `"$TS_BINARY" next --do --date "$DAY"` and the same config/env/project overrides, so a run stays on its original day across midnight. If the check or build fails, stop and report it. Build only here, never mid-loop. A mise-managed Go is environment troubleshooting, not a project dependency.
 
 ## The loop
 
-Invoke `"$TS_BINARY" next` (add `--date YYYY-MM-DD` initially for a past day; add `--project <id>` when the configuration defines several projects and one is chosen). It prints ONE JSON document. Capture `DAY` from the first report's `day`, then always resume with `next --date "$DAY"` and the same config/env/project overrides. This keeps a run on its original day across midnight. Obey exactly one `state` per report. Never compute the date from the host clock.
+Run `"$TS_BINARY" next --do --date "$DAY"` (add `--project <id>` when the configuration defines several projects and one is chosen) once per turn. Each invocation executes every deterministic action the binary licenses and prints ONE bounded JSON report: the terminal `state`, plus `ran[]`, one short receipt per executed action. Obey exactly one `state` per report.
 
-- `action` — run `action.cmd` as an argv vector: element 0 is the executable, the rest are its arguments, each passed as its own argument. Never join the vector into a shell string, never `eval` it, and never substitute a field into one. Use the absolute artifact paths the binary prints (`run` prints `run: artifacts: <path>`); invent no `$TMP` directory.
-- `judgment` — do the model work below, writing only `judgment.answer_file`, then `next` again. Judgments are files: there is no `--answer` flag, and `--do` is refused. Copy every digest field from the report verbatim; never recompute it.
-- `stopped` — print `reason` verbatim: it names the precise blocker and remedy. Never silently acknowledge a source, guess an attendance verdict, choose an identity binding, or reuse a stale plan. When the user has explicitly authorized the specific decision (the acknowledgement command shown, a meeting verdict, or a resolve decision file they authored), perform exactly that one step and invoke `next` again; otherwise run Terminal capture and stop.
-- `human_gates` — run `human.status_command` exactly as the binary printed it (read-only submit-status; the binary shell-quotes it) and surface its unresolved writes and `next_safe_action`. Report the plan is ready for review, run Terminal capture and stop. The user can follow up with `/submit` or ask to submit, which invokes the separate `submit` skill. Logging never authorizes submission. The legacy `approve`/`submit`/`resolve-write` commands remain interactive human steps; this skill never executes them.
+- `judgment` — do the model work below, writing only `judgment.answer_file`, then run the same command again. Judgments are files: there is no `--answer` flag. Copy every digest field from the report verbatim; never recompute it.
+- `stopped` — print `reason` verbatim: it names the precise blocker and remedy. Never silently acknowledge a source, guess an attendance verdict, choose an identity binding, or reuse a stale plan. When the user has explicitly authorized the specific decision (the acknowledgement command shown, a meeting verdict, or a resolve decision file they authored), perform exactly that one step and invoke `next --do` again; otherwise run Terminal capture and stop.
+- `human_gates` — when `human.status` is present, use it directly: it is the read-only submit-status result, already fetched for this day. Run `human.status_command` only when `human.status` is absent. Surface its unresolved writes and `next_safe_action`. Report the plan is ready for review, run Terminal capture and stop. The user can follow up with `/submit` or ask to submit, which invokes the separate `submit` skill. Logging never authorizes submission. The legacy `approve`/`submit`/`resolve-write` commands remain interactive human steps; this skill never executes them.
 
-**Failure discipline.** A failed action is never retried as-is. If `next` still reports the same `step` and `action.cmd`, repair only the judgment it consumes when the error is a validation error on `judgment.answer_file` (unknown block/interval id, missing description, missing or stale digest) — rewrite the answer with the current report's digest — and run it once more. Any other repeat is a blocker: print the binary's error and one line naming the action, then stop; never spin.
+**Failure discipline.** A failed action appears in `ran[]` with `"result": "failed"` and in `reason` as `action_failed: <step>: <error>`; the process also exits nonzero. Never retry it as-is. If `next --do` stops again on the same judgment and the error is a validation error on `judgment.answer_file` (unknown block/interval id, missing description, missing or stale digest), rewrite the answer with the current report's digest and run once more. Any other repeat is a blocker: print the binary's error and one line naming the action, then stop; never spin. If a report still carries `state: action`, run its `action.cmd` as one command and resume.
 
 ## Judgment
 
 ### `block_descriptions`
 
-Read the draft path named in `judgment.protocol` (also `draft.json` beside `judgment.answer_file`). Judge only that draft's current blocks — never raw git/calendar/prior-day evidence or a remembered draft. Write to `judgment.answer_file`:
+Judge only `judgment.draft.blocks` in the report; the same document is on disk at `draft.json` beside `judgment.answer_file`, but never read it separately. Never judge raw git/calendar/prior-day evidence or a remembered draft. Write to `judgment.answer_file`:
 
 ```json
 {"draft_digest":"<judgment.draft_digest copied verbatim>","notes":"<string>","descriptions":{"<block_id>":"<prose>"}}
@@ -54,15 +49,15 @@ One grouped-topic entry per draft block; no draft fields, block times or `PRs:` 
 
 ### `classifications`
 
-When `next` emits a `classify --configured-default` action, execute that argv directly and resume `next`. The binary uses the operator's cached `gradion.default_classification` binding for every unselected unsaved interval, including meetings and split chunks. Existing explicit selections win. This action needs no model judgment, catalog query or answer file. A missing/mismatched cached binding or stale sidecar stops with a repair instruction. Configuration changes affect future unselected intervals only. Saved-day classification recovery remains a reviewed judgment.
+Configuration may supply a cached default: when `next --do` executes `classify --configured-default` itself, the report's next state already reflects it. That path uses the operator's `gradion.default_classification` binding for every unselected unsaved interval, including meetings and split chunks; existing explicit selections win, and a missing/mismatched cached binding or stale sidecar stops with a repair instruction. Configuration changes affect future unselected intervals only. Saved-day classification recovery remains a reviewed judgment.
 
-Use only `judgment.blocks[]`: each entry's `interval_id`, `block_id`, `start`, `end` and `description`. The report is self-contained; do not read a draft, descriptions file or `$TMP` artifact for this judgment. Query the catalog per distinct `description`/topic with `"$TS_BINARY" classifications --query "<topic text>"`, carrying the same `--config`/`--env-file` flags given to `next`; the read is live (network + credential) and fails closed. Choose exactly one returned option per interval, then write to `judgment.answer_file`:
+A `classifications` judgment is model work. Use only `judgment.blocks[]`: each entry's `interval_id`, `block_id`, `start`, `end` and `description`. The report is self-contained; do not read a draft, descriptions file or `$TMP` artifact for this judgment. Query the catalog per distinct `description`/topic with `"$TS_BINARY" classifications --query "<topic text>"`, carrying the same `--config`/`--env-file` flags given to `next`; the read is live (network + credential) and fails closed. Choose exactly one returned option per interval, then write to `judgment.answer_file`:
 
 ```json
 {"ledger_digest":"<judgment.ledger_digest copied verbatim>","selections":{"<interval_id>":{"catalog_id":"<catalog_id>","classification_id":"<option id>"}}}
 ```
 
-Copy `catalog_id` from the classifications receipt and `classification_id` from the chosen option's `id` verbatim; never invent an id or topic, silently default, or add fields the receipt does not carry. `{"selections":{}}` is the honest no-op when nothing fits, and still carries the exact `ledger_digest`. `next` emits the `classify` action only after the file's `ledger_digest` matches the current staged ledger; never run `classify` on an unbound or stale file.
+Copy `catalog_id` from the classifications receipt and `classification_id` from the chosen option's `id` verbatim; never invent an id or topic, silently default, or add fields the receipt does not carry. `{"selections":{}}` is the honest no-op when nothing fits, and still carries the exact `ledger_digest`. `next --do` executes `classify` only after the file's `ledger_digest` matches the current staged ledger; never run `classify` on an unbound or stale file.
 
 ## Terminal capture (mandatory, non-blocking)
 

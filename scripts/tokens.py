@@ -27,17 +27,12 @@ SKILL_MARKER: Final = re.compile(
     r'(?:^|[;&|\n])\s*["\']?(?:[^\n"\']*/timesheet|timesheet|\$TS_BINARY)["\']?\s+'
     r"(?:next|collect|draft|run|record|status|agent-submit)\b"
 )
-FIELDS: Final = [
-    "date",
-    "session_id",
-    "input_tokens",
-    "output_tokens",
-    "cache_tokens",
-    "total_tokens",
-]
+FIELDS: Final = ("date", "session_id", "input_tokens", "output_tokens", "cache_tokens", "total_tokens")
 REPO: Final = Path(__file__).resolve().parents[1]
-JSONValue: TypeAlias = (
-    None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+JSONValue: TypeAlias = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+USAGE_KEYS: Final = (
+    "input_tokens", "input", "output_tokens", "output",
+    "cache_creation_input_tokens", "cache_read_input_tokens", "cacheRead", "cacheWrite",
 )
 
 
@@ -100,33 +95,16 @@ def scan_session(path: Path) -> SessionUsage:
             usage = message.get("usage", record.get("usage"))
             if not day or not isinstance(usage, dict) or not usage:
                 continue
-            keys = [
-                "input_tokens",
-                "input",
-                "output_tokens",
-                "output",
-                "cache_creation_input_tokens",
-                "cache_read_input_tokens",
-                "cacheRead",
-                "cacheWrite",
-            ]
-            if not any(key in usage for key in keys):
+            if not any(key in usage for key in USAGE_KEYS):
                 continue
-            counts = [usage.get(key, 0) for key in keys]
-            if any(
-                not isinstance(value, int) or isinstance(value, bool) or value < 0
-                for value in counts
-            ):
+            counts = [usage.get(key, 0) for key in USAGE_KEYS]
+            if any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in counts):
                 continue
-            tokens = {
-                key: value
-                for key, value in usage.items()
-                if isinstance(value, int) and not isinstance(value, bool)
-            }
+            tokens = {k: v for k, v in usage.items() if isinstance(v, int) and not isinstance(v, bool)}
             values = [
                 tokens.get("input_tokens", tokens.get("input", 0)),
                 tokens.get("output_tokens", tokens.get("output", 0)),
-                sum(tokens.get(key, 0) for key in keys[4:]),
+                sum(tokens.get(key, 0) for key in USAGE_KEYS[4:]),
             ]
             agg = per_day.setdefault(day, [0, 0, 0])
             for index, value in enumerate(values):
@@ -178,6 +156,10 @@ def main() -> int:
         help="override pig environment/default stores and the legacy fallback",
     )
     parser.add_argument("--out", default=str(REPO / "benchmarks/tokens.csv"))
+    parser.add_argument(
+        "--rows", choices=("newest", "all", "none"), default="newest",
+        help="session-day rows to print: newest (default), all, or none",
+    )
     args = parser.parse_args()
     sources = [
         ("claude", Path(args.claude_dir) / "projects"),
@@ -256,7 +238,12 @@ def main() -> int:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     print(f"tokens.py: refreshed {captured} observed session-day row(s) in {out_path}")
-    for row in rows.values():
+    ordered = [rows[key] for key in sorted(rows)]
+    if args.rows == "newest":
+        ordered = ordered[-1:]
+    elif args.rows == "none":
+        ordered = []
+    for row in ordered:
         print(
             f"tokens.py: {row['session_id']} {row['date']} total={row['total_tokens']}"
         )

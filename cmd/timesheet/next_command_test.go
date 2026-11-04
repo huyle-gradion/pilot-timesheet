@@ -399,19 +399,10 @@ func TestNextDerivedArgvIsAbsoluteFromAnyCwd(t *testing.T) {
 	executable(t, step)
 }
 
-// TestNextDoIsRefusedBeforeAnyStoreOpen pins the read-only boundary: this
-// revision has no dispatcher, so --do is refused before the store is opened,
-// and no judgment or human state is ever executed.
-func TestNextDoIsRefusedBeforeAnyStoreOpen(t *testing.T) {
+// TestNextReadOnlyDerivationsAreRepeatable pins the read-only boundary: without
+// --do an unchanged day derives the same document twice and executes nothing.
+func TestNextReadOnlyDerivationsAreRepeatable(t *testing.T) {
 	cfg := writeTestConfig(t)
-	err := runNext([]string{"--config", cfg, "--do", "--date", nextDay})
-	if err == nil || !strings.Contains(err.Error(), "--do") {
-		t.Fatalf("next --do = %v, want an explicit refusal naming --do", err)
-	}
-	if _, statErr := os.Stat(statePathFor(cfg)); statErr == nil {
-		t.Fatal("next --do opened the store before refusing")
-	}
-	// Two derivations from unchanged artifacts are identical: no state carried.
 	first := nextDoc(t, "--config", cfg, "--date", nextDay)
 	second := nextDoc(t, "--config", cfg, "--date", nextDay)
 	if first.State != second.State || first.Step != second.Step ||
