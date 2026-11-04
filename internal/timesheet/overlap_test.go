@@ -42,15 +42,15 @@ func noOverlapReview() Review {
 	)
 }
 
-// TestBuildDraftNoOverlapByteIdentical pins the exact draft JSON a no-overlap
-// day produced before the overlap merge (issue #183 rule 7). The golden was
-// captured from the pre-change build and is asserted byte for byte.
-func TestBuildDraftNoOverlapByteIdentical(t *testing.T) {
+// TestBuildDraftNoOverlapGolden pins the exact draft JSON a no-overlap day
+// renders. The golden encodes the carve: every block keeps its own span, and the
+// lone evening instant backs its span up from the proof of work.
+func TestBuildDraftNoOverlapGolden(t *testing.T) {
 	raw, err := json.Marshal(BuildDraft(noOverlapReview(), "test"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"date":"2026-10-26","timezone":"Asia/Ho_Chi_Minh","app_version":"test","blocks":[{"block_id":"meeting-09:00-09:30","kind":"meeting","start":"09:00","end":"09:30","title":"Standup","topic_candidates":["Calendar filtering"],"prs":["#12 acme/api"],"prs_inline":"PRs: acme/api: #12","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"work-10:00-11:00","kind":"work","start":"10:00","end":"11:00","title":"Bridge PRs","topic_candidates":["Pull request #21 (acme/web)"],"prs":["#21 acme/web"],"prs_inline":"PRs: acme/web: #21","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"meeting-14:00-15:00","kind":"meeting","start":"14:00","end":"15:00","title":"Design review","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"work-16:00-17:30","kind":"work","start":"16:00","end":"17:30","title":"Deep work","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"evidence-19:30-19:30","kind":"evidence","start":"19:30","end":"19:30","topic_candidates":["Evening research"],"completeness":{"calendar":"complete","github":"complete"}}]}`
+	want := `{"date":"2026-10-26","timezone":"Asia/Ho_Chi_Minh","app_version":"test","blocks":[{"block_id":"meeting-09:00-09:30","kind":"meeting","start":"09:00","end":"09:30","title":"Standup","topic_candidates":["Calendar filtering"],"prs":["#12 acme/api"],"prs_inline":"PRs: acme/api: #12","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"work-10:00-11:00","kind":"work","start":"10:00","end":"11:00","title":"Bridge PRs","topic_candidates":["Pull request #21 (acme/web)"],"prs":["#21 acme/web"],"prs_inline":"PRs: acme/web: #21","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"meeting-14:00-15:00","kind":"meeting","start":"14:00","end":"15:00","title":"Design review","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"work-16:00-17:30","kind":"work","start":"16:00","end":"17:30","title":"Deep work","completeness":{"calendar":"complete","github":"complete"}},{"block_id":"evidence-19:15-19:30","kind":"evidence","start":"19:15","end":"19:30","topic_candidates":["Evening research"],"completeness":{"calendar":"complete","github":"complete"}}]}`
 	if string(raw) != want {
 		t.Fatalf("no-overlap draft changed:\n got %s\nwant %s", raw, want)
 	}
@@ -182,10 +182,10 @@ func TestBuildDraftTouchingBlocksStaySeparate(t *testing.T) {
 	}
 }
 
-// TestBuildDraftMeetingAbsorbsWorkBlock: a meeting and the work block it
-// overlaps become one meeting block over the union span, carrying the work
-// block's topics; the separate work block is not emitted.
-func TestBuildDraftMeetingAbsorbsWorkBlock(t *testing.T) {
+// TestBuildDraftMeetingKeepsItsSpanAndCarvesWork: a confirmed interval that
+// runs past a meeting is one work block, and the meeting keeps exactly the
+// minutes the calendar gave it.
+func TestBuildDraftMeetingKeepsItsSpanAndCarvesWork(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
 		[]Segment{segment("Joined standup", "09:30", "10:30")},
@@ -196,26 +196,32 @@ func TestBuildDraftMeetingAbsorbsWorkBlock(t *testing.T) {
 		nil,
 	)
 	d := BuildDraft(review, "test")
-	if len(d.Blocks) != 1 {
-		t.Fatalf("blocks = %+v, want the meeting only", d.Blocks)
+	if len(d.Blocks) != 2 {
+		t.Fatalf("blocks = %+v, want the meeting and the carved work", d.Blocks)
 	}
-	b := d.Blocks[0]
-	if b.Kind != "meeting" || b.Title != "Standup" || b.Start != "09:00" || b.End != "10:30" {
-		t.Fatalf("absorbing block = %+v, want the meeting over 09:00-10:30", b)
+	b := blockByID(t, d, "meeting-09:00-10:00")
+	if b.Kind != "meeting" || b.Title != "Standup" {
+		t.Fatalf("meeting block = %+v, want the calendar title over its own span", b)
 	}
-	if len(b.TopicCandidates) != 2 {
-		t.Fatalf("topic candidates = %+v, want both POWs", b.TopicCandidates)
+	if len(b.TopicCandidates) != 1 || b.TopicCandidates[0] != "Calendar filtering" {
+		t.Fatalf("meeting topics = %+v, want the item that happened inside it", b.TopicCandidates)
 	}
-	if len(b.Sources) != 2 {
-		t.Fatalf("sources = %+v, want both contributors' sources", b.Sources)
+	if len(b.Sources) != 1 {
+		t.Fatalf("meeting sources = %+v, want only its own contributor", b.Sources)
+	}
+	w := blockByID(t, d, "work-10:00-10:30")
+	if w.Kind != "work" || w.Title != "Joined standup" {
+		t.Fatalf("work block = %+v, want the carved remainder with its description", w)
+	}
+	if len(w.TopicCandidates) != 1 || w.TopicCandidates[0] != "Pipeline fix" {
+		t.Fatalf("work topics = %+v", w.TopicCandidates)
 	}
 }
 
-// TestBuildDraftEvidenceInsideMeetingsMergesToOneBlock is the 2026-10-21 draft
-// shape: one evidence span 02:16-13:00 across two meetings inside it. Every
-// block is connected, so one meeting block covers the union span and carries
-// every topic.
-func TestBuildDraftEvidenceInsideMeetingsMergesToOneBlock(t *testing.T) {
+// TestBuildDraftCarvesEvidenceAroundMeetings is the 2026-10-21 shape: one long
+// evidence stretch crossing two meetings. Each meeting keeps its own span and
+// the evidence is carved around them, instead of one block swallowing the day.
+func TestBuildDraftCarvesEvidenceAroundMeetings(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{
 			{Ref: "m1", Start: "2026-10-26T06:40:00+07:00", End: "2026-10-26T07:15:00+07:00", Title: "Workflow training"},
@@ -231,15 +237,23 @@ func TestBuildDraftEvidenceInsideMeetingsMergesToOneBlock(t *testing.T) {
 		nil,
 	)
 	d := BuildDraft(review, "test")
-	if len(d.Blocks) != 1 {
-		t.Fatalf("blocks = %+v, want one merged block", d.Blocks)
+	want := []string{
+		"evidence-02:16-06:40",
+		"meeting-06:40-07:15",
+		"evidence-07:15-08:00",
+		"meeting-09:00-09:30",
+		"evidence-10:00-12:00",
 	}
-	b := d.Blocks[0]
-	if b.Kind != "meeting" || b.Start != "02:16" || b.End != "13:00" {
-		t.Fatalf("block = %s %s-%s, want the meeting over the union span 02:16-13:00", b.Kind, b.Start, b.End)
+	if got := draftBlockIDs(d); !sameStrings(got, want) {
+		t.Fatalf("blocks = %v, want %v", got, want)
 	}
-	if len(b.TopicCandidates) != 4 {
-		t.Fatalf("topic candidates = %+v, want every contributor's topics", b.TopicCandidates)
+	for _, b := range d.Blocks {
+		if b.Kind == "meeting" && b.Start != "06:40" && b.Start != "09:00" {
+			t.Fatalf("meeting block = %+v, want a calendar start", b)
+		}
+	}
+	if b := blockByID(t, d, "evidence-10:00-12:00"); len(b.TopicCandidates) != 2 {
+		t.Fatalf("evidence topics = %+v, want both contributors", b.TopicCandidates)
 	}
 }
 
@@ -341,15 +355,23 @@ func absorbedEvidenceReview() Review {
 }
 
 // draftAsReviewed turns the draft the skill hands the judgment step into the
-// reviewed file record receives: the merged blocks, with a description per
-// block and without the audit-only sources the draft never serializes.
+// reviewed file record receives: one description per block (the title, with the
+// PRs list composed in) and none of the audit-only sources the draft never
+// serializes.
 func draftAsReviewed(t *testing.T, d Draft) ReviewedDraft {
 	t.Helper()
 	out := ReviewedDraft{Date: d.Date, Timezone: d.Timezone}
 	for _, b := range d.Blocks {
+		desc := b.Title
+		if desc == "" {
+			desc = "Work"
+		}
+		if b.PRsInline != "" {
+			desc += " " + b.PRsInline
+		}
 		b.Sources = nil
 		b.SourcesTruncated = false
-		out.Blocks = append(out.Blocks, ReviewedBlock{DraftBlock: b, Description: b.Title})
+		out.Blocks = append(out.Blocks, ReviewedBlock{DraftBlock: b, Description: desc})
 	}
 	return out
 }
@@ -372,32 +394,35 @@ func recordedSourcesEqualDraft(t *testing.T, got EntryRecord, want DraftBlock) {
 	}
 }
 
-// TestRecordSourcesMatchDraftWhenEvidenceAbsorbedIntoMeeting: a cluster that
-// absorbed an evidence block keeps the sources the draft attached to it, for
-// both reviewed-file shapes record accepts — the older pre-merge blocks and
-// the already merged draft (review finding F-1).
-func TestRecordSourcesMatchDraftWhenEvidenceAbsorbedIntoMeeting(t *testing.T) {
+// TestRecordSourcesMatchDraftWhenEvidenceStraddlesMeetingEdge: a topic whose
+// item sits inside a meeting and a topic whose item sits just past it record
+// exactly the sources the draft attached to their own blocks, for both reviewed
+// file shapes record accepts — the older hand-authored blocks and the draft.
+func TestRecordSourcesMatchDraftWhenEvidenceStraddlesMeetingEdge(t *testing.T) {
 	review := absorbedEvidenceReview()
 	draft := BuildDraft(review, "test")
-	if len(draft.Blocks) != 1 {
-		t.Fatalf("draft blocks = %+v, want the meeting only", draft.Blocks)
+	if len(draft.Blocks) != 2 {
+		t.Fatalf("draft blocks = %+v, want the meeting and the carved evidence", draft.Blocks)
 	}
-	want := draft.Blocks[0]
-	if want.Kind != "meeting" || len(want.Sources) != draftSourcesPerBlock || !want.SourcesTruncated {
-		t.Fatalf("draft block = %s sources=%d truncated=%v, want a meeting with %d truncated sources",
-			want.Kind, len(want.Sources), want.SourcesTruncated, draftSourcesPerBlock)
+	meeting := blockByID(t, draft, "meeting-09:00-10:00")
+	if meeting.Kind != "meeting" || len(meeting.Sources) != draftSourcesPerBlock || meeting.SourcesTruncated {
+		t.Fatalf("meeting = %s sources=%d truncated=%v, want the 8 items that happened inside it",
+			meeting.Kind, len(meeting.Sources), meeting.SourcesTruncated)
+	}
+	evidence := blockByID(t, draft, "evidence-10:00-10:10")
+	if len(evidence.Sources) != 1 {
+		t.Fatalf("evidence sources = %+v, want the one item past the meeting", evidence.Sources)
 	}
 
 	shapes := []struct {
 		name string
 		file ReviewedDraft
 	}{
-		{"pre-merge blocks", ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
+		{"hand-authored blocks", ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
 			{DraftBlock: DraftBlock{BlockID: "meeting-09:00-10:00", Kind: "meeting", Start: "09:00", End: "10:00"}, Description: "Standup"},
-			{DraftBlock: DraftBlock{BlockID: "evidence-09:40-10:10", Kind: "evidence", Start: "09:40", End: "10:10",
-				TopicCandidates: []string{"Endpoint research", "Later review", "Untimed notes"}}, Description: "Evidence"},
+			{DraftBlock: DraftBlock{BlockID: "evidence-10:00-10:10", Kind: "evidence", Start: "10:00", End: "10:10"}, Description: "Evidence"},
 		}}},
-		{"merged draft", draftAsReviewed(t, draft)},
+		{"draft", draftAsReviewed(t, draft)},
 	}
 	for _, shape := range shapes {
 		t.Run(shape.name, func(t *testing.T) {
@@ -410,36 +435,44 @@ func TestRecordSourcesMatchDraftWhenEvidenceAbsorbedIntoMeeting(t *testing.T) {
 				t.Fatalf("record: %v", err)
 			}
 			f, err := ReadEntries(statePath, "2026-10-26")
-			if err != nil || f == nil || len(f.Entries) != 1 {
+			if err != nil || f == nil || len(f.Entries) != 2 {
 				t.Fatalf("read entries: %+v %v", f, err)
 			}
-			recordedSourcesEqualDraft(t, f.Entries[0], want)
+			byID := map[string]EntryRecord{}
+			for _, e := range f.Entries {
+				byID[e.BlockID] = e
+			}
+			recordedSourcesEqualDraft(t, byID["meeting-09:00-10:00"], meeting)
+			recordedSourcesEqualDraft(t, byID["evidence-10:00-10:10"], evidence)
 		})
 	}
 }
 
-// TestBuildDraftMeetingTitleKeepsDescriptionOnlyWork: a meeting that absorbs a
-// work block described only by its confirmed description still names that POW
-// in the title, because rule 2 forbids dropping it silently (finding F-2).
-func TestBuildDraftMeetingTitleKeepsDescriptionOnlyWork(t *testing.T) {
+// TestBuildDraftMeetingKeepsItsSpanWithDescriptionOnlyWork: a confirmed interval
+// overlapping a meeting is carved at the meeting boundary, and its human-written
+// description stays on the work piece instead of renaming the meeting.
+func TestBuildDraftMeetingKeepsItsSpanWithDescriptionOnlyWork(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
 		[]Segment{segment("Repair billing outage", "09:30", "10:30")},
 		nil, nil,
 	)
 	d := BuildDraft(review, "test")
-	if len(d.Blocks) != 1 {
-		t.Fatalf("blocks = %+v, want the meeting only", d.Blocks)
+	if len(d.Blocks) != 2 {
+		t.Fatalf("blocks = %+v, want the meeting and the carved work", d.Blocks)
 	}
-	if got := d.Blocks[0].Title; got != "Standup + Repair billing outage" {
-		t.Fatalf("title = %q, want the meeting and the absorbed POW named", got)
+	if got := blockByID(t, d, "meeting-09:00-10:00").Title; got != "Standup" {
+		t.Fatalf("meeting title = %q, want the calendar title", got)
+	}
+	work := blockByID(t, d, "work-10:00-10:30")
+	if work.Title != "Repair billing outage" {
+		t.Fatalf("work title = %q, want the confirmed description on its own piece", work.Title)
 	}
 }
 
-// TestBuildDraftMeetingTitleLeavesTopicBackedWorkToItsTopics: a work block
-// that carries topic candidates is named through them, so the meeting title
-// stays clean and does not duplicate its prose (finding F-2).
-func TestBuildDraftMeetingTitleLeavesTopicBackedWorkToItsTopics(t *testing.T) {
+// TestBuildDraftTopicBackedWorkKeepsItsOwnTopics: a carved work piece carries the
+// topics whose items landed past the meeting, and the meeting stays clean.
+func TestBuildDraftTopicBackedWorkKeepsItsOwnTopics(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
 		[]Segment{segment("Joined standup", "09:30", "10:30")},
@@ -447,22 +480,22 @@ func TestBuildDraftMeetingTitleLeavesTopicBackedWorkToItsTopics(t *testing.T) {
 		nil,
 	)
 	d := BuildDraft(review, "test")
-	if len(d.Blocks) != 1 {
-		t.Fatalf("blocks = %+v, want the meeting only", d.Blocks)
+	if len(d.Blocks) != 2 {
+		t.Fatalf("blocks = %+v, want the meeting and the carved work", d.Blocks)
 	}
-	b := d.Blocks[0]
-	if b.Title != "Standup" {
-		t.Fatalf("title = %q, want the clean meeting title", b.Title)
+	meeting := blockByID(t, d, "meeting-09:00-10:00")
+	if meeting.Title != "Standup" || len(meeting.TopicCandidates) != 0 {
+		t.Fatalf("meeting = %+v, want a clean calendar title", meeting)
 	}
-	if len(b.TopicCandidates) != 1 || b.TopicCandidates[0] != "Pipeline fix" {
-		t.Fatalf("topic candidates = %+v, want the work block's topic", b.TopicCandidates)
+	work := blockByID(t, d, "work-10:00-10:30")
+	if len(work.TopicCandidates) != 1 || work.TopicCandidates[0] != "Pipeline fix" {
+		t.Fatalf("work topics = %+v, want the item that landed past the meeting", work.TopicCandidates)
 	}
 }
 
-// TestBuildDraftNonMeetingClusterNamesTitlelessContributor: a work block and an
-// evidence block with topics merge, and the title names the evidence
-// contributor by its first topic candidate in evidence order (finding F-3).
-func TestBuildDraftNonMeetingClusterNamesTitlelessContributor(t *testing.T) {
+// TestBuildDraftSplitsWorkTopicsAtTheCarve: a work block owns the item inside it
+// and the evidence block owns the later one, so neither topic is duplicated.
+func TestBuildDraftSplitsWorkTopicsAtTheCarve(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{segment("Project A work", "09:00", "10:00")},
 		[]TopicCandidate{
@@ -472,32 +505,36 @@ func TestBuildDraftNonMeetingClusterNamesTitlelessContributor(t *testing.T) {
 		nil,
 	)
 	d := BuildDraft(review, "test")
-	if len(d.Blocks) != 1 {
-		t.Fatalf("blocks = %+v, want one merged block", d.Blocks)
+	if got := draftBlockIDs(d); !sameStrings(got, []string{"work-09:00-10:00", "evidence-10:00-10:20"}) {
+		t.Fatalf("blocks = %v, want the work block then the evidence", got)
 	}
-	b := d.Blocks[0]
-	if b.Title != "Project A work + Project B work" {
-		t.Fatalf("title = %q, want one name per contributor", b.Title)
+	work := blockByID(t, d, "work-09:00-10:00")
+	if work.Title != "Project A work" || len(work.TopicCandidates) != 1 || work.TopicCandidates[0] != "Project B work" {
+		t.Fatalf("work block = %+v, want its description and the item inside it", work)
 	}
-	if strings.Contains(b.Title, "Project B followup") {
-		t.Fatalf("title = %q, want one name per contributor, not every topic", b.Title)
+	evidence := blockByID(t, d, "evidence-10:00-10:20")
+	if len(evidence.TopicCandidates) != 1 || evidence.TopicCandidates[0] != "Project B followup" {
+		t.Fatalf("evidence topics = %+v, want only the later item", evidence.TopicCandidates)
 	}
 }
 
-// TestFoldDraftClusterNamesEachTitlelessContributor: in a cluster where every
-// contributor is titleless, each is named by its own first topic candidate in
-// evidence order.
-func TestFoldDraftClusterNamesEachTitlelessContributor(t *testing.T) {
-	topics := []TopicCandidate{{Title: "Alpha"}, {Title: "Beta"}}
-	seeds := []draftSeed{
-		{blk: DraftBlock{Kind: "evidence", Start: "09:00", End: "09:30", TopicCandidates: []string{"Alpha"}},
-			startM: 540, endM: 570, hasM: true, topics: []int{0}},
-		{blk: DraftBlock{Kind: "evidence", Start: "09:20", End: "10:00", TopicCandidates: []string{"Beta"}},
-			startM: 560, endM: 600, hasM: true, topics: []int{1}},
+// TestFoldReviewedClusterNamesEveryMeetingTitle: a recovery file that happens to
+// carry two overlapping meeting blocks keeps both names when they fold.
+func TestFoldReviewedClusterNamesEveryMeetingTitle(t *testing.T) {
+	got := MergeOverlappingBlocks([]ReviewedBlock{
+		{DraftBlock: DraftBlock{BlockID: "meeting-09:00-10:00", Kind: "meeting", Start: "09:00", End: "10:00", Title: "Intern Academy"},
+			Description: "Morning"},
+		{DraftBlock: DraftBlock{BlockID: "meeting-09:30-10:30", Kind: "meeting", Start: "09:30", End: "10:30", Title: "Group A"},
+			Description: "Afternoon"},
+	})
+	if len(got) != 1 {
+		t.Fatalf("blocks = %+v, want one union meeting", got)
 	}
-	out := foldDraftCluster(seeds, []int{0, 1}, topics, time.UTC)
-	if out.blk.Title != "Alpha + Beta" {
-		t.Fatalf("title = %q, want each titleless contributor named once", out.blk.Title)
+	if want := "Intern Academy + Group A"; got[0].Title != want {
+		t.Fatalf("title = %q, want every meeting title kept as %q", got[0].Title, want)
+	}
+	if got[0].BlockID != "meeting-09:00-10:30" {
+		t.Fatalf("id = %q, want the union-derived id", got[0].BlockID)
 	}
 }
 
@@ -607,28 +644,6 @@ func TestMergeOverlappingBlocksResolvesUnionIDCollisions(t *testing.T) {
 
 // --- issue #183 F-1, third round: recompute the draft's ownership ------------
 
-// recordShape records one reviewed-file shape for a review against a state that
-// carries the same durable inputs the draft saw, and returns the single
-// recorded entry.
-func recordShape(t *testing.T, review Review, file ReviewedDraft) EntryRecord {
-	t.Helper()
-	dir := t.TempDir()
-	statePath := filepath.Join(dir, "state.json")
-	ev := DayEvidence{}
-	if review.Evidence != nil {
-		ev = DayEvidence{Topics: review.Evidence.Topics, Meetings: review.Evidence.Meetings}
-	}
-	writeStateDay(t, statePath, review.Date, review.Timezone, ev, review.Confirmed.Segments)
-	if _, err := RecordEntries(statePath, "test", file, false, time.Now()); err != nil {
-		t.Fatalf("record: %v", err)
-	}
-	f, err := ReadEntries(statePath, review.Date)
-	if err != nil || f == nil || len(f.Entries) != 1 {
-		t.Fatalf("read entries: %+v %v", f, err)
-	}
-	return f.Entries[0]
-}
-
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -659,47 +674,58 @@ func interleavedOwnershipReview() Review {
 	)
 }
 
-// TestRecordSourcesFollowEvidenceOrderWhenOwnershipInterleaves is N-1: the
-// draft owns early, then inside, then late, then untimed, because it folds one
-// cluster's topics in evidence order. Both reviewed-file shapes must record
-// that exact order, with the same truncation flag (issue #183 rule 5).
+// TestRecordSourcesFollowEvidenceOrderWhenOwnershipInterleaves: the meeting owns
+// the two items inside it and the evidence block owns the two outside, in topic
+// order. Both reviewed-file shapes must record exactly those sources.
 func TestRecordSourcesFollowEvidenceOrderWhenOwnershipInterleaves(t *testing.T) {
 	review := interleavedOwnershipReview()
 	draft := BuildDraft(review, "test")
-	if len(draft.Blocks) != 1 {
-		t.Fatalf("draft blocks = %+v, want the meeting only", draft.Blocks)
+	if got := draftBlockIDs(draft); !sameStrings(got, []string{"meeting-09:00-10:00", "evidence-10:00-11:05"}) {
+		t.Fatalf("draft blocks = %v, want the meeting and the carved evidence", got)
 	}
-	want := draft.Blocks[0]
-	if want.BlockID != "meeting-09:00-11:05" {
-		t.Fatalf("draft block = %s, want the union-derived meeting id", want.BlockID)
+	meeting := blockByID(t, draft, "meeting-09:00-10:00")
+	wantInside := []string{"commit|early", "pull_request|inside"}
+	if got := sourceKeys(meeting); !sameStrings(got, wantInside) {
+		t.Fatalf("meeting sources = %v, want the items inside it %v", got, wantInside)
 	}
-	wantOrder := []string{"commit|early", "pull_request|inside", "commit|late", "commit|untimed"}
-	if got := sourceKeys(want); !sameStrings(got, wantOrder) {
-		t.Fatalf("draft sources = %v, want the evidence order %v", got, wantOrder)
+	evidence := blockByID(t, draft, "evidence-10:00-11:05")
+	wantOutside := []string{"commit|late", "commit|untimed"}
+	if got := sourceKeys(evidence); !sameStrings(got, wantOutside) {
+		t.Fatalf("evidence sources = %v, want the items outside the meeting %v", got, wantOutside)
 	}
 
 	shapes := []struct {
 		name string
 		file ReviewedDraft
 	}{
-		{"pre-merge blocks", ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
+		{"hand-authored blocks", ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
 			{DraftBlock: DraftBlock{BlockID: "meeting-09:00-10:00", Kind: "meeting", Start: "09:00", End: "10:00",
 				TopicCandidates: []string{"Inside meeting"}}, Description: "Standup"},
-			{DraftBlock: DraftBlock{BlockID: "evidence-09:20-11:05", Kind: "evidence", Start: "09:20", End: "11:05",
-				TopicCandidates: []string{"Early endpoint", "Late endpoint", "Untimed topic"}}, Description: "Evidence"},
+			{DraftBlock: DraftBlock{BlockID: "evidence-10:00-11:05", Kind: "evidence", Start: "10:00", End: "11:05",
+				TopicCandidates: []string{"Late endpoint", "Untimed topic"}}, Description: "Evidence"},
 		}}},
-		{"merged draft", draftAsReviewed(t, draft)},
+		{"draft", draftAsReviewed(t, draft)},
 	}
 	for _, shape := range shapes {
 		t.Run(shape.name, func(t *testing.T) {
-			got := recordShape(t, review, shape.file)
-			if got.BlockID != want.BlockID {
-				t.Fatalf("recorded block id = %s, want the draft's %s", got.BlockID, want.BlockID)
+			dir := t.TempDir()
+			statePath := filepath.Join(dir, "state.json")
+			writeStateDay(t, statePath, review.Date, review.Timezone,
+				DayEvidence{Topics: review.Evidence.Topics, Meetings: review.Evidence.Meetings},
+				review.Confirmed.Segments)
+			if _, err := RecordEntries(statePath, "test", shape.file, false, time.Now()); err != nil {
+				t.Fatalf("record: %v", err)
 			}
-			if order := sourceKeys(DraftBlock{Sources: got.Sources}); !sameStrings(order, wantOrder) {
-				t.Fatalf("recorded sources = %v, want %v", order, wantOrder)
+			f, err := ReadEntries(statePath, review.Date)
+			if err != nil || f == nil || len(f.Entries) != 2 {
+				t.Fatalf("read entries: %+v %v", f, err)
 			}
-			recordedSourcesEqualDraft(t, got, want)
+			byID := map[string]EntryRecord{}
+			for _, e := range f.Entries {
+				byID[e.BlockID] = e
+			}
+			recordedSourcesEqualDraft(t, byID["meeting-09:00-10:00"], meeting)
+			recordedSourcesEqualDraft(t, byID["evidence-10:00-11:05"], evidence)
 		})
 	}
 }
@@ -725,46 +751,57 @@ func collapsedEvidenceReview() Review {
 	)
 }
 
-// TestRecordSourcesKeepEvidenceAbsorbedIntoMergedMeeting is N-2: both shapes
-// must record all three topics. Building the evidence span from whatever topics
-// survived allocation against the merged block collapses it to A's single item
-// anchor, which drops A and C.
-func TestRecordSourcesKeepEvidenceAbsorbedIntoMergedMeeting(t *testing.T) {
+// TestRecordSourcesKeepEvidencePastTheMeeting: both shapes must record all three
+// topics. The meeting takes the item inside it, and the carved evidence block
+// takes the later item plus the topic that carries no anchors at all.
+func TestRecordSourcesKeepEvidencePastTheMeeting(t *testing.T) {
 	review := collapsedEvidenceReview()
 	draft := BuildDraft(review, "test")
-	if len(draft.Blocks) != 1 {
-		t.Fatalf("draft blocks = %+v, want the meeting only", draft.Blocks)
+	if got := draftBlockIDs(draft); !sameStrings(got, []string{"meeting-09:00-10:00", "evidence-10:00-10:10"}) {
+		t.Fatalf("draft blocks = %v, want the meeting and the carved evidence", got)
 	}
-	want := draft.Blocks[0]
-	if want.BlockID != "meeting-09:00-10:10" {
-		t.Fatalf("draft block = %s, want the union-derived meeting id", want.BlockID)
+	meeting := blockByID(t, draft, "meeting-09:00-10:00")
+	wantMeeting := []string{"commit|a"}
+	if got := sourceKeys(meeting); !sameStrings(got, wantMeeting) {
+		t.Fatalf("meeting sources = %v, want %v", got, wantMeeting)
 	}
-	wantOrder := []string{"commit|a", "commit|b", "commit|c"}
-	if got := sourceKeys(want); !sameStrings(got, wantOrder) {
-		t.Fatalf("draft sources = %v, want the evidence order %v", got, wantOrder)
+	evidence := blockByID(t, draft, "evidence-10:00-10:10")
+	wantEvidence := []string{"commit|b", "commit|c"}
+	if got := sourceKeys(evidence); !sameStrings(got, wantEvidence) {
+		t.Fatalf("evidence sources = %v, want %v", got, wantEvidence)
 	}
 
 	shapes := []struct {
 		name string
 		file ReviewedDraft
 	}{
-		{"pre-merge blocks", ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
+		{"hand-authored blocks", ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
 			{DraftBlock: DraftBlock{BlockID: "meeting-09:00-10:00", Kind: "meeting", Start: "09:00", End: "10:00"}, Description: "Standup"},
-			{DraftBlock: DraftBlock{BlockID: "evidence-09:40-10:10", Kind: "evidence", Start: "09:40", End: "10:10",
-				TopicCandidates: []string{"A unanchored", "B spanning", "C untimed"}}, Description: "Evidence"},
+			{DraftBlock: DraftBlock{BlockID: "evidence-10:00-10:10", Kind: "evidence", Start: "10:00", End: "10:10",
+				TopicCandidates: []string{"B spanning", "C untimed"}}, Description: "Evidence"},
 		}}},
-		{"merged draft", draftAsReviewed(t, draft)},
+		{"draft", draftAsReviewed(t, draft)},
 	}
 	for _, shape := range shapes {
 		t.Run(shape.name, func(t *testing.T) {
-			got := recordShape(t, review, shape.file)
-			if got.BlockID != want.BlockID {
-				t.Fatalf("recorded block id = %s, want the draft's %s", got.BlockID, want.BlockID)
+			dir := t.TempDir()
+			statePath := filepath.Join(dir, "state.json")
+			writeStateDay(t, statePath, review.Date, review.Timezone,
+				DayEvidence{Topics: review.Evidence.Topics, Meetings: review.Evidence.Meetings},
+				review.Confirmed.Segments)
+			if _, err := RecordEntries(statePath, "test", shape.file, false, time.Now()); err != nil {
+				t.Fatalf("record: %v", err)
 			}
-			if order := sourceKeys(DraftBlock{Sources: got.Sources}); !sameStrings(order, wantOrder) {
-				t.Fatalf("recorded sources = %v, want %v", order, wantOrder)
+			f, err := ReadEntries(statePath, review.Date)
+			if err != nil || f == nil || len(f.Entries) != 2 {
+				t.Fatalf("read entries: %+v %v", f, err)
 			}
-			recordedSourcesEqualDraft(t, got, want)
+			byID := map[string]EntryRecord{}
+			for _, e := range f.Entries {
+				byID[e.BlockID] = e
+			}
+			recordedSourcesEqualDraft(t, byID["meeting-09:00-10:00"], meeting)
+			recordedSourcesEqualDraft(t, byID["evidence-10:00-10:10"], evidence)
 		})
 	}
 }

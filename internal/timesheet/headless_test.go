@@ -101,6 +101,9 @@ func TestBuildDraftIntervalOutsideMeetingsBecomesWorkBlock(t *testing.T) {
 	}
 }
 
+// TestBuildDraftUnallocatedTopicsFormEvidenceBlock: an evening-only topic that
+// no meeting and no confirmed interval owns becomes its own evidence block over
+// the span ending at its proof of work.
 func TestBuildDraftUnallocatedTopicsFormEvidenceBlock(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T09:30:00+07:00", Title: "Standup"}},
@@ -121,8 +124,10 @@ func TestBuildDraftUnallocatedTopicsFormEvidenceBlock(t *testing.T) {
 	if evidence == nil {
 		t.Fatalf("evidence block missing: %+v", d.Blocks)
 	}
-	if evidence.Start != "20:10" || evidence.End != "20:10" {
-		t.Fatalf("evidence span = %s-%s, want 20:10-20:10", evidence.Start, evidence.End)
+	// The instant proves work happened at 20:10, not that it began then, so the
+	// span looks back for its minimum burst and still ends at the proof.
+	if evidence.Start != "19:55" || evidence.End != "20:10" {
+		t.Fatalf("evidence span = %s-%s, want 19:55-20:10", evidence.Start, evidence.End)
 	}
 	if len(evidence.TopicCandidates) != 1 || evidence.TopicCandidates[0] != "Evening research" {
 		t.Fatalf("evidence topics = %+v", evidence.TopicCandidates)
@@ -490,11 +495,9 @@ func TestPRsInlineRangesGapsAndMultiRepoSegments(t *testing.T) {
 	}
 }
 
-// Simple day (1 meeting, 1 PR): the draft matches a hand-computed fixture.
-// The only differences from the pre-change renderer's output are
-// representation-only: prs_inline is added, and the audit-only sources /
-// sources_truncated keys are gone; blocks, times, titles, PR labels, flags
-// and completeness are identical.
+// Simple day (1 meeting, 1 PR): the draft matches a hand-computed fixture. The
+// meeting keeps its calendar span, and the evidence starts at the workday and is
+// carved at the meeting, so one 11:10 commit renders as 10:00-11:10.
 func TestBuildDraftSimpleDayMatchesHandComputedFixture(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -520,7 +523,7 @@ func TestBuildDraftSimpleDayMatchesHandComputedFixture(t *testing.T) {
 		`"blocks":[` +
 		`{"block_id":"meeting-09:00-10:00","kind":"meeting","start":"09:00","end":"10:00","title":"Standup",` +
 		`"completeness":{"calendar":"complete","github":"complete"}},` +
-		`{"block_id":"evidence-11:10-11:10","kind":"evidence","start":"11:10","end":"11:10",` +
+		`{"block_id":"evidence-10:00-11:10","kind":"evidence","start":"10:00","end":"11:10",` +
 		`"topic_candidates":["Pull request #12 (acme/api)"],` +
 		`"prs":["#12 acme/api"],"prs_inline":"PRs: acme/api: #12",` +
 		`"completeness":{"calendar":"complete","github":"complete"}}]}`
@@ -794,12 +797,12 @@ func TestRecordEntriesSourcesIdenticalWithAndWithoutEcho(t *testing.T) {
 			}},
 	}
 	newNormal := reviewed(ReviewedBlock{
-		DraftBlock:  DraftBlock{BlockID: "evidence-20:10-20:10", Kind: "evidence", Start: "20:10", End: "20:10"},
+		DraftBlock:  DraftBlock{BlockID: "evidence-19:55-20:10", Kind: "evidence", Start: "19:55", End: "20:10"},
 		Description: "Evening notes",
 	})
 	echoed := reviewed(ReviewedBlock{
 		DraftBlock: DraftBlock{
-			BlockID: "evidence-20:10-20:10", Kind: "evidence", Start: "20:10", End: "20:10",
+			BlockID: "evidence-19:55-20:10", Kind: "evidence", Start: "19:55", End: "20:10",
 			Sources: []DraftSourceItem{{Kind: "stale", Repo: "wrong", Title: "echoed", Time: "00:00", URL: "https://stale.example/x"}},
 		},
 		Description: "Evening notes",
@@ -838,7 +841,7 @@ func TestRecordEntriesSourcesIdenticalWithAndWithoutEcho(t *testing.T) {
 		t.Fatalf("read entries after second record: %+v %v", f2, err)
 	}
 	for _, entry := range f2.Entries {
-		if entry.BlockID != "evidence-20:10-20:10" {
+		if entry.BlockID != "evidence-19:55-20:10" {
 			continue
 		}
 		if len(entry.Sources) != 1 || entry.Sources[0].Title != "read notes" {
@@ -853,7 +856,7 @@ func TestRecordEntriesSourcesFileDeterministic(t *testing.T) {
 	record := func(statePath string, now time.Time) {
 		t.Helper()
 		reviewed := reviewed(ReviewedBlock{
-			DraftBlock:  DraftBlock{BlockID: "evidence-20:10-20:10", Kind: "evidence", Start: "20:10", End: "20:10"},
+			DraftBlock:  DraftBlock{BlockID: "evidence-19:55-20:10", Kind: "evidence", Start: "19:55", End: "20:10"},
 			Description: "Evening notes",
 		})
 		if _, err := RecordEntries(statePath, "test", reviewed, false, now); err != nil {
@@ -884,9 +887,8 @@ func TestRecordEntriesSourcesFileDeterministic(t *testing.T) {
 
 // F1 pinning (review finding): record-time source re-attachment must use the
 // exact same topic→block mapping as BuildDraft. Demonstrated divergence case:
-// a work block that starts BEFORE an overlapping meeting. With the shared
-// fixed order (earliest start wins), both paths attach the source to the work
-// block; the test fails if either side diverges from the other.
+// a work block that starts BEFORE a later meeting, with the evidence item inside
+// the work block while the topic's own anchors span both blocks.
 func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 	topic := TopicCandidate{
 		Title:   "Spanning topic",
@@ -903,9 +905,8 @@ func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 	)
 	d := BuildDraft(review, "test")
 
-	// Draft side: the 08:00 work block starts before the 10:00 meeting, so
-	// the shared fixed order attaches the topic and its source to the work
-	// block, never to the meeting.
+	// Draft side: the 08:00 work block holds the item's minute, so the topic and
+	// its source attach to the work block, never to the later meeting.
 	var work, meeting *DraftBlock
 	for i := range d.Blocks {
 		switch d.Blocks[i].BlockID {
