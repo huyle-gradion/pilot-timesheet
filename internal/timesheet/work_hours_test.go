@@ -224,7 +224,7 @@ func TestBuildDraftKeepsBareLocalMeetingClock(t *testing.T) {
 // TestBuildDraftResolvesTopicAnchorsInDayTimezone is the regression for the
 // second round of the #174/#181 review: converting only meeting anchors was
 // inconsistent. Topic anchors are absolute provider instants too, so on an
-// Asia/Ho_Chi_Minh day a 07:20Z topic really happened at 14:20 local and must
+// Asia/Ho_Chi_Minh day a 07:20Z item really happened at 14:20 local and must
 // attach to the 14:00-15:00 meeting — not become a separate early evidence
 // block — and its annotation must reflect the local clock.
 func TestBuildDraftResolvesTopicAnchorsInDayTimezone(t *testing.T) {
@@ -248,15 +248,18 @@ func TestBuildDraftResolvesTopicAnchorsInDayTimezone(t *testing.T) {
 	}
 
 	draft := BuildDraft(review, "test")
-	if len(draft.Blocks) != 1 {
-		t.Fatalf("blocks = %+v, want only the meeting (the 14:30-15:30 work block is absorbed, the topic attaches)", draft.Blocks)
+	if len(draft.Blocks) != 2 {
+		t.Fatalf("blocks = %+v, want the local meeting and the carved work remainder", draft.Blocks)
 	}
-	b := draft.Blocks[0]
-	if b.Kind != "meeting" || b.Start != "14:00" || b.End != "15:30" {
-		t.Fatalf("block = %s %s-%s, want the local meeting absorbing the work block over 14:00-15:30", b.Kind, b.Start, b.End)
+	b := blockByID(t, draft, "meeting-14:00-15:00")
+	if b.Kind != "meeting" {
+		t.Fatalf("block = %s %s-%s, want the local meeting keeping its own span", b.Kind, b.Start, b.End)
 	}
 	if len(b.TopicCandidates) != 1 || b.TopicCandidates[0] != "Pull request #7 (acme/api)" {
 		t.Fatalf("topic candidates = %+v, want the 14:20-local topic attached to the meeting", b.TopicCandidates)
+	}
+	if work := blockByID(t, draft, "work-15:00-15:30"); work.Kind != "work" {
+		t.Fatalf("work block = %+v, want the confirmed interval carved at the meeting", work)
 	}
 
 	AnnotateWorkHours(&draft, workHoursPolicy(), vnLoc(t))
@@ -265,12 +268,12 @@ func TestBuildDraftResolvesTopicAnchorsInDayTimezone(t *testing.T) {
 	}
 }
 
-// TestBuildDraftMeetingAbsorbsOverlappingWorkBlock pins issue #183 rule 2: a
-// 14:30-15:30 confirmed block inside the 14:00-15:00 local meeting is absorbed
-// by the meeting over the union span, while a merely touching 15:00-16:00
-// block stays a separate work block. The overlap test compares local minutes on
+// TestBuildDraftMeetingCarvesWorkAtItsSpan: a 14:30-15:30 confirmed interval
+// inside the 14:00-15:00 local meeting is carved there, so the meeting keeps its
+// calendar span and the remainder becomes its own work block. A merely touching
+// 15:00-16:00 block stays separate too. The comparison uses local minutes on
 // both sides (#181).
-func TestBuildDraftMeetingAbsorbsOverlappingWorkBlock(t *testing.T) {
+func TestBuildDraftMeetingCarvesWorkAtItsSpan(t *testing.T) {
 	meeting := ProposedMeeting{
 		Ref: "cal:synthetic@20261020T070000Z", Title: "Daily sync",
 		Start: "2026-10-20T07:00:00Z", End: "2026-10-20T08:00:00Z",
@@ -284,11 +287,11 @@ func TestBuildDraftMeetingAbsorbsOverlappingWorkBlock(t *testing.T) {
 	}
 
 	overlapping := build([]Segment{{IntervalID: "iv-over", Start: "14:30", End: "15:30", Description: "inside"}})
-	if len(overlapping.Blocks) != 1 || overlapping.Blocks[0].Kind != "meeting" {
-		t.Fatalf("overlapping blocks = %+v, want the meeting only", overlapping.Blocks)
+	if len(overlapping.Blocks) != 2 || overlapping.Blocks[0].BlockID != "meeting-14:00-15:00" {
+		t.Fatalf("overlapping blocks = %+v, want the meeting plus the carved work", overlapping.Blocks)
 	}
-	if b := overlapping.Blocks[0]; b.Start != "14:00" || b.End != "15:30" {
-		t.Fatalf("absorbed block = %s-%s, want the union span 14:00-15:30", b.Start, b.End)
+	if b := overlapping.Blocks[1]; b.Kind != "work" || b.Start != "15:00" || b.End != "15:30" {
+		t.Fatalf("carved block = %+v, want 15:00-15:30", b)
 	}
 
 	touching := build([]Segment{{IntervalID: "iv-touch", Start: "15:00", End: "16:00", Description: "after"}})

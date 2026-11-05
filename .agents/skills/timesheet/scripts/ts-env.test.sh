@@ -44,7 +44,7 @@ make_layout() {
 # A PATH that still has the helper's utilities but no timesheet command.
 toolpath="$tmp/toolpath"
 mkdir -p "$toolpath"
-for tool in dirname basename readlink; do
+for tool in dirname basename readlink find mkdir cat chmod touch rm; do
 	ln -s "$(command -v "$tool")" "$toolpath/$tool"
 done
 
@@ -106,6 +106,93 @@ if got=$(cd "$cwd" && PATH="$pathbin:$toolpath" TIMESHEET_ROOT= "$nobin_skill");
 		fail "PATH fallback: got '$got'"
 else
 	fail "PATH fallback: helper failed"
+fi
+
+fake_legacy_next_binary() {
+	cat >"$1" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "next" ] && [ "${2:-}" = "--help" ]; then
+	exit 0
+fi
+exit 1
+EOF
+	chmod +x "$1"
+}
+
+fakego="$tmp/fakego"
+mkdir -p "$fakego"
+build_log="$tmp/go-build.log"
+cat >"$fakego/go" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$build_log"
+mkdir -p bin
+cat >bin/timesheet <<'INNER'
+#!/bin/sh
+if [ "\${1:-}" = "next" ] && [ "\${2:-}" = "--max-actions" ] && [ "\${3:-}" = "1" ] && [ "\${4:-}" = "--help" ]; then
+	exit 0
+fi
+if [ "\${1:-}" = "next" ] && [ "\${2:-}" = "--help" ]; then
+	exit 0
+fi
+exit 1
+INNER
+chmod +x bin/timesheet
+EOF
+chmod +x "$fakego/go"
+
+srcrepo="$tmp/source repo"
+make_layout "$srcrepo"
+mkdir -p "$srcrepo/cmd/timesheet" "$srcrepo/internal" "$srcrepo/bin"
+printf 'module example.com/timesheet\n' >"$srcrepo/go.mod"
+printf 'package main\n' >"$srcrepo/cmd/timesheet/main.go"
+printf 'package internal\n' >"$srcrepo/internal/pkg.go"
+src_skill="$srcrepo/.agents/skills/timesheet/scripts/ts-env"
+
+: >"$build_log"
+fake_legacy_next_binary "$srcrepo/bin/timesheet"
+if got=$(cd "$cwd" && PATH="$fakego:$toolpath" TIMESHEET_ROOT= "$src_skill"); then
+	if [ "$got" = "$srcrepo/bin/timesheet" ] && [ -s "$build_log" ] && "$srcrepo/bin/timesheet" next --max-actions 1 --help; then
+		pass "rebuilds pre---do binary"
+	else
+		fail "rebuilds pre---do binary: got='$got' log='$(cat "$build_log")'"
+	fi
+else
+	fail "rebuilds pre---do binary: helper failed"
+fi
+
+: >"$build_log"
+if got=$(cd "$cwd" && PATH="$fakego:$toolpath" TIMESHEET_ROOT= "$src_skill"); then
+	if [ "$got" = "$srcrepo/bin/timesheet" ] && [ ! -s "$build_log" ]; then
+		pass "skips build when binary is current"
+	else
+		fail "skips build when binary is current: got='$got' log='$(cat "$build_log")'"
+	fi
+else
+	fail "skips build when binary is current: helper failed"
+fi
+
+: >"$build_log"
+touch -t 202001010000 "$srcrepo/bin/timesheet"
+if got=$(cd "$cwd" && PATH="$fakego:$toolpath" TIMESHEET_ROOT= "$src_skill"); then
+	if [ "$got" = "$srcrepo/bin/timesheet" ] && [ -s "$build_log" ]; then
+		pass "rebuilds when source is newer than binary"
+	else
+		fail "rebuilds when source is newer than binary: got='$got' log='$(cat "$build_log")'"
+	fi
+else
+	fail "rebuilds when source is newer than binary: helper failed"
+fi
+
+: >"$build_log"
+rm -f "$srcrepo/bin/timesheet"
+if got=$(cd "$cwd" && PATH="$fakego:$toolpath" TIMESHEET_ROOT= "$src_skill"); then
+	if [ "$got" = "$srcrepo/bin/timesheet" ] && [ -x "$srcrepo/bin/timesheet" ] && [ -s "$build_log" ]; then
+		pass "builds missing binary in source repo"
+	else
+		fail "builds missing binary in source repo: got='$got' log='$(cat "$build_log")'"
+	fi
+else
+	fail "builds missing binary in source repo: helper failed"
 fi
 
 if [ "$fails" -ne 0 ]; then

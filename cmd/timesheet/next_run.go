@@ -1,10 +1,10 @@
 package main
 
-// runNext is the `next` verb boundary: flag parsing, the read-only observation
-// pass, and the typed JSON print. It never opens a write path, never executes a
-// derived action, and closes the store before deriving or printing so a future
-// in-process dispatcher could re-open the store without an EWOULDBLOCK
-// self-lock (store.go's flock is per open file descriptor).
+// runNext is the `next` verb boundary: flag parsing, the observation pass, the
+// optional --do loop, and the typed JSON print. The read-only path closes the
+// store before deriving or printing; --do never holds a store across an act
+// (store.go's flock is per open file descriptor, so a handle held across an act
+// would self-lock).
 
 import (
 	"encoding/json"
@@ -21,14 +21,16 @@ import (
 
 // nextFlags is the surface shared by the next and tui verbs: both take the
 // store-path flags, --date and --project, and both resolve an omitted --date
-// through the binary's existing helper. --do is next's reserved flag; tui
-// refuses it in its own runner.
+// through the binary's existing helper. --do and --max-actions are next's
+// flags; tui refuses both in its own runner.
 type nextFlags struct {
-	configPath string
-	envFile    string
-	date       string
-	project    string
-	do         bool
+	configPath    string
+	envFile       string
+	date          string
+	project       string
+	do            bool
+	maxActions    int
+	maxActionsSet bool
 }
 
 func parseNextFlags(name string, args []string) (*nextFlags, error) {
@@ -39,12 +41,21 @@ func parseNextFlags(name string, args []string) (*nextFlags, error) {
 	flags.StringVar(&f.envFile, "env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
 	flags.StringVar(&f.date, "date", "", "day to operate on, YYYY-MM-DD (optional; omitted means today in the configured timezone)")
 	flags.StringVar(&f.project, "project", "", "project id for staged/classified intervals (required when the configuration defines multiple projects)")
-	flags.BoolVar(&f.do, "do", false, "reserved: execute the derived action in-process (unavailable; run action.cmd instead)")
+	flags.BoolVar(&f.do, "do", false, "execute each derived action in-process until a judgment, stop or human gate")
+	flags.IntVar(&f.maxActions, "max-actions", defaultMaxActions, "with --do: the most actions one run may execute before stopping")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
+	flags.Visit(func(fl *flag.Flag) {
+		if fl.Name == "max-actions" {
+			f.maxActionsSet = true
+		}
+	})
 	if flags.NArg() != 0 {
 		return nil, fmt.Errorf("%s does not accept positional arguments", name)
+	}
+	if f.do && f.maxActions < 1 {
+		return nil, fmt.Errorf("%s: --max-actions must be at least 1", name)
 	}
 	configPath, envFile, err := resolveStoreFlags(name, f.configPath, f.envFile)
 	if err != nil {
@@ -59,8 +70,10 @@ func parseNextFlags(name string, args []string) (*nextFlags, error) {
 	return f, nil
 }
 
-// runNext derives and prints ONE typed action. Read-only: no artifact, store,
-// sidecar or config is written.
+// runNext derives and prints ONE typed action. Without --do it is read-only:
+// no artifact, store, sidecar or config is written. With --do it executes each
+// deterministic action the derivation licenses, opening and closing the store
+// around every act, and stops at the first judgment, stop or human gate.
 //
 // Reporting boundary: an underivable STATE (unreadable durable fact, artifact
 // or sidecar) prints one typed `stopped` document on stdout; only CLI/flag
@@ -70,11 +83,6 @@ func runNext(args []string) error {
 	f, err := parseNextFlags("next", args)
 	if err != nil {
 		return err
-	}
-	// The refusal happens before any config load or store open, so no state is
-	// touched by an unsupported mode.
-	if f.do {
-		return fmt.Errorf("next: --do is not available in this revision; run the printed action.cmd argv and then next again")
 	}
 
 	configPath, err := filepath.Abs(f.configPath)
@@ -94,6 +102,9 @@ func runNext(args []string) error {
 	day, err := resolveDay(configPath, f.date)
 	if err != nil {
 		return err
+	}
+	if f.do {
+		return runNextDo(f, cfg, configPath, envFile, day)
 	}
 	store, err := timesheet.OpenStore(cfg.StatePath)
 	if err != nil {
@@ -186,7 +197,7 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 		// judged or recorded against, it is re-collected.
 		var parsed timesheet.Draft
 		if err := json.Unmarshal(draft, &parsed); err == nil {
-			obs.DraftValid, obs.DraftBlocks = true, len(parsed.Blocks)
+			obs.DraftValid, obs.DraftBlocks, obs.Draft = true, len(parsed.Blocks), &parsed
 		}
 	}
 	obs.DescriptionsPresent, obs.DescriptionsBinding, err = readAnswerBinding(obs.DescriptionsPath, "draft_digest")

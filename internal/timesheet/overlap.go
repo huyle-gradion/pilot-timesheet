@@ -119,3 +119,67 @@ func joinText(texts ...string) string {
 	}
 	return out
 }
+
+// --- interval algebra ---------------------------------------------------------
+
+// minuteSpan is a half-open [start, end) interval on the recorded day's local
+// wall clock, in minutes since local midnight. Half-open is what makes adjacency
+// (a.end == b.start) non-overlapping, which is the relation the draft's
+// non-overlap rule and the remote's refusal of overlapping intervals both need.
+type minuteSpan struct{ start, end int }
+
+func (s minuteSpan) contains(m int) bool { return s.start <= m && m < s.end }
+
+func containsMinute(spans []minuteSpan, m int) bool {
+	for _, s := range spans {
+		if s.contains(m) {
+			return true
+		}
+	}
+	return false
+}
+
+// unionSpans returns the sorted, disjoint union of the spans. Touching spans
+// join, because a mask over [a.start, b.end) leaves no gap to report.
+func unionSpans(in []minuteSpan) []minuteSpan {
+	if len(in) == 0 {
+		return nil
+	}
+	sorted := append([]minuteSpan(nil), in...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].start < sorted[j].start })
+	out := []minuteSpan{sorted[0]}
+	for _, s := range sorted[1:] {
+		if last := &out[len(out)-1]; s.start <= last.end {
+			last.end = max(last.end, s.end)
+		} else {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// subtractSpans removes every cut from base, dropping the pieces left empty. cut
+// must be sorted and disjoint, which every caller guarantees: spans of the
+// occupied mask come from unionSpans, and the lunch rule passes one span.
+func subtractSpans(base, cut []minuteSpan) []minuteSpan {
+	var out []minuteSpan
+	for _, b := range base {
+		cursor := b.start
+		for _, c := range cut {
+			if c.start >= b.end {
+				break
+			}
+			if c.end <= cursor {
+				continue
+			}
+			if c.start > cursor {
+				out = append(out, minuteSpan{cursor, c.start})
+			}
+			cursor = max(cursor, c.end)
+		}
+		if cursor < b.end {
+			out = append(out, minuteSpan{cursor, b.end})
+		}
+	}
+	return out
+}

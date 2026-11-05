@@ -1,4 +1,5 @@
 import csv
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -34,12 +35,16 @@ class CaptureFixture(unittest.TestCase):
         self.out = self.home / "output.csv"
 
     def transcript(
-        self, path, usage, marker="/a path/bin/timesheet next --date 2026-10-20"
+        self,
+        path,
+        usage,
+        marker="/a path/bin/timesheet next --date 2026-10-20",
+        stamp="2026-10-20T09:00:00Z",
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps(
-                {"type": "session", "version": 3, "timestamp": "2026-10-20T09:00:00Z"}
+                {"type": "session", "version": 3, "timestamp": stamp}
             )
             + "\n"
             + json.dumps(
@@ -59,7 +64,7 @@ class CaptureFixture(unittest.TestCase):
             + "\n"
             + json.dumps(
                 {
-                    "timestamp": "2026-10-20T09:01:00Z",
+                    "timestamp": stamp,
                     "message": {"role": "assistant", "usage": usage},
                 }
             )
@@ -220,6 +225,65 @@ class CaptureTests(CaptureFixture):
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("unavailable", result.stderr)
+
+
+    def test_rows_defaults_to_the_newest_session_day(self):
+        self.transcript(self.home / ".pi/agent/sessions/a.jsonl", {"input": 1})
+        self.transcript(
+            self.home / ".pi/agent/sessions/b.jsonl",
+            {"input": 2},
+            stamp="2026-10-21T09:00:00Z",
+        )
+        self.transcript(
+            self.home / ".pi/agent/sessions/c.jsonl",
+            {"input": 3},
+            stamp="2026-10-22T09:00:00Z",
+        )
+        default = self.capture()
+        row_lines = [line for line in default.stdout.splitlines() if "total=" in line]
+        self.assertEqual(len(row_lines), 1)
+        self.assertIn("pi:c", row_lines[0])
+        self.assertIn("2026-10-22", row_lines[0])
+        self.assertEqual(len(self.rows()), 3)
+
+    def test_rows_all_prints_every_historical_row(self):
+        self.transcript(self.home / ".pi/agent/sessions/a.jsonl", {"input": 1})
+        self.transcript(
+            self.home / ".pi/agent/sessions/b.jsonl",
+            {"input": 2},
+            stamp="2026-10-21T09:00:00Z",
+        )
+        result = self.capture("--rows", "all")
+        row_lines = [line for line in result.stdout.splitlines() if "total=" in line]
+        self.assertEqual(len(row_lines), 2)
+        self.assertIn("pi:a", row_lines[0])
+        self.assertIn("pi:b", row_lines[1])
+
+    def test_rows_none_keeps_the_refresh_line_and_the_csv(self):
+        self.transcript(self.home / ".pi/agent/sessions/a.jsonl", {"input": 1})
+        result = self.capture("--rows", "none")
+        self.assertIn("refreshed 1 observed session-day row(s)", result.stdout)
+        self.assertNotIn("total=", result.stdout)
+        self.assertEqual(len(self.rows()), 1)
+
+    def test_skill_marker_matches_the_documented_next_do_invocations(self):
+        script = ROOT / "scripts" / "tokens.py"
+        spec = importlib.util.spec_from_file_location("tokens_under_test", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for command in [
+            '"$TS_BINARY" next --do',
+            "/path/to/timesheet next --do --date 2026-11-04",
+            "timesheet next",
+        ]:
+            with self.subTest(command=command):
+                self.assertIsNotNone(module.SKILL_MARKER.search(command))
+        for command in [
+            "discuss the timesheet next design",
+            "timesheet documentation",
+        ]:
+            with self.subTest(command=command):
+                self.assertIsNone(module.SKILL_MARKER.search(command))
 
 
 if __name__ == "__main__":

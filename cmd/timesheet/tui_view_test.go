@@ -493,7 +493,7 @@ func TestRenderedRowsFitTheHeight(t *testing.T) {
 					action: nextAction{Day: "2026-10-20"}.withHuman(
 						nextHumanGates{ApproveCommand: "approve cmd", SubmitCommand: "submit cmd", StatusCommand: "status cmd", Unresolved: 1, NativeUnresolved: 2}),
 					status: gates}}
-			}, []string{"approve", "submit", "status", "unresolved writes 1 legacy, 2 native", "next: approve the plan"}},
+		}, []string{"approve", "submit", "status", "unresolved writes 1 legacy, 2 native", "next: approve the plan"}},
 		{"bench tall", func(h int) tuiModel {
 			text := strings.Join(make([]string, 41), "\n")
 			return tuiModel{env: tuiEnv{styles: testStyles()}, view: viewState{height: h},

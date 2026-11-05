@@ -65,9 +65,33 @@ if [ "$want" = root ]; then
 	exit 0
 fi
 
+build_repo_binary() {
+	(
+		cd "$1" && {
+			if command -v go >/dev/null 2>&1; then
+				go build -trimpath -o bin/timesheet ./cmd/timesheet
+			else
+				mise exec -- go build -trimpath -o bin/timesheet ./cmd/timesheet
+			fi
+		}
+	) >&2
+}
+
+needs_build() {
+	[ ! -x "$1/bin/timesheet" ] ||
+		! "$1/bin/timesheet" next --max-actions 1 --help >/dev/null 2>&1 ||
+		[ -n "$(find "$1/cmd" "$1/internal" "$1/go.mod" -newer "$1/bin/timesheet" -print -quit 2>/dev/null)" ]
+}
+
+if [ -n "$repo" ] && [ -d "$repo/cmd/timesheet" ] && needs_build "$repo"; then
+	build_repo_binary "$repo" || exit 1
+fi
 if [ -n "$repo" ] && [ -x "$repo/bin/timesheet" ]; then
 	printf '%s\n' "$repo/bin/timesheet"
 	exit 0
+fi
+if [ -n "${TIMESHEET_ROOT:-}" ] && [ -d "$TIMESHEET_ROOT/cmd/timesheet" ] && needs_build "$TIMESHEET_ROOT"; then
+	build_repo_binary "$TIMESHEET_ROOT" || exit 1
 fi
 if [ -n "${TIMESHEET_ROOT:-}" ] && [ -x "$TIMESHEET_ROOT/bin/timesheet" ]; then
 	printf '%s\n' "$TIMESHEET_ROOT/bin/timesheet"
