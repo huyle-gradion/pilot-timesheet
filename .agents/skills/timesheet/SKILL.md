@@ -15,10 +15,10 @@ The binary owns the pipeline; the model owns only the judgment it asks for and t
 SKILL_DIR="<absolute directory of this loaded skill>"
 TS_BINARY="$("$SKILL_DIR/scripts/ts-env")"       # must succeed; its error names the fix
 TS_ROOT="$("$SKILL_DIR/scripts/ts-env" --root)"  # repository root, for the build and token script
-"$TS_BINARY" next --help >/dev/null 2>&1 || {
+"$TS_BINARY" next --max-actions 1 --help >/dev/null 2>&1 || {
   ( cd "$TS_ROOT" && { command -v go >/dev/null 2>&1 && go build -trimpath -o bin/timesheet ./cmd/timesheet || mise exec -- go build -trimpath -o bin/timesheet ./cmd/timesheet; } )
   TS_BINARY="$TS_ROOT/bin/timesheet"
-  "$TS_BINARY" next --help >/dev/null 2>&1
+  "$TS_BINARY" next --max-actions 1 --help >/dev/null 2>&1
 }
 "$TS_BINARY" next --do            # add --date YYYY-MM-DD for a past day
 ```
