@@ -92,7 +92,11 @@ func runNext(args []string) error {
 	if err != nil {
 		return err
 	}
+	return runNextFlags(f)
+}
 
+// runNextFlags is next over already-parsed flags; log shares it.
+func runNextFlags(f *nextFlags) error {
 	configPath, err := filepath.Abs(f.configPath)
 	if err != nil {
 		return fmt.Errorf("next: the configuration path cannot be made absolute")

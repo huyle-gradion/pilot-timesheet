@@ -25,7 +25,7 @@ Anything on this list is in scope:
   any path where a credential value could be echoed into diagnostics,
   errors, receipts, state, reports or logs.
 - **Submission audit chain.** The integrity of the human-gated terminal
-  states — `approve`/`submit` TTY gating, plan/approval identity binding,
+  states — `submit` TTY gating (approve and submit confirmations), plan/approval identity binding,
   audit history — up to and including the remote submission itself.
 
 ## Supported versions
@@ -49,12 +49,12 @@ predates it); fixes land on `main` first.
 
 The project is deliberately fail-closed:
 
-- `approve`, `submit` and `resolve-write` require a real TTY on stdin and
+- `submit` (terminal mode) and `submit resolve` require a real TTY on stdin and
   stdout plus the exact typed plan/approval identifier. A pty wrapper
   defeats the check, so it is treated as a bypass, not a workaround.
 - A failed action is never retried as-is; unknown submission outcomes stay
   unresolved until a human resolves them.
-- The separate opt-in `agent-submit` command accepts an exact reviewed plan
+- The separate opt-in `submit --chat` mode accepts an exact reviewed plan
   and context binding with an explicit chat-confirmation assertion. The
   [submit skill](.agents/skills/submit/SKILL.md) enforces review and fresh human
   consent in chat. Flags do not prove consent or human presence. This path

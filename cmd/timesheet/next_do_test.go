@@ -254,7 +254,7 @@ func TestBareInvocationAndHelpStayConcise(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("bare invocation printed %d lines:\n%s", len(lines), text)
 	}
-	for _, want := range []string{"timesheet next --do", "timesheet tui", "timesheet version", "timesheet help"} {
+	for _, want := range []string{"timesheet log", "timesheet tui", "timesheet version", "timesheet help"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("bare invocation does not name %q:\n%s", want, text)
 		}
@@ -262,9 +262,14 @@ func TestBareInvocationAndHelpStayConcise(t *testing.T) {
 
 	var synopsis strings.Builder
 	printSynopsis(&synopsis)
-	for _, want := range []string{"Usage:", "timesheet next", "--do", "--max-actions", "timesheet version"} {
+	for _, want := range []string{"Usage:", "timesheet init", "timesheet log", "--max-actions", "timesheet submit status", "timesheet submit resolve", "timesheet version"} {
 		if !strings.Contains(synopsis.String(), want) {
 			t.Fatalf("synopsis does not carry %q", want)
+		}
+	}
+	for _, gone := range []string{"timesheet setup", "timesheet approve", "agent-submit", "submit-status", "resolve-write", "timesheet collect", "timesheet draft", "timesheet confirm"} {
+		if strings.Contains(synopsis.String(), gone) {
+			t.Fatalf("synopsis still lists the retired %q", gone)
 		}
 	}
 }

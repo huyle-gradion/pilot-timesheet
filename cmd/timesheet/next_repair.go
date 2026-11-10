@@ -93,7 +93,7 @@ func applyRepairPolicy(o nextObservation, n nextAction) nextAction {
 	}
 	if f.Failures > maxAnswerRepairs {
 		return n.withStop("judgment_failed: " + kind + ": " + f.LastError +
-			"; the answer was repaired once and still fails, so next will not ask again; fix the answer and run next --do again")
+			"; the answer was repaired once and still fails, so next will not ask again; fix the answer and run timesheet log again")
 	}
 	// Re-derive as if no answer were bound: the same judgment, same digest.
 	re := o

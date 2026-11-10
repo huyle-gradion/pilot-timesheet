@@ -574,14 +574,14 @@ func TestDeriveDayNextHumanGates(t *testing.T) {
 	if n.State != stateHumanGates || n.Human == nil {
 		t.Fatalf("state = %q human = %+v, want human_gates", n.State, n.Human)
 	}
-	if want := strings.Join(baseArgv("approve"), " "); n.Human.ApproveCommand != want {
-		t.Fatalf("approve = %q, want %q", n.Human.ApproveCommand, want)
+	if want := strings.Join(baseArgv("submit"), " "); n.Human.ApproveCommand != want {
+		t.Fatalf("approve = %q, want the terminal submit %q (it approves, then submits)", n.Human.ApproveCommand, want)
 	}
 	if !strings.HasSuffix(n.Human.SubmitCommand, "--approval-id '<approval_id>'") ||
 		!strings.HasPrefix(n.Human.SubmitCommand, nextExe+" submit ") {
 		t.Fatalf("submit = %q, want the exact submit argv with the approval-id placeholder", n.Human.SubmitCommand)
 	}
-	if want := strings.Join(baseArgv("submit-status"), " "); n.Human.StatusCommand != want {
+	if want := strings.Replace(strings.Join(baseArgv("submit"), " "), " submit ", " submit status ", 1); n.Human.StatusCommand != want {
 		t.Fatalf("status = %q, want %q", n.Human.StatusCommand, want)
 	}
 	if n.Human.Unresolved != 2 || n.Human.NativeUnresolved != 1 {

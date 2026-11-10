@@ -52,20 +52,20 @@ iCal URL) stored in the macOS Keychain, with code reading from there. See
 
 When asked to "log today's work" or "log the timesheet" for a day, follow
 `.agents/skills/timesheet/SKILL.md` exactly. The skill finds the binary with
-its `scripts/ts-env` helper and runs `next --do --auto`: the binary runs the
+its `scripts/ts-env` helper and runs `timesheet log`: the binary runs the
 day and answers its own judgments (ADR 0010). The agent acts on the one
 `state` it reports. At `human_gates` it reports the ready day and its usage.
 At `ask_human` it relays the question verbatim and writes only the user's own
 answer; it never answers it. At `stopped` it reports the reason and stops. It
-never runs the TTY-gated `approve`, `submit` or `resolve-write`. Without a
-judge configured, it follows the skill's `fallback.md` and answers the two
-judgments itself, under the binary's repair-once policy.
+never runs the terminal-gated `submit` or `submit resolve`. Without a judge
+configured, `log` stops at a `judgment` and the agent follows the skill's
+`fallback.md`, under the binary's repair-once policy.
 
 ## Chat-confirmed submission
 
 On `/submit` or a natural-language request to submit, follow
 `.agents/skills/submit/SKILL.md`. Review the exact day and all operations first,
 then wait for explicit confirmation in chat. Only that confirmation authorizes
-one `agent-submit` invocation with the exact reviewed plan and review IDs.
+one `submit --chat` invocation with the exact reviewed plan and review IDs.
 This is agent-enforced consent, not proof of human presence. Logging or status
 never authorizes writes. The optional trusted Pi adapter gains no write tools.

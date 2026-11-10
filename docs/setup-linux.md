@@ -36,7 +36,7 @@ Run setup with at least one project. Ids and names are never invented from the
 directory name, the git remote or a default classification:
 
 ```bash
-bin/timesheet setup --project 'pilot=Personal Pilot Timesheet'
+bin/timesheet init --project 'pilot=Personal Pilot Timesheet'
 ```
 
 - `--project` is `<id>=<name>[=<classification>]`, repeatable. Quote values
@@ -95,7 +95,7 @@ Rules that matter in daily use:
 ## 4. Re-running setup is safe
 
 ```bash
-bin/timesheet setup
+bin/timesheet init
 ```
 
 When both target files exist, setup is a no-op and reports each one:
@@ -135,7 +135,7 @@ that is a symlink or a regular file is refused, not followed or modified.
 
 | Symptom | Meaning and fix |
 |---|---|
-| `no configuration at ./timesheet.json or ~/.timesheet/config.json` | Run `bin/timesheet setup --project …`, or pass `--config <path>`. |
+| `no configuration at ./timesheet.json or ~/.timesheet/config.json` | Run `bin/timesheet init --project …`, or pass `--config <path>`. |
 | `cannot determine the host IANA timezone; pass --tz` | Zone files are missing or unreadable on this host; pass `--tz Europe/Amsterdam` (or your zone). |
 | `exists but does not load: "config: …"` | The existing config is invalid and was left untouched; fix that field yourself. |
 | `unsafe: group/other permissions` | The existing file is readable by other users; setup reports it and does not chmod it. Fix the mode yourself. |

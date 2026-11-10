@@ -147,7 +147,7 @@ func (o nextObservation) ask(n nextAction, q askHuman) (askAnswer, *nextAction) 
 func askProtocol(file, digest, answerHint string) string {
 	return "relay the question to the human verbatim and write ONLY their explicit answer to " + file +
 		` as {"digest":"` + digest + `","answer":` + answerHint + `,"surface":"terminal|chat|tui|notification"}` +
-		"; never answer on the human's behalf; then run next again"
+		"; never answer on the human's behalf; then run timesheet log again"
 }
 
 // sourceAckAsk is the source gate's question for one unacknowledged source.
@@ -212,7 +212,7 @@ func (o nextObservation) resolveAsk(plan *timesheet.PlanSnapshot, context string
 		Protocol: "relay the question and the reconcile receipt to the human and write ONLY their explicit decision to " + file +
 			` as {"digest":"` + digest + `","surface":"terminal|chat|tui|notification","decision":"adopt|accept_observed|foreign",` +
 			`"revision":<n>,"observation_id":"...","remote_id":"...","local_id":"..."} (revision, observation_id, remote_id and local_id ` +
-			"copied verbatim from the reconcile receipt; local_id omitted for foreign); never decide on the human's behalf; then run next again",
+			"copied verbatim from the reconcile receipt; local_id omitted for foreign); never decide on the human's behalf; then run timesheet log again",
 	}
 }
 

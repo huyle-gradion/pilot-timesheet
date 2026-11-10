@@ -47,25 +47,25 @@ go build -trimpath -o bin/timesheet ./cmd/timesheet
 bin/timesheet version          # prints the version and protocol schema, exits 0
 ```
 
-Create the `~/.timesheet` store once with `setup`. Projects are never invented:
+Create the `~/.timesheet` store once with `init`. Projects are never invented:
 pass `--project '<id>=<name>[=<classification>]'` flags (repeatable; the
 classification is optional) or a `--seed-config` to load; the timezone is an
 explicit `--tz <IANA>` or the host zone:
 
 ```bash
-bin/timesheet setup --project 'acme=Acme Client' --tz 'America/New_York'
+bin/timesheet init --project 'acme=Acme Client' --tz 'America/New_York'
 ```
 
-Then run the day through the planner — read-only; it prints one typed JSON
-state that an agent follows, ending at a ready plan without submitting:
+Then log the day. It runs every step and ends at a ready plan without
+submitting; `next` shows the one step it would take without running it:
 
 ```bash
-bin/timesheet next
+bin/timesheet log
 ```
 
 The intended daily driver is an agent session using the bundled
 [`.agents/skills/timesheet/SKILL.md`](.agents/skills/timesheet/SKILL.md) skill,
-which drives `next` for you; see [Daily log](#daily-log-agent-skill)
+which runs `log` for you; see [Daily log](#daily-log-agent-skill)
 below. `docs/setup-linux.md` covers first-run setup and configuration
 discovery in full.
 
@@ -82,16 +82,17 @@ bin/timesheet version   # prints the application version and protocol schema, ex
 A mise-managed Go (`mise exec -- go build ...`) is environment troubleshooting
 on hosts where `go` is not on `PATH`; it is not a project dependency.
 
-`bin/timesheet` is the production-named executable. Its server commands are
-`version` and `serve --config <path> --env-file <path>`, plus `setup` and the
-headless surface described below. `next` is the planner the skill uses; the
-other headless verbs (`run`, `record`, `stage`, `classifications`, `classify`,
-`save`, `plan`, `reconcile`, `resolve`, `submit-status`) are also directly
-invocable for recovery. `approve`, `submit` and `resolve-write` are TTY-gated
-and interactive-only. The separate `agent-submit` command supports the
-chat-confirmed workflow below. A normal `version` run, a normal `serve` close/EOF and
-`serve` help exit `0`. No top-level command, an unknown top-level command, or
-extra `version` arguments exit `2`. `serve` argument validation (an unknown
+`bin/timesheet` is the production-named executable. Its public commands are
+`init`, `log`, `next`, `status`, `submit` (with `submit status` and
+`submit resolve`), `tui`, `daily`, `judge`, `eval` and `version`;
+`timesheet help` lists them. The steps `next` derives (`run`, `record`,
+`stage`, `classifications`, `classify`, `save`, `plan`, `acknowledge`,
+`decide`, `reconcile`, `resolve`) and the `serve` protocol server stay callable
+but are internal. A removed command (`setup`, `approve`, `agent-submit`,
+`submit-status`, `resolve-write`, `collect`, `draft`, `confirm`) exits `2` with
+one line naming its replacement. A normal `version` run, a normal `serve`
+close/EOF and `serve` help exit `0`. No top-level command, an unknown top-level
+command, or extra `version` arguments exit `2`. `serve` argument validation (an unknown
 flag, an extra positional, a missing required flag), startup failure and stream
 failure exit `1`. Usage errors make no remote call.
 
@@ -100,7 +101,7 @@ failure exit `1`. Usage errors make no remote call.
 This repository is one Pilot Timesheet product: a single compiled Go binary
 owns all accounting, validation and persistence. Two operator surfaces drive
 it. The **agent skill** (`.agents/skills/timesheet/SKILL.md`) starts
-`next --do --auto` and relays its questions, and the
+`timesheet log` and relays its questions, and the
 native **`tui` verb** (`bin/timesheet tui`) renders the local operator workflow
 in the terminal. Both call the same binary and the same planner; neither is
 required by the other. The legacy CLI subcommands, the old product skill and
@@ -123,7 +124,7 @@ finds or rebuilds the binary with its `scripts/ts-env` helper, then runs one
 command and acts on its result:
 
 ```bash
-bin/timesheet next --do --auto [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+bin/timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
 ```
 
 The binary runs every deterministic step and answers its own judgments with
@@ -131,17 +132,16 @@ the configured judge (ADR 0010), so the agent only relays and reports:
 
 - `human_gates`: the day is ready. The report carries `usage` and the
   read-only submission status; approval and submission stay with you
-  (`approve` in a terminal, or `/submit` in chat).
+  (`timesheet submit` in a terminal, or `/submit` in chat).
 - `ask_human`: a decision only you can make (acknowledging an incomplete
   source, choosing a project, a resolve decision). The agent relays the
   question and writes only your answer.
 - `stopped`: a real blocker, reported verbatim.
 
-Without a `judge` section, `--auto` refuses and the skill falls back to
-`next --do`, where the agent answers the two judgments itself
-(`.agents/skills/timesheet/fallback.md`). `--auto` is not yet the recommended
-default: it waits until the judge meets the owner's golden-day eval threshold
-(`timesheet eval`, #242). The native TUI below is the keyboard-first
+Without a `judge` section, `log` stops at each judgment and the agent answers
+it itself (`.agents/skills/timesheet/fallback.md`). Answering with the judge is
+not yet the recommended default: it waits until the judge meets the owner's
+golden-day eval threshold (`timesheet eval`, #242). The native TUI below is the keyboard-first
 alternative over the same loop.
 
 With no flags, config resolution is explicit `--config` → `./timesheet.json` in
@@ -151,30 +151,27 @@ the configured timezone; a supplied date always wins. A setup-generated
 configuration stores an **absolute** `state_path`, so commands using that
 config do not resolve their store from cwd.
 
-Underlying verbs remain invocable for recovery and are what `next` derives:
+Entries land in `<state dir>/entries/<date>.json`, merged idempotently per
+time block with full source references; `entries/` stays the human ledger and
+staging source. The steps `log` runs stay callable for recovery (`timesheet
+next` prints the exact command for the current step), but they are internal.
+
+### Submit in a terminal
 
 ```bash
-bin/timesheet run             [--config <path>] [--env-file <path>] [--date <date>]
-bin/timesheet record          [--config <path>] [--env-file <path>] [--date <date>] (--draft <draft.json> --descriptions <desc.json> | --file <reviewed.json>)
-bin/timesheet stage           [--config <path>] [--env-file <path>] --date <date> [--project <id>]
-bin/timesheet classifications [--config <path>] [--env-file <path>] --query <text>
-bin/timesheet classify        [--config <path>] [--env-file <path>] --date <date> (--file <choices.json> | --configured-default) [--project <id>]
-bin/timesheet save            [--config <path>] [--env-file <path>] --date <date> [--project <id>]
-bin/timesheet plan            [--config <path>] [--env-file <path>] --date <date>
-bin/timesheet reconcile       [--config <path>] [--env-file <path>] --date <date>
-bin/timesheet resolve         [--config <path>] [--env-file <path>] --date <date> --file <decision.json>
-bin/timesheet submit-status   [--config <path>] [--env-file <path>] --date <date>
+bin/timesheet submit --date <day>                    # approve, then submit
+bin/timesheet submit --date <day> --approval-id <id> # submit an earlier approval
+bin/timesheet submit status --date <day>             # read-only: approvals, writes, next action
+bin/timesheet submit resolve --file <decision.json>  # resolve an unknown write outcome
 ```
 
-`acknowledge`, `decide`, `confirm` and `stage --revise` remain available too;
-`approve`, `submit` and `resolve-write` are TTY-gated and human-only. Entries
-land in `<state dir>/entries/<date>.json`, merged idempotently per time block
-with full source references; `entries/` stays the human ledger and staging
-source. `save` is the existing confirm+save pair. `approve`/`submit` require a terminal on
-stdin and stdout plus the exact typed `plan_id`/`approval_id` (not proof of
-human presence — a pty wrapper defeats it), so the agent never attempts them;
-a submit is never auto-retried, and unknown outcomes stay unresolved until a
-human resolves them.
+`submit` shows the plan and asks you to type its exact `plan_id` to approve it,
+then shows the approval and asks you to type its `approval_id` to submit. Both
+need a terminal on stdin and stdout (not proof of human presence: a pty
+wrapper defeats it), so the agent never runs them. If you stop at the second
+prompt, the approval is kept and `--approval-id` resumes it. A submit is never
+auto-retried, and unknown outcomes stay unresolved until you run
+`submit resolve`.
 
 ### Submit in chat
 
@@ -183,7 +180,7 @@ The [submit skill](.agents/skills/submit/SKILL.md) shows the exact day and every
 operation, then waits for your explicit confirmation in chat. Logging, status
 and loading the skill never authorize writes. No terminal command is required.
 
-The explicit CLI entry point is `agent-submit --date <day>`. Without submission
+The explicit CLI entry point is `submit --chat --date <day>`. Without submission
 inputs it returns `{plan, review_id}` and performs no approval or remote write.
 After confirmation, the skill invokes it once with `--plan-id <reviewed id>
 --review-id <reviewed binding> --confirm-chat`. The review binds day, plan,
@@ -198,7 +195,7 @@ gates are unchanged. See [the approval policy](docs/adr/0009-chat-confirmed-subm
 
 ### Token usage
 
-The binary reports its own usage: every `next --do --auto` report carries
+The binary reports its own usage: every `log` report that used the judge carries
 `usage` (calls, input and output tokens), each judge call is logged in the
 day folder, and `judge.tokens_csv` appends one row per run to a local
 `benchmarks/tokens.csv` (git-ignored; token data is personal). The skill no
@@ -268,7 +265,7 @@ keeps its head and typed echo, and the bench fits the document around the caret.
 There is no interactive scrolling in this release; scroll keys are a documented
 future seam. Width is the terminal driver's per-line truncation, as before.
 
-The TUI never invokes the TTY-gated `approve`, `submit` or `resolve-write`
+The TUI never invokes the terminal-gated `submit` or `submit resolve`
 verbs. Interactive interval authoring/editing forms, the classification
 search/select picker, the migration preview/apply forms and the in-session usage
 counters retired with the launcher; the underlying capabilities remain as

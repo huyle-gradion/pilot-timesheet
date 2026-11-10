@@ -179,11 +179,11 @@ func TestAgentSubmitCLIFromForeignDirectory(t *testing.T) {
 	}
 	run := func(args ...string) []byte {
 		t.Helper()
-		cmd := exec.Command(binary, append([]string{"agent-submit"}, args...)...)
+		cmd := exec.Command(binary, append([]string{"submit", "--chat"}, args...)...)
 		cmd.Dir = dir
 		out, err := cmd.Output()
 		if err != nil {
-			t.Fatalf("agent-submit %v: %v", args, err)
+			t.Fatalf("submit --chat %v: %v", args, err)
 		}
 		return out
 	}

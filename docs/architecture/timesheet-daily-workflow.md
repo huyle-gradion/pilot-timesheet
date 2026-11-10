@@ -109,7 +109,7 @@ Both answer files carry the binding the report published, copied verbatim:
 | Owner | Owns | Never does |
 |---|---|---|
 | Compiled binary | derive state and content, read ledger/stage map/answers/store, construct argv | write artifacts, execute actions, decide identity or attendance |
-| Timesheet skill | starting `next --do --auto`, relaying `ask_human`, reporting blockers or readiness (and, without a judge, the two bounded judgments) | answer `ask_human`, approve or submit during logging, resolve-write |
+| Timesheet skill | starting `timesheet log`, relaying `ask_human`, reporting blockers or readiness (and, without a judge, the two bounded judgments) | answer `ask_human`, approve or submit during logging, resolve-write |
 | Human | source acknowledgement, attendance verdicts, identity resolution, approval, submission | rely on the agent to perform a TTY gate |
 
 The skill is a thin adapter: locate the binary, run the argv, write the answer
@@ -117,7 +117,7 @@ file, report. The binary is the only owner of step order.
 
 The separate `submit` skill adds an opt-in follow-up after logging. It reviews
 all operations, waits for explicit chat confirmation, then invokes
-`agent-submit` once with the exact reviewed plan and context binding. Consent
+`submit --chat` once with the exact reviewed plan and context binding. Consent
 is agent-enforced, not proof of presence. Legacy terminal commands retain
 their gates, and the native `tui` verb carries the operator surface the retired
 Pi adapter once rendered.
@@ -171,7 +171,7 @@ same question again with a one-line `last_error`; a valid one turns the
 question into that one action, which `next --do` runs. The answer file stays
 in the day folder as the record of what was decided and through which surface.
 The agent relays the question and never answers it. Approval, submission and
-resolve-write stay TTY-only human gates and are never asked this way. Meeting
+`submit resolve` stay TTY-only human gates and are never asked this way. Meeting
 attendance has no derived question yet: the planner does not derive it today.
 The TUI renders the same question.
 
@@ -256,8 +256,9 @@ unchanged stops with `judgment_failed: <kind>: <reason>`, and the judgment stays
 open: a later `next --do` without `--auto` hands it to the agent path. A
 judgment that returns with `last_error` (repair-once, #240) is asked again with
 that note and without the cached reply. `--auto` never answers `ask_human` and
-never runs approve, submit or resolve-write. Without a `judge` section it
-refuses. Its default action budget is 24 (`--max-actions` overrides it). When
+never runs `submit` or `submit resolve`. Without a `judge` section it
+refuses. `timesheet log` is the public form: it runs `next --do`, with `--auto`
+when a judge is configured. Its default action budget is 24 (`--max-actions` overrides it). When
 `judge.tokens_csv` names a file, each run appends one row in the
 `benchmarks/tokens.csv` columns (`session_id` `timesheet-auto:<UTC time>`,
 `cache_tokens` 0); `scripts/tokens.py` keeps those rows when it refreshes the

@@ -1,6 +1,6 @@
 # Agent-answered judgments (no judge configured)
 
-Use this only when `next --do --auto` refuses because the configuration has no `judge` section. Run `"$TS_BINARY" next --do` (with the same `--date`) instead and handle `ask_human`, `stopped` and `human_gates` exactly as in the skill. A `judgment` state is yours to answer: write only `judgment.answer_file`, copy its digest verbatim, then run `next --do` again. A `last_error` means your last answer for this same content was rejected; fix exactly what it names. `judgment_failed` is a stop.
+Use this only when `log` reports a `judgment`: the configuration has no `judge` section, so the answer is yours. Write only `judgment.answer_file`, copy its digest verbatim, then run `"$TS_BINARY" log` again with the same `--date`. A `last_error` means your last answer for this same content was rejected; fix exactly what it names. `judgment_failed` is a stop.
 
 **`block_descriptions`**: judge only `judgment.draft.blocks`. Write `{"draft_digest":"<judgment.draft_digest>","notes":"<string>","descriptions":{"<block_id>":"<prose>"}}`, with one grouped-topic entry per block and no times, block fields or `PRs:` list (the binary appends it). `outside_work_hours` is informational only.
 

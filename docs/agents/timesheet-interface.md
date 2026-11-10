@@ -124,8 +124,8 @@ active approvals — an operator who dismissed the submit receipt re-acquires
 the active `approval_id` there. `submit_plan` is emitted at most once per
 confirmation and is never retried; an unknown outcome stays a durable
 unresolved write for the human to resolve (see the approval and verified
-submission section). The TUI never invokes the TTY-gated `approve`, `submit`
-or `resolve-write` CLI verbs, and it never runs `select_classification`
+submission section). The TUI never invokes the terminal-gated `submit` or
+`submit resolve` CLI commands, and it never runs `select_classification`
 outside the answer-file path: recorded days stay visible to `next` through the
 same content-bound sidecar.
 
@@ -203,8 +203,8 @@ the draft, in the record receipt, and in the status summary.
   the summary names the resolved date.
 
 The collection commands above never approve or submit. Finalization verbs
-drive saved plans. Legacy `approve`/`submit`/`resolve-write` remain TTY-gated.
-The separate `agent-submit --date DAY` returns `{plan, review_id}` without
+drive saved plans. `submit` (terminal mode: approve, then submit) and `submit resolve` remain
+TTY-gated. The separate `submit --chat --date DAY` returns `{plan, review_id}` without
 approval or remote mutation. With all of `--plan-id`, `--review-id` and
 `--confirm-chat`, it checks the exact review binding before approving and
 submitting once under one store lock. The binding includes day, plan, absolute
@@ -212,7 +212,7 @@ store path and the existing endpoint/credential context digest. No protocol or
 state schema changes. Chat consent is agent-enforced, not human-presence proof;
 see [ADR 0009](../adr/0009-chat-confirmed-submission.md).
 
-Token usage comes from the binary: each `next --do --auto` report carries
+Token usage comes from the binary: each `log` report that used the judge carries
 `usage`, judge calls are logged in the day folder, and `judge.tokens_csv`
 appends one row per run to `benchmarks/tokens.csv`. `scripts/tokens.py`
 remains only to import usage from historical agent-session transcripts

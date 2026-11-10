@@ -2100,31 +2100,41 @@ func runApprove(args []string) error {
 		return err
 	}
 	defer h.done()
-	res, err := h.call("preview_plan", timesheet.Request{Day: f.date})
+	receipt, err := approveDay(h, term, f.date)
 	if err != nil {
 		return err
+	}
+	_, _ = h.call("close", timesheet.Request{})
+	return printJSON(receipt)
+}
+
+// approveDay previews the day's plan, requires typing its exact plan_id, and
+// approves it. It is the first half of `submit`'s terminal mode.
+func approveDay(h *headlessSession, term *interactive, date string) (timesheet.ApprovalReceipt, error) {
+	res, err := h.call("preview_plan", timesheet.Request{Day: date})
+	if err != nil {
+		return timesheet.ApprovalReceipt{}, err
 	}
 	preview, ok := res.(timesheet.PlanPreview)
 	if !ok {
-		return fmt.Errorf("approve: unexpected preview_plan payload")
+		return timesheet.ApprovalReceipt{}, fmt.Errorf("submit: unexpected preview_plan payload")
 	}
 	prompt := fmt.Sprintf("About to approve the current plan for %s\n  plan_id: %s\n  state:   %s\n%s",
-		f.date, preview.PlanID, preview.State, renderPlanBody(preview))
+		date, preview.PlanID, preview.State, renderPlanBody(preview))
 	if err := term.confirm(prompt, preview.PlanID); err != nil {
-		return err
+		return timesheet.ApprovalReceipt{}, err
 	}
-	res, err = h.call("approve_plan", timesheet.Request{Day: f.date, PlanID: preview.PlanID})
+	res, err = h.call("approve_plan", timesheet.Request{Day: date, PlanID: preview.PlanID})
 	if err != nil {
-		return err
+		return timesheet.ApprovalReceipt{}, err
 	}
 	receipt, ok := res.(timesheet.ApprovalReceipt)
 	if !ok {
-		return fmt.Errorf("approve: unexpected approve_plan payload")
+		return timesheet.ApprovalReceipt{}, fmt.Errorf("submit: unexpected approve_plan payload")
 	}
-	fmt.Fprintf(term.out, "approved: approval_id %s for plan %s (%d operation(s)) — this approval_id is the input to submit\n",
+	fmt.Fprintf(term.out, "approved: approval_id %s for plan %s (%d operation(s))\n",
 		receipt.ApprovalID, receipt.PlanID, receipt.Operations)
-	_, _ = h.call("close", timesheet.Request{})
-	return printJSON(receipt)
+	return receipt, nil
 }
 
 // submitFlags carries the submit inputs: the finalize flags plus the required
@@ -2185,8 +2195,7 @@ func runSubmit(args []string) error {
 	if err != nil {
 		return err
 	}
-	prompt := fmt.Sprintf("About to submit day %s using approval %s\nThe submission dispatches the approved operations to Gradion; writes are never retried and unknown outcomes stay unresolved until you resolve them.", f.date, f.approvalID)
-	if err := term.confirm(prompt, f.approvalID); err != nil {
+	if err := confirmSubmission(term, f.date, f.approvalID); err != nil {
 		return err
 	}
 	h, err := openHeadless(f.configPath, f.envFile)
@@ -2194,18 +2203,33 @@ func runSubmit(args []string) error {
 		return err
 	}
 	defer h.done()
-	res, err := h.call("submit_plan", timesheet.Request{Day: f.date, ApprovalID: f.approvalID})
+	receipt, err := submitApproved(h, term, f.date, f.approvalID)
 	if err != nil {
 		return err
 	}
+	_, _ = h.call("close", timesheet.Request{})
+	return printJSON(receipt)
+}
+
+// confirmSubmission requires typing the exact approval_id before any write.
+func confirmSubmission(term *interactive, date, approvalID string) error {
+	prompt := fmt.Sprintf("About to submit day %s using approval %s\nThe submission dispatches the approved operations to Gradion; writes are never retried and unknown outcomes stay unresolved until you resolve them.", date, approvalID)
+	return term.confirm(prompt, approvalID)
+}
+
+// submitApproved dispatches exactly what a confirmed approval bound.
+func submitApproved(h *headlessSession, term *interactive, date, approvalID string) (timesheet.SubmissionReceipt, error) {
+	res, err := h.call("submit_plan", timesheet.Request{Day: date, ApprovalID: approvalID})
+	if err != nil {
+		return timesheet.SubmissionReceipt{}, err
+	}
 	receipt, ok := res.(timesheet.SubmissionReceipt)
 	if !ok {
-		return fmt.Errorf("submit: unexpected submit_plan payload")
+		return timesheet.SubmissionReceipt{}, fmt.Errorf("submit: unexpected submit_plan payload")
 	}
 	fmt.Fprintf(term.out, "submission status: %s (confirmed %d, unresolved %d, unattempted %d)\n",
 		receipt.Status, receipt.Confirmed, receipt.Unresolved, receipt.Unattempted)
-	_, _ = h.call("close", timesheet.Request{})
-	return printJSON(receipt)
+	return receipt, nil
 }
 
 // runSubmitStatus wraps the submission_status op verbatim: the date's

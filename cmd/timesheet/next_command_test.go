@@ -195,7 +195,7 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	if step.State != stateHumanGates || step.Human == nil {
 		t.Fatalf("state = %+v, want human_gates", step)
 	}
-	for _, want := range []string{" approve ", " submit ", day} {
+	for _, want := range []string{" submit ", day} {
 		if !strings.Contains(step.Human.ApproveCommand+" "+step.Human.SubmitCommand, want) {
 			t.Fatalf("human commands %q / %q do not carry %q", step.Human.ApproveCommand, step.Human.SubmitCommand, want)
 		}
