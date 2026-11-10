@@ -18,7 +18,7 @@ const commandSynopsis = `Usage:
   timesheet collect [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet draft [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet run [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
-  timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--do] [--max-actions <n>]
+  timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--do [--auto]] [--max-actions <n>]
   timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet record [--config <path>] [--date <YYYY-MM-DD>] (--draft <draft.json> --descriptions <desc.json> | --file <reviewed.json>) [--replace]
   timesheet status [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]

@@ -29,6 +29,7 @@ type nextFlags struct {
 	date          string
 	project       string
 	do            bool
+	auto          bool
 	maxActions    int
 	maxActionsSet bool
 }
@@ -42,6 +43,7 @@ func parseNextFlags(name string, args []string) (*nextFlags, error) {
 	flags.StringVar(&f.date, "date", "", "day to operate on, YYYY-MM-DD (optional; omitted means today in the configured timezone)")
 	flags.StringVar(&f.project, "project", "", "project id for staged/classified intervals (required when the configuration defines multiple projects)")
 	flags.BoolVar(&f.do, "do", false, "execute each derived action in-process until a judgment, stop or human gate")
+	flags.BoolVar(&f.auto, "auto", false, "with --do: answer each judgment with the configured judge and continue (issue #242)")
 	flags.IntVar(&f.maxActions, "max-actions", defaultMaxActions, "with --do: the most actions one run may execute before stopping")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
@@ -53,6 +55,12 @@ func parseNextFlags(name string, args []string) (*nextFlags, error) {
 	})
 	if flags.NArg() != 0 {
 		return nil, fmt.Errorf("%s does not accept positional arguments", name)
+	}
+	if f.auto && !f.do {
+		return nil, fmt.Errorf("%s: --auto requires --do", name)
+	}
+	if f.auto && !f.maxActionsSet {
+		f.maxActions = defaultAutoMaxActions
 	}
 	if f.do && f.maxActions < 1 {
 		return nil, fmt.Errorf("%s: --max-actions must be at least 1", name)

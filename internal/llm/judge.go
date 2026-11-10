@@ -291,6 +291,9 @@ func Ask[T any](ctx context.Context, backend Backend, p Prompt, parse func(strin
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		reply, usage, err := backend.Complete(ctx, prompt)
+		if usage.Calls == 0 {
+			usage.Calls = 1
+		}
 		total = total.add(usage)
 		if err == nil {
 			var v T

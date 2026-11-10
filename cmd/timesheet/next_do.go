@@ -1,16 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/huyle-gradion/pilot-timesheet/internal/llm"
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
 const (
 	defaultMaxActions = 12
-	noticeRuneLimit   = 200
+	// defaultAutoMaxActions leaves room for the judge steps of an --auto run.
+	defaultAutoMaxActions = 24
+	noticeRuneLimit       = 200
 )
 
 // actDispatcher runs one derived step's act for one day. `next --do` and the
@@ -27,6 +33,9 @@ type actDispatcher struct {
 	// cmd is the derived argv the act runs, for acts whose inputs are
 	// carried by their argv (acknowledge, resolve).
 	cmd []string
+	// judge answers a judgment in-process (next --do --auto); nil leaves
+	// every judgment to the caller.
+	judge func(*nextJudgment) (judgeReceipt, error)
 }
 
 // run executes one act and returns ONE bounded notice line. It never writes a
@@ -94,6 +103,8 @@ type advanceStep struct {
 type advanceReport struct {
 	nextAction
 	Ran []advanceStep `json:"ran,omitempty"`
+	// Usage is the judge usage of an --auto run (issue #242).
+	Usage *llm.Usage `json:"usage,omitempty"`
 }
 
 type advanceLimits struct{ MaxActions int }
@@ -109,6 +120,11 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 		limits.MaxActions = defaultMaxActions
 	}
 	var ran []advanceStep
+	var usage *llm.Usage
+	if d.judge != nil {
+		usage = &llm.Usage{Exact: true}
+	}
+	report := func(a nextAction) advanceReport { return advanceReport{nextAction: a, Ran: ran, Usage: usage} }
 	seen := map[string]bool{}
 	for i := 0; i < limits.MaxActions; i++ {
 		obs, stop, err := derive()
@@ -116,24 +132,47 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 			return advanceReport{}, err
 		}
 		if stop != nil {
-			return advanceReport{nextAction: *stop, Ran: ran}, nil
+			return report(*stop), nil
 		}
 		// The derivation resolves the project (a single configured project is
 		// implicit); the act must carry the same one, never the raw flag.
 		d.project = obs.Project
 		a := deriveDayNext(obs)
+		if a.State == stateJudgment && a.Judgment != nil && d.judge != nil {
+			// --auto: the binary answers the judgment and the loop re-derives.
+			// The same question asked twice without progress stops; a rejected
+			// answer comes back with last_error under the repair-once policy.
+			j := a.Judgment
+			key := "judge\x00" + j.Kind + "\x00" + j.DraftDigest + j.LedgerDigest + "\x00" + j.LastError
+			step := "judge:" + j.Kind
+			if seen[key] {
+				return report(nextAction{Day: a.Day}.withStop("judgment_failed: " + j.Kind +
+					": the judge answered and the same judgment was asked again; answer it through the agent path")), nil
+			}
+			seen[key] = true
+			r, err := d.judge(j)
+			if usage != nil {
+				*usage = addUsage(*usage, r.Usage)
+			}
+			if err != nil {
+				ran = append(ran, advanceStep{Step: step, Result: "failed", Error: boundedNotice(err.Error())})
+				return report(nextAction{Day: a.Day}.withStop("judgment_failed: " + j.Kind + ": " + err.Error())), err
+			}
+			ran = append(ran, advanceStep{Step: step, Result: "ok", Notice: boundedNotice(r.Notice)})
+			continue
+		}
 		if a.State != stateAction {
-			return advanceReport{nextAction: a, Ran: ran}, nil
+			return report(a), nil
 		}
 		step := stepAct(a)
 		if step == "" {
-			return advanceReport{nextAction: a, Ran: ran}, nil
+			return report(a), nil
 		}
 		key := step + "\x00" + strings.Join(a.Action.Cmd, "\x00")
 		if seen[key] {
 			stop := nextAction{Day: a.Day}.withStop("action_stalled: " + step +
 				" repeated with the same command, so the derivation is not progressing")
-			return advanceReport{nextAction: stop, Ran: ran}, nil
+			return report(stop), nil
 		}
 		seen[key] = true
 		d.cmd = a.Action.Cmd
@@ -146,30 +185,40 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 				// re-asks the judgment once with last_error or stops with
 				// judgment_failed (issue #240).
 				if err := recordJudgmentFailure(d.cfg, d.day, obs, a, actErr); err != nil {
-					failed := nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + err.Error())
-					return advanceReport{nextAction: failed, Ran: ran}, err
+					return report(nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + err.Error())), err
 				}
 				continue
 			}
-			failed := nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + actErr.Error())
-			return advanceReport{nextAction: failed, Ran: ran}, actErr
+			return report(nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + actErr.Error())), actErr
 		}
 		if judged {
 			if err := clearJudgmentFailure(d.cfg, d.day); err != nil {
-				return advanceReport{nextAction: nextAction{Day: a.Day}.withStop(err.Error()), Ran: ran}, err
+				return report(nextAction{Day: a.Day}.withStop(err.Error())), err
 			}
 		}
 		ran = append(ran, advanceStep{Step: step, Result: "ok", Notice: boundedNotice(notice)})
 	}
 	stop := nextAction{Day: d.day}.withStop("action_cap: " + strconv.Itoa(limits.MaxActions) +
 		" actions ran without reaching a judgment, human gate or stop")
-	return advanceReport{nextAction: stop, Ran: ran}, nil
+	return report(stop), nil
 }
 
 // runNextDo is the --do loop: every derivation opens and closes the store, then
 // the winning act opens its own; the terminal report is the only stdout.
 func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day string) error {
 	d := actDispatcher{cfg: cfg, configPath: configPath, envFile: envFile, day: day, project: f.project}
+	if f.auto {
+		if cfg.Judge == nil {
+			return fmt.Errorf("next: --auto needs a judge section in the configuration (ADR 0010); without it, run next --do and answer judgments through the agent path")
+		}
+		backend, err := newJudgeBackend(cfg, envFile)
+		if err != nil {
+			return err
+		}
+		d.judge = func(j *nextJudgment) (judgeReceipt, error) {
+			return answerJudgment(context.Background(), cfg, day, j, backend, time.Now())
+		}
+	}
 	derive := func() (nextObservation, *nextAction, error) {
 		store, err := timesheet.OpenStore(cfg.StatePath)
 		if err != nil {
@@ -194,6 +243,11 @@ func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day str
 	}
 	if err := printJSON(report); err != nil {
 		return err
+	}
+	if f.auto && report.Usage != nil {
+		if err := appendAutoTokenRow(cfg, day, *report.Usage, time.Now()); err != nil {
+			fmt.Fprintf(os.Stderr, "next: token usage row not written: %v\n", err)
+		}
 	}
 	return runErr
 }

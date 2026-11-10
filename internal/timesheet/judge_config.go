@@ -25,6 +25,9 @@ type JudgeConfig struct {
 	// DailyTokenCap stops further judge calls for a day once reached
 	// (default 10000).
 	DailyTokenCap int `json:"daily_token_cap,omitempty"`
+	// TokensCSV is where next --do --auto appends one usage row per run, in
+	// the benchmarks/tokens.csv columns; empty writes no row.
+	TokensCSV string `json:"tokens_csv,omitempty"`
 }
 
 const (
