@@ -32,13 +32,14 @@ const (
 // Usage is one call's token counts. Exact is false when the backend cannot
 // report usage and the counts are estimated from the text sizes.
 type Usage struct {
+	Calls        int  `json:"calls"`
 	InputTokens  int  `json:"input_tokens"`
 	OutputTokens int  `json:"output_tokens"`
 	Exact        bool `json:"exact"`
 }
 
 func (u Usage) add(v Usage) Usage {
-	return Usage{InputTokens: u.InputTokens + v.InputTokens, OutputTokens: u.OutputTokens + v.OutputTokens, Exact: u.Exact && v.Exact}
+	return Usage{Calls: u.Calls + v.Calls, InputTokens: u.InputTokens + v.InputTokens, OutputTokens: u.OutputTokens + v.OutputTokens, Exact: u.Exact && v.Exact}
 }
 
 // Total is input plus output tokens.
@@ -94,7 +95,7 @@ func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Us
 		return "", Usage{}, fmt.Errorf("%w: the harness reply exceeds %d bytes", ErrBackend, MaxReplyBytes)
 	}
 	reply := out.String()
-	return reply, Usage{InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
+	return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
 }
 
 func exitSummary(err error) string {
@@ -221,7 +222,7 @@ func (b OpenAIBackend) Complete(ctx context.Context, prompt string) (string, Usa
 	}
 	reply := parsed.Choices[0].Message.Content
 	if parsed.Usage == nil {
-		return reply, Usage{InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
+		return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
 	}
-	return reply, Usage{InputTokens: parsed.Usage.PromptTokens, OutputTokens: parsed.Usage.CompletionTokens, Exact: true}, nil
+	return reply, Usage{Calls: 1, InputTokens: parsed.Usage.PromptTokens, OutputTokens: parsed.Usage.CompletionTokens, Exact: true}, nil
 }

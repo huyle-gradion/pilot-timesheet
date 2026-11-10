@@ -69,7 +69,7 @@ func TestOpenAIRequestBodyMatchesGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(reply, "Bridge") || usage != (Usage{InputTokens: 321, OutputTokens: 12, Exact: true}) {
+	if !strings.Contains(reply, "Bridge") || usage != (Usage{Calls: 1, InputTokens: 321, OutputTokens: 12, Exact: true}) {
 		t.Fatalf("reply/usage = %q / %+v", reply, usage)
 	}
 	if auth != "Bearer synthetic-key" {

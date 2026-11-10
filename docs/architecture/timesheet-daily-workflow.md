@@ -244,7 +244,27 @@ ADR 0010. With a `judge` section in the configuration, `timesheet judge
 `block_descriptions` or `classifications` judgment itself and writes the
 judgment's answer file; `next --do` then consumes it exactly like an
 agent-written one. Without the section the verb refuses and nothing else
-changes. Wiring it into `next --do` is #242.
+changes.
+
+`next --do --auto` (issue #242) runs the same judge in-process: at each
+`block_descriptions` or `classifications` judgment it answers with the
+configured judge and continues, so one invocation goes from collection to
+`human_gates`, `ask_human` or `stopped`. The report carries
+`usage: {calls, input_tokens, output_tokens, exact}` for the run. A judge
+failure (after its one retry), the daily cap, or the same judgment coming back
+unchanged stops with `judgment_failed: <kind>: <reason>`, and the judgment stays
+open: a later `next --do` without `--auto` hands it to the agent path. A
+judgment that returns with `last_error` (repair-once, #240) is asked again with
+that note and without the cached reply. `--auto` never answers `ask_human` and
+never runs approve, submit or resolve-write. Without a `judge` section it
+refuses. Its default action budget is 24 (`--max-actions` overrides it). When
+`judge.tokens_csv` names a file, each run appends one row in the
+`benchmarks/tokens.csv` columns (`session_id` `timesheet-auto:<UTC time>`,
+`cache_tokens` 0); `scripts/tokens.py` keeps those rows when it refreshes the
+file.
+
+`--auto` is not recommended in the README until it scores at or above the
+owner's agreed threshold on the golden-day eval (§11).
 
 ```json
 "judge": {"backend": "command", "command": ["<harness>", "<print-mode flags>"]}

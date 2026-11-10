@@ -166,7 +166,7 @@ func answerJudgment(ctx context.Context, cfg *timesheet.Config, day string, j *n
 			return r, err
 		}
 		parse := func(reply string) (timesheet.DescriptionsFile, error) { return llm.ParseDescriptions(*j.Draft, reply) }
-		answer, err := askCached(ctx, cfg, dir, day, j.Kind, p, backend, parse, now, &r)
+		answer, err := askCached(ctx, cfg, dir, day, j.Kind, p, j.LastError, backend, parse, now, &r)
 		if err != nil {
 			return r, err
 		}
@@ -192,7 +192,7 @@ func answerJudgment(ctx context.Context, cfg *timesheet.Config, day string, j *n
 		parse := func(reply string) (map[string]llm.Selection, error) {
 			return llm.ParseSelections(intervals, sets, reply)
 		}
-		picks, err := askCached(ctx, cfg, dir, day, j.Kind, p, backend, parse, now, &r)
+		picks, err := askCached(ctx, cfg, dir, day, j.Kind, p, j.LastError, backend, parse, now, &r)
 		if err != nil {
 			return r, err
 		}
@@ -225,10 +225,14 @@ func judgeIntervals(j *nextJudgment) ([]llm.Interval, []llm.CandidateSet) {
 // askCached reuses a stored reply for an unchanged prompt; otherwise it checks
 // the daily cap, asks the backend and stores the reply. Every call made is
 // recorded in judge-usage.jsonl.
-func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind string, p llm.Prompt, backend llm.Backend, parse func(string) (T, error), now time.Time, r *judgeReceipt) (T, error) {
+func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind string, p llm.Prompt, lastError string, backend llm.Backend, parse func(string) (T, error), now time.Time, r *judgeReceipt) (T, error) {
 	var zero T
 	cachePath := filepath.Join(dir, judgeResponsesDir, kind+"-"+p.Key[:16]+".json")
-	if data, err := os.ReadFile(cachePath); err == nil {
+	if lastError != "" {
+		// The stored answer was rejected downstream (repair-once, #240): do
+		// not reuse it, and tell the model what was wrong.
+		p.Text += "\n\nThe previous answer for this same content was rejected: " + lastError + "\nFix exactly that."
+	} else if data, err := os.ReadFile(cachePath); err == nil {
 		var stored judgeResponse
 		if json.Unmarshal(data, &stored) == nil && stored.Key == p.Key {
 			if v, err := parse(stored.Reply); err == nil {
@@ -242,7 +246,7 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 	if err != nil {
 		return zero, err
 	}
-	if limit := cfg.Judge.DailyTokenCap; spent >= limit {
+	if limit := cfg.Judge.DailyTokenCap; spent+llm.EstimateTokens(p.Text) > limit {
 		return zero, fmt.Errorf("judge: the daily token cap (%d) is reached for %s (%d spent); the judgment stays open for the agent path", limit, day, spent)
 	}
 	v, reply, usage, askErr := llm.Ask(ctx, backend, p, parse)
@@ -295,4 +299,41 @@ func judgeTokensSpent(dir string) (int, error) {
 		}
 	}
 	return total, sc.Err()
+}
+
+func addUsage(a, b llm.Usage) llm.Usage {
+	return llm.Usage{
+		Calls: a.Calls + b.Calls, InputTokens: a.InputTokens + b.InputTokens,
+		OutputTokens: a.OutputTokens + b.OutputTokens, Exact: a.Exact && (b.Calls == 0 || b.Exact),
+	}
+}
+
+// tokensCSVHeader is benchmarks/tokens.csv's header (scripts/tokens.py FIELDS).
+const tokensCSVHeader = "date,session_id,input_tokens,output_tokens,cache_tokens,total_tokens"
+
+// appendAutoTokenRow appends one row for an --auto run to judge.tokens_csv,
+// creating the file with its header when needed. scripts/tokens.py keeps
+// existing rows when it refreshes the file.
+func appendAutoTokenRow(cfg *timesheet.Config, day string, u llm.Usage, now time.Time) error {
+	path := strings.TrimSpace(cfg.Judge.TokensCSV)
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	_, statErr := os.Stat(path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if errors.Is(statErr, os.ErrNotExist) {
+		if _, err := f.WriteString(tokensCSVHeader + "\n"); err != nil {
+			return err
+		}
+	}
+	session := "timesheet-auto:" + now.UTC().Format("20060102T150405Z")
+	_, err = fmt.Fprintf(f, "%s,%s,%d,%d,0,%d\n", day, session, u.InputTokens, u.OutputTokens, u.InputTokens+u.OutputTokens)
+	return err
 }
