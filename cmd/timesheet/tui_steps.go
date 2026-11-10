@@ -43,10 +43,10 @@ func stepAct(a nextAction) string {
 // act runs the one act the derived step licenses; the reducer re-derives
 // after every success. The body is the dispatcher's, so the tui and `next --do`
 // cannot diverge; the tui's held session is borrowed, never reopened.
-func (e tuiEnv) act(step, project string) any {
+func (e tuiEnv) act(step, project string, cmd []string) any {
 	notice, err := (actDispatcher{
 		cfg: e.cfg, configPath: e.configPath, envFile: e.envFile,
-		day: e.day, project: project, held: e.h,
+		day: e.day, project: project, held: e.h, cmd: cmd,
 	}).run(step)
 	return actDoneEvent{err: err, notice: notice}
 }

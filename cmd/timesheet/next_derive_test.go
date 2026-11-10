@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -371,23 +372,40 @@ func TestDeriveDayNextSourceGate(t *testing.T) {
 		}
 	})
 
-	t.Run("unacknowledged attempt stops naming the acknowledge argv", func(t *testing.T) {
+	t.Run("unacknowledged attempt asks the human, and only their answer licenses acknowledge", func(t *testing.T) {
 		o := recordedDay()
 		o.Workflow.Sources = []timesheet.SourceSnapshot{{
 			Source: timesheet.SourceGithub, Status: timesheet.StatusIncomplete,
 			CollectionID: "col-gate-1", Attempted: true,
 		}}
 		n := deriveDayNext(o)
-		if n.State != stateStopped {
-			t.Fatalf("state = %q, want stopped", n.State)
+		q := n.Ask
+		if n.State != stateAskHuman || q == nil || q.Kind != askSourceAck || len(q.Options) != 1 || q.Options[0] != "acknowledge" {
+			t.Fatalf("derivation = %+v, want the source acknowledgement question", n)
 		}
-		want := strings.Join(withArgs(baseArgv("acknowledge"), "--source", "github", "--collection-id", "col-gate-1"), " ")
-		if !strings.Contains(n.Reason, want) {
-			t.Fatalf("reason = %q, want the exact acknowledge argv %q", n.Reason, want)
+		if !strings.Contains(q.Question, "github") || !strings.Contains(q.Protocol, "never answer on the human's behalf") || len(q.Digest) != 64 {
+			t.Fatalf("ask = %+v, want the source, the relay rule and a digest", q)
 		}
-		if !strings.Contains(n.Reason, "human") {
-			t.Fatalf("reason = %q, want the human-authorization boundary named", n.Reason)
+		name := filepath.Base(q.AnswerFile)
+
+		o.Asks = map[string]askAnswer{name: {Present: true, Digest: "stale", Answer: "acknowledge", Surface: "chat"}}
+		if got := deriveDayNext(o); got.State != stateAskHuman || !strings.Contains(got.Ask.LastError, "digest") {
+			t.Fatalf("stale answer = %+v, want the same question with last_error", got)
 		}
+		o.Asks[name] = askAnswer{Present: true, Digest: q.Digest, Answer: "yes", Surface: "chat"}
+		if got := deriveDayNext(o); got.State != stateAskHuman || !strings.Contains(got.Ask.LastError, "not one of") {
+			t.Fatalf("off-menu answer = %+v, want the options named", got)
+		}
+		o.Asks[name] = askAnswer{Present: true, Digest: q.Digest, Answer: "acknowledge"}
+		if got := deriveDayNext(o); got.State != stateAskHuman || !strings.Contains(got.Ask.LastError, "surface") {
+			t.Fatalf("answer without a surface = %+v, want it rejected", got)
+		}
+		o.Asks[name] = askAnswer{Present: true, Digest: q.Digest, Answer: "acknowledge", Surface: "chat"}
+		got := deriveDayNext(o)
+		if got.State != stateAction || got.Step != "acknowledge" || !strings.Contains(got.Action.Why, "via chat") {
+			t.Fatalf("valid answer = %+v, want the acknowledge act", got)
+		}
+		assertCmd(t, got, withArgs(baseArgv("acknowledge"), "--source", "github", "--collection-id", "col-gate-1"))
 	})
 
 	t.Run("acknowledged attempt derives save", func(t *testing.T) {
@@ -416,18 +434,25 @@ func TestDeriveDayNextFinalizedTail(t *testing.T) {
 		return o
 	}
 
-	t.Run("blocked plan without a newer observation stops naming reconcile and resolve", func(t *testing.T) {
-		n := deriveDayNext(blocked())
-		if n.State != stateStopped {
-			t.Fatalf("state = %q, want stopped", n.State)
+	t.Run("blocked plan without a newer observation asks the human for the resolve decision", func(t *testing.T) {
+		o := blocked()
+		n := deriveDayNext(o)
+		q := n.Ask
+		if n.State != stateAskHuman || q == nil || q.Kind != askResolve || len(q.Options) != 3 {
+			t.Fatalf("derivation = %+v, want the resolve question", n)
 		}
 		reconcile := strings.Join(baseArgv("reconcile"), " ")
-		resolve := strings.Join(withArgs(baseArgv("resolve"), "--file", nextArtifactPath("resolve.json")), " ")
-		for _, want := range []string{reconcile, resolve, "unresolved_identity", "plan-blocked"} {
-			if !strings.Contains(n.Reason, want) {
-				t.Fatalf("reason = %q, want %q", n.Reason, want)
+		for _, want := range []string{reconcile, "unresolved_identity", "plan-blocked"} {
+			if !strings.Contains(q.Question, want) {
+				t.Fatalf("question = %q, want %q", q.Question, want)
 			}
 		}
+		o.Asks = map[string]askAnswer{filepath.Base(q.AnswerFile): {Present: true, Digest: q.Digest, Answer: "foreign", Surface: "terminal"}}
+		got := deriveDayNext(o)
+		if got.State != stateAction || got.Step != "resolve" {
+			t.Fatalf("valid decision = %+v, want the resolve act", got)
+		}
+		assertCmd(t, got, withArgs(baseArgv("resolve"), "--file", q.AnswerFile))
 	})
 
 	t.Run("newer observation derives a fresh plan", func(t *testing.T) {
@@ -452,8 +477,8 @@ func TestDeriveDayNextFinalizedTail(t *testing.T) {
 		o := blocked()
 		o.Workflow.Observation = &timesheet.ObservationSnapshot{ObservationID: "obs-1", ObservedAt: "2026-10-27T10:05:00Z"}
 		n := deriveDayNext(o)
-		if n.State != stateStopped || !strings.Contains(n.Reason, "reconcile again") {
-			t.Fatalf("state/reason = %q/%q, want stopped with the equal-timestamp remedy", n.State, n.Reason)
+		if n.State != stateAskHuman || !strings.Contains(n.Ask.Question, "reconcile again") {
+			t.Fatalf("derivation = %+v, want the resolve question with the equal-timestamp remedy", n)
 		}
 	})
 
@@ -519,17 +544,22 @@ func TestDeriveDayNextEnvironmentAndProject(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple projects without a choice stops instead of guessing", func(t *testing.T) {
+	t.Run("multiple projects without a choice asks the human instead of guessing", func(t *testing.T) {
 		o := unclassifiedDay()
 		o.Artifacts.StageMap = nil
 		o.Project, o.ProjectBlocked = "", true
-		o.ProjectIDs = []string{"OPS", "WORK"}
+		o.ProjectIDs = []string{"WORK", "OPS"}
 		n := deriveDayNext(o)
-		if n.State != stateStopped || !strings.Contains(n.Reason, "OPS, WORK") {
-			t.Fatalf("state/reason = %q/%q, want stopped naming the configured projects", n.State, n.Reason)
+		q := n.Ask
+		if n.State != stateAskHuman || q.Kind != askProject || strings.Join(q.Options, ",") != "OPS,WORK" {
+			t.Fatalf("derivation = %+v, want the project question over the configured ids", n)
 		}
-		if !strings.Contains(n.Reason, "--project") {
-			t.Fatalf("reason = %q, want the --project remedy named", n.Reason)
+		if !strings.Contains(q.Protocol, "--project") {
+			t.Fatalf("protocol = %q, want the --project override named", q.Protocol)
+		}
+		o.ProjectAskError = "answer \"X\" is not one of: OPS, WORK"
+		if got := deriveDayNext(o); got.Ask == nil || got.Ask.LastError != o.ProjectAskError {
+			t.Fatalf("rejected answer = %+v, want last_error", got)
 		}
 	})
 }

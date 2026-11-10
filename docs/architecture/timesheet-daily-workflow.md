@@ -35,7 +35,8 @@ Omitted `--date` means today in the configured timezone. The skill invokes
 |---|---|---|
 | `action` | `action.cmd` is the exact argv | run the vector verbatim, never a shell string |
 | `judgment` | a model decision is required | write only `judgment.answer_file`, then `next` again |
-| `stopped` | progression cannot be derived or is human-owned | print `reason`; do not guess |
+| `ask_human` | a typed decision only the human makes | relay `ask.question`/`ask.options`; write only the human's answer to `ask.answer_file` |
+| `stopped` | a real blocker: progression cannot be derived | print `reason`; do not guess |
 | `human_gates` | the day is ready for approval/submission | run read-only `submit-status`, report ready plan, capture metrics, stop |
 
 There is no `--answer` flag and no `--do` dispatcher. A judgment is the file at
@@ -150,6 +151,29 @@ rewritten answer after that stop is tried again, so the day stays resumable. A
 change in the judged content resets the count, and a successful act removes
 the record. Every other act failure keeps `action_failed: <step>: <error>` with
 no retry.
+
+### Human questions (`ask_human`)
+
+Decisions only the owner makes are reported as `state: ask_human` with
+`ask: {kind, question, options, answer_file, digest, protocol, last_error}`,
+not as free-text stops:
+
+| `kind` | When | Options | A valid answer licenses |
+|---|---|---|---|
+| `source_acknowledgement` | an enabled source's attempt is incomplete and unacknowledged (one question per source) | `acknowledge` | `acknowledge --source <s> --collection-id <id>` |
+| `project` | several configured projects and no `--project` | the project ids | the day's project (an explicit `--project` still wins) |
+| `resolve` | the newest plan is blocked and nothing is newer | `adopt`, `accept_observed`, `foreign` | `resolve --file <answer_file>`; the answer file is the resolve decision file plus `digest` and `surface` |
+
+The answer is `{"digest":"<ask.digest>","answer":"<option>","surface":"terminal|chat|tui|notification"}`
+(the resolve file carries `decision` instead of `answer`). A stale digest, an
+answer outside the options, an unparsable file or a missing surface asks the
+same question again with a one-line `last_error`; a valid one turns the
+question into that one action, which `next --do` runs. The answer file stays
+in the day folder as the record of what was decided and through which surface.
+The agent relays the question and never answers it. Approval, submission and
+resolve-write stay TTY-only human gates and are never asked this way. Meeting
+attendance has no derived question yet: the planner does not derive it today.
+The TUI renders the same question.
 
 ## 6. Freshness proofs
 

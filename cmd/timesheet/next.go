@@ -49,6 +49,8 @@ const (
 	stateJudgment   = "judgment"    // model-owned; never executed by next
 	stateStopped    = "stopped"     // blocker / underivable; Reason is required
 	stateHumanGates = "human_gates" // terminal; approve/submit are human-only
+	// stateAskHuman (next_ask.go) is a decision only the human makes; the
+	// agent relays it and never answers it.
 )
 
 // The judgment kinds, anchored to the two existing file contracts.
@@ -66,6 +68,8 @@ type nextAction struct {
 	Judgment *nextJudgment   `json:"judgment,omitempty"`
 	Reason   string          `json:"reason,omitempty"`
 	Human    *nextHumanGates `json:"human,omitempty"`
+	// Ask is the typed human question of the ask_human state (issue #239).
+	Ask *askHuman `json:"ask,omitempty"`
 }
 
 // nextArgv is one exact executable argv plus the observation that selected it.
@@ -197,6 +201,10 @@ type nextObservation struct {
 	Project        string
 	ProjectBlocked bool
 	ProjectIDs     []string
+	// ProjectAskError is why a present project answer was not accepted.
+	ProjectAskError string
+	// Asks are the day folder's human answer files, keyed by file name.
+	Asks map[string]askAnswer
 
 	// GradionEnabled is the configuration's live remote boundary: classification
 	// and planning both read the remote, and their verbs fail closed without it.
@@ -208,28 +216,28 @@ type nextObservation struct {
 func (n nextAction) withAction(step string, cmd []string, why string) nextAction {
 	n.State, n.Step = stateAction, step
 	n.Action = &nextArgv{Cmd: cmd, Why: why}
-	n.Judgment, n.Human, n.Reason = nil, nil, ""
+	n.Judgment, n.Human, n.Reason, n.Ask = nil, nil, "", nil
 	return n
 }
 
 func (n nextAction) withJudgment(step string, j nextJudgment) nextAction {
 	n.State, n.Step = stateJudgment, step
 	n.Judgment = &j
-	n.Action, n.Human, n.Reason = nil, nil, ""
+	n.Action, n.Human, n.Reason, n.Ask = nil, nil, "", nil
 	return n
 }
 
 func (n nextAction) withStop(reason string) nextAction {
 	n.State = stateStopped
 	n.Reason = reason
-	n.Action, n.Judgment, n.Human, n.Step = nil, nil, nil, ""
+	n.Action, n.Judgment, n.Human, n.Step, n.Ask = nil, nil, nil, "", nil
 	return n
 }
 
 func (n nextAction) withHuman(h nextHumanGates) nextAction {
 	n.State, n.Step = stateHumanGates, "approve"
 	n.Human = &h
-	n.Action, n.Judgment, n.Reason = nil, nil, ""
+	n.Action, n.Judgment, n.Reason, n.Ask = nil, nil, "", nil
 	return n
 }
 

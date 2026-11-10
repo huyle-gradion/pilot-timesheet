@@ -144,7 +144,7 @@ func TestSavedClassificationPreservesDistinctBlockers(t *testing.T) {
 	o.Workflow.Confirmed[0].RemoteClassificationID = "cls-dev"
 	o.Workflow.Plan.Blockers = o.Workflow.Plan.Blockers[1:]
 	o.Workflow.Observation = nil
-	if got := deriveDayNext(o); got.State != stateStopped || got.Human != nil || got.Judgment != nil {
+	if got := deriveDayNext(o); got.State != stateAskHuman || got.Ask.Kind != askResolve || got.Human != nil || got.Judgment != nil {
 		t.Fatalf("distinct blocker must not become a ready plan or another classification judgment: %+v", got)
 	}
 }

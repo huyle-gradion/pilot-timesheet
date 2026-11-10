@@ -266,7 +266,11 @@ func updateKey(m tuiModel, key string) (tuiModel, effect) {
 			return m, openEditorEffect(m, step)
 		}
 		m.busy, m.err = true, nil
-		return m, func() any { return m.env.act(step, m.snap.project) }
+		var cmd []string
+		if m.snap.action.Action != nil {
+			cmd = m.snap.action.Action.Cmd
+		}
+		return m, func() any { return m.env.act(step, m.snap.project, cmd) }
 	case "s": // the submit gate; the approve gate is enter, the day screen's act key
 		if stepAct(m.snap.action) != stateHumanGates {
 			return m, nil

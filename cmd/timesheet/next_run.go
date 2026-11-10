@@ -154,6 +154,11 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 	if err != nil {
 		return nextObservation{}, nil, err
 	}
+	obs.Asks, err = readAskAnswers(dir)
+	if err != nil {
+		return obs, stoppedAction(day, "cannot read the human answers in "+dir+": "+err.Error()), nil
+	}
+	settleProjectAnswer(&obs, dir)
 
 	// A day left in the pre-#233 temp location is reported, never restarted.
 	legacy, err := legacyDayArtifactsStop(cfg.StatePath, day, dir)

@@ -314,7 +314,7 @@ func TestActPlanFailsClosedWithoutRemote(t *testing.T) {
 		t.Fatalf("preflight: %v", err)
 	}
 	defer func() { _ = m.env.h.store.Close() }()
-	ev := m.env.act("plan", "WORK")
+	ev := m.env.act("plan", "WORK", nil)
 	done, ok := ev.(actDoneEvent)
 	if !ok {
 		t.Fatalf("act returned %T, want actDoneEvent", ev)

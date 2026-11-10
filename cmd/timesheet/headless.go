@@ -1950,32 +1950,45 @@ func runResolve(args []string) error {
 	if err != nil {
 		return err
 	}
-	data, err := os.ReadFile(f.file)
-	if err != nil {
+	if _, err := os.Stat(f.file); err != nil {
 		return fmt.Errorf("resolve: the decision file cannot be read")
-	}
-	decision, err := timesheet.ParseResolutionDecision(data)
-	if err != nil {
-		return err
 	}
 	h, err := openHeadless(f.configPath, f.envFile)
 	if err != nil {
 		return err
 	}
 	defer h.done()
-	res, err := h.call("resolve_remote", timesheet.Request{
-		Day: f.date, Revision: &decision.Revision, ObservationID: decision.ObservationID,
-		RemoteID: decision.RemoteID, LocalID: decision.LocalID, Decision: decision.Decision,
-	})
+	receipt, err := resolveFileDay(h, f.date, f.file)
 	if err != nil {
 		return err
 	}
-	receipt, ok := res.(timesheet.ResolutionReceipt)
-	if !ok {
-		return fmt.Errorf("resolve: unexpected resolve_remote payload")
-	}
 	_, _ = h.call("close", timesheet.Request{})
 	return printJSON(receipt)
+}
+
+// resolveFileDay is resolve's core over one held session, shared by the verb
+// and next's resolve act (an ask_human answer file is a decision file).
+func resolveFileDay(h *headlessSession, date, file string) (timesheet.ResolutionReceipt, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return timesheet.ResolutionReceipt{}, fmt.Errorf("resolve: the decision file cannot be read")
+	}
+	decision, err := timesheet.ParseResolutionDecision(data)
+	if err != nil {
+		return timesheet.ResolutionReceipt{}, err
+	}
+	res, err := h.call("resolve_remote", timesheet.Request{
+		Day: date, Revision: &decision.Revision, ObservationID: decision.ObservationID,
+		RemoteID: decision.RemoteID, LocalID: decision.LocalID, Decision: decision.Decision,
+	})
+	if err != nil {
+		return timesheet.ResolutionReceipt{}, err
+	}
+	receipt, ok := res.(timesheet.ResolutionReceipt)
+	if !ok {
+		return timesheet.ResolutionReceipt{}, fmt.Errorf("resolve: unexpected resolve_remote payload")
+	}
+	return receipt, nil
 }
 
 // runSave derives the staged set from the entries ledger, confirms it (source
