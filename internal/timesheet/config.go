@@ -90,6 +90,9 @@ func (c *Config) validate() error {
 	if err := c.validateWorkHours(); err != nil {
 		return err
 	}
+	if err := c.validateJudge(); err != nil {
+		return err
+	}
 	return c.validateR3()
 }
 
