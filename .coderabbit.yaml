@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit review settings for Pilot Timesheet. This file overrides the
+# settings in the CodeRabbit web UI; change review behavior here.
+language: en-US
+
+reviews:
+  profile: chill
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "^main$"
+
+  # The PR descriptions are written by hand; the summary goes in the walkthrough.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: true
+  collapse_walkthrough: true
+  sequence_diagrams: true
+  assess_linked_issues: true
+  poem: false
+  in_progress_fortune: false
+  suggested_reviewers: false
+  review_status: true
+  review_details: false
+
+  auto_approvals:
+    enabled: false
+
+  path_filters:
+    - "!archive/**"
+    - "!pi/**"
+    - "!benchmarks/**"
+    - "!**/testdata/*.golden.json"
+    - "!go.sum"
+
+  path_instructions:
+    - path: "{cmd/timesheet,internal}/**/*.go"
+      instructions: |
+        - Nothing may write to Gradion without the terminal `submit` confirmations (typed plan_id, then typed approval_id) or the chat-confirmed `submit --chat` path (ADR 0009).
+        - Judgment and ask_human answer files must stay bound to their digest; a stale or unbound answer is never consumed.
+        - Credentials and env-file values must never appear in errors, logs, prompts, receipts or notifications; only variable names may.
+        - `ask_human` questions are never answered by code or by an agent.
+        - Flag any test change that weakens an approval, write-intent or no-replay assertion.
+    - path: "internal/llm/**"
+      instructions: |
+        - The model must never see digests, catalog ids, credentials, env values or file paths.
+        - Changing a prompt template must bump its first-line `prompt: <kind> v<N>` stamp.
+    - path: "{.agents/skills/**,AGENTS.md,README.md,docs/**}"
+      instructions: |
+        - Command names must match `timesheet help`: init, log, next, status, submit (with status, resolve and --chat), tui, daily, judge, eval, version.
+        - The /submit skill's consent rules must not change.
+        - Keep the timesheet skill short; it only runs `timesheet log`, relays ask_human and reports.
+
+  merge_risk_instructions: |
+    High risk: submission, approval or write-intent code (submit, agent_submit, internal/timesheet submission, approval and plan), the store schema or migration, credential and env-file handling, the judge backends and prompts (internal/llm), and any test change that weakens an approval, write-intent or no-replay assertion.
+    Medium risk: the next planner and its derivation, the --do loop, ask_human, the daily scheduler and notifications.
+    Low risk: docs, skills, and new tests that only add assertions.
+
+  security_risk_instructions: |
+    Local single-user CLI with no network listener. Secrets (GitHub token, calendar feed URL, Gradion token, judge API key, webhook URL) live only in an owner-written .env.local, are read by the binary by variable name, and are never echoed. The only remote writes go to the Gradion MCP endpoint, behind typed terminal confirmations or the chat-confirmed path (ADR 0009). The judge sends the day's evidence to a configured model provider (ADR 0010); a harness command runs with the pipeline secrets removed from its environment. Notifications and webhooks never approve or write.
+
+  labeling_instructions:
+    - label: bug
+      instructions: A fix for incorrect behavior.
+    - label: enhancement
+      instructions: A new feature or a new capability of an existing command.
+    - label: chore
+      instructions: Refactoring, repository hygiene or tooling with no behavior change.
+    - label: documentation
+      instructions: Changes only to docs, skills or ADRs.
+    - label: area:core
+      instructions: Touches cmd/timesheet or internal.
+    - label: area:docs
+      instructions: Touches only docs, skills, README or AGENTS.md.
+
+chat:
+  auto_reply: true
