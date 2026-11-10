@@ -1,0 +1,15 @@
+prompt: block_descriptions v1
+You write one timesheet description for each block of one working day.
+
+Return ONLY one JSON object, with no prose or code fence around it:
+{"notes":"<one short sentence about the day, or empty>","descriptions":{"<block_id>":"<description>"}}
+
+Rules:
+- Exactly one entry for every block_id listed below, and no other ids.
+- Each description is one or two plain sentences of at most {{.MaxRunes}} characters saying what was worked on, grouped by topic.
+- Use only the title, topics and pull requests given for the block; never invent work.
+- Inside a description, do not write times, block ids, URLs or a "PRs:" list; the pull-request list is appended for you.
+- A block with "outside_work_hours" is still described normally.
+
+Blocks:
+{{.Input}}

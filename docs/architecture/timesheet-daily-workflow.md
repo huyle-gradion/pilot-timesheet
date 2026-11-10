@@ -237,6 +237,70 @@ Validation for this work: the parent baseline passed all Go tests on Linux;
 macOS was not run. The planner tests are hermetic with explicitly seeded
 catalog/store fixtures; live remote behavior remains owner-verified.
 
+## 12. Binary-owned judge (`timesheet judge`)
+
+ADR 0010. With a `judge` section in the configuration, `timesheet judge
+[--config] [--env-file] [--date] [--project]` answers the day's current
+`block_descriptions` or `classifications` judgment itself and writes the
+judgment's answer file; `next --do` then consumes it exactly like an
+agent-written one. Without the section the verb refuses and nothing else
+changes.
+
+`next --do --auto` (issue #242) runs the same judge in-process: at each
+`block_descriptions` or `classifications` judgment it answers with the
+configured judge and continues, so one invocation goes from collection to
+`human_gates`, `ask_human` or `stopped`. The report carries
+`usage: {calls, input_tokens, output_tokens, exact}` for the run. A judge
+failure (after its one retry), the daily cap, or the same judgment coming back
+unchanged stops with `judgment_failed: <kind>: <reason>`, and the judgment stays
+open: a later `next --do` without `--auto` hands it to the agent path. A
+judgment that returns with `last_error` (repair-once, #240) is asked again with
+that note and without the cached reply. `--auto` never answers `ask_human` and
+never runs approve, submit or resolve-write. Without a `judge` section it
+refuses. Its default action budget is 24 (`--max-actions` overrides it). When
+`judge.tokens_csv` names a file, each run appends one row in the
+`benchmarks/tokens.csv` columns (`session_id` `timesheet-auto:<UTC time>`,
+`cache_tokens` 0); `scripts/tokens.py` keeps those rows when it refreshes the
+file.
+
+`--auto` is not recommended in the README until it scores at or above the
+owner's agreed threshold on the golden-day eval (§11).
+
+```json
+"judge": {"backend": "command", "command": ["<harness>", "<print-mode flags>"]}
+"judge": {"backend": "openai", "base_url": "https://<host>/v1", "model": "<model>", "api_key_env": "<VAR>"}
+```
+
+`timeout_seconds` (default 120) and `daily_token_cap` (default 10000) are
+optional. The `command` backend writes the prompt to the harness's stdin and
+reads one JSON reply from stdout, with every reserved credential variable
+removed from its environment and stderr discarded. The `openai` backend sends
+one chat-completions request; its key is read from the env file by name.
+
+- **Prompts** are `internal/llm/prompts/*.tmpl`, embedded in the binary, with a
+  `prompt: <kind> v<N>` stamp on the first line. The model sees only the
+  blocks (title, topics, PR labels) or the intervals and their candidate sets,
+  never a digest, catalog id, credential or path; the binary fills in
+  `draft_digest`/`ledger_digest` and the catalog id. Evidence is cut to 300
+  runes per title or description, 8 topics of 160 runes and 12 PR labels per
+  block. Prose is cut so the appended `PRs:` list still fits the 500-rune
+  description limit.
+- **Validation**: a descriptions reply must answer every block and name no
+  other; a classifications reply may only pick an option from the interval's
+  own candidate set. A provider error, timeout or invalid reply is retried once
+  with a one-line note; a second failure leaves the judgment open for the
+  agent path.
+- **Response cache**: `<day folder>/judge/<kind>-<key>.json`, keyed by the
+  template bytes, the backend identity and the rendered context. An unchanged
+  prompt reuses the stored reply with no call; editing a template, changing
+  the backend or model, or changing the day's content misses the cache.
+- **Usage**: every call appends `{at, kind, cached, ok, usage}` to
+  `<day folder>/judge-usage.jsonl`; usage is exact from the HTTP backend and
+  estimated (about four bytes per token) from a harness. Non-cached usage at or
+  above `daily_token_cap` stops further calls for the day.
+- A classifications judgment without candidates (saved-day recovery) is not
+  judged by the binary.
+
 ## 11. Golden-day evaluation
 
 `timesheet eval export [--config <path>] [--out <file>]` writes the owner's

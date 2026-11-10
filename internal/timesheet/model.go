@@ -145,6 +145,8 @@ type Config struct {
 	// The four-hour per-entry bound is the remote's fixed policy, not a
 	// work_hours setting; unknown keys inside this block fail closed.
 	WorkHours *WorkHoursConfig `json:"work_hours,omitempty"`
+	// Judge is the optional binary-owned judge (ADR 0010); absent means off.
+	Judge *JudgeConfig `json:"judge,omitempty"`
 }
 
 // WorkHoursConfig names the weekdays and same-day windows of main work time.
