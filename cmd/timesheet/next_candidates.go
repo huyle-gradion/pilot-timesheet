@@ -174,8 +174,8 @@ func prefetchCandidates(h *headlessSession, cfg *timesheet.Config, day string) (
 	if err != nil {
 		return candidatesFile{}, "", err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return candidatesFile{}, "", fmt.Errorf("candidates: the day folder %s cannot be created: %w", dir, err)
+	if err := ensureDayArtifactsDir("candidates", dir); err != nil {
+		return candidatesFile{}, "", err
 	}
 	path := filepath.Join(dir, "candidates.json")
 	data, err := jsonBytes(out)
