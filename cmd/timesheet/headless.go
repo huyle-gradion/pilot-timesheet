@@ -365,7 +365,7 @@ func runDraft(args []string) error {
 // carries ONLY the draft JSON — the collect source report is not printed; its
 // substance is already in the draft's flags and per-block completeness. The
 // same draft bytes are also written to the deterministic artifacts directory
-// `$TMPDIR/timesheet/<store-identity>/<date>/draft.json` (created as needed), and the artifacts
+// `<state dir>/days/<date>/draft.json` in the store (created as needed), and the artifacts
 // path is printed on stderr so stdout stays pure draft JSON: redirecting
 // stdout yields exactly the draft bytes. The fresh collection_id is one
 // further stderr line (issue #162), so acknowledge/decide can copy it without
@@ -397,12 +397,12 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("run: the artifacts directory cannot be created")
+	if err := ensureDayArtifactsDir("run", dir); err != nil {
+		return err
 	}
 	artifacts := filepath.Join(dir, "draft.json")
 	if err := os.WriteFile(artifacts, data, 0o600); err != nil {
-		return fmt.Errorf("run: the artifacts draft file cannot be written")
+		return fmt.Errorf("run: the draft file %s cannot be written: %w", artifacts, err)
 	}
 	if collectionID != "" {
 		fmt.Fprintf(os.Stderr, "run: collection_id %s\n", collectionID)

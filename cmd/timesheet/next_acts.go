@@ -32,11 +32,11 @@ func (d actDispatcher) runStep(h *headlessSession) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", fmt.Errorf("next: the artifacts directory cannot be created")
+	if err := ensureDayArtifactsDir("next", filepath.Dir(path)); err != nil {
+		return "", err
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("next: the artifacts draft file cannot be written")
+		return "", fmt.Errorf("next: the draft file %s cannot be written: %w", path, err)
 	}
 	return draftNotice(draft), nil
 }

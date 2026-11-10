@@ -1,11 +1,10 @@
 package main
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
@@ -20,17 +19,73 @@ func testArtifactDir(t *testing.T, cfg, day string) string {
 	return dir
 }
 
-func TestDayArtifactsNormalizeStoreIdentity(t *testing.T) {
+func TestDayArtifactsLiveInTheStore(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	t.Chdir(root)
+	want := filepath.Join(root, "days", testDate)
 	for _, path := range []string{"state.json", "./nested/../state.json", filepath.Join(root, "state.json")} {
 		got, err := dayArtifactsDir(path, testDate)
-		identity := fmt.Sprintf("%x", sha256.Sum256([]byte(filepath.Join(root, "state.json"))))
-		want := filepath.Join(os.TempDir(), "timesheet", identity, testDate)
 		if err != nil || got != want {
-			t.Fatalf("artifact path for %q = %q, %v; want %q", path, got, err, want)
+			t.Fatalf("day folder for %q = %q, %v; want %q", path, got, err, want)
 		}
+	}
+}
+
+func TestNextResumesAfterTempDirIsWiped(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	cfg := writeRunConfig(t)
+	srv, _ := startFeed(t)
+	env := writeRunEnvFile(t, srv.URL)
+	args := []string{"--config", cfg, "--env-file", env, "--date", "2026-10-20"}
+	executable(t, nextDoc(t, args...))
+	before := nextDoc(t, args...)
+	if before.State != stateJudgment {
+		t.Fatalf("after run = %+v, want judgment", before)
+	}
+	if !strings.HasPrefix(before.Judgment.AnswerFile, filepath.Dir(statePathFor(cfg))) {
+		t.Fatalf("answer file %q is not under the store", before.Judgment.AnswerFile)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+	if after := nextDoc(t, args...); after.State != stateJudgment || after.Judgment.DraftDigest != before.Judgment.DraftDigest {
+		t.Fatalf("after temp wipe = %+v, want the same judgment %+v", after, before)
+	}
+}
+
+func TestNextReportsLegacyTempDayFolder(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	cfg := writeRunConfig(t)
+	legacy, err := legacyDayArtifactsDir(statePathFor(cfg), "2026-10-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAnswerFile(t, filepath.Join(legacy, "draft.json"), `{"date":"2026-10-20","blocks":[]}`)
+	got := nextDoc(t, "--config", cfg, "--date", "2026-10-20")
+	if got.State != stateStopped || !strings.Contains(got.Reason, legacy) || !strings.Contains(got.Reason, "mv ") {
+		t.Fatalf("legacy day = %+v, want a stop naming %s and the move", got, legacy)
+	}
+	dir := testArtifactDir(t, cfg, "2026-10-20")
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(legacy, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextDoc(t, "--config", cfg, "--date", "2026-10-20"); got.State == stateStopped && strings.Contains(got.Reason, "old temp location") {
+		t.Fatalf("moved day still reported as legacy: %+v", got)
+	}
+}
+
+func TestRunNamesUnwritableDayFolder(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	cfg := writeRunConfig(t)
+	days := filepath.Join(filepath.Dir(statePathFor(cfg)), "days")
+	if err := os.WriteFile(days, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := ensureDayArtifactsDir("run", filepath.Join(days, "2026-10-20"))
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(days, "2026-10-20")) || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("err = %v, want the path and the cause", err)
 	}
 }
 
