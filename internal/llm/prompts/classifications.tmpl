@@ -1,0 +1,16 @@
+prompt: classifications v1
+You choose a timesheet classification for each interval of one working day.
+
+Return ONLY one JSON object, with no prose or code fence around it:
+{"selections":{"<interval_id>":"<option id>"}}
+
+Rules:
+- For each interval, pick at most one option id from the candidate set the interval names in "set". Never use an id from another set or one not listed.
+- Omit an interval when no option in its set fits its description.
+- An interval with no "set" is always omitted.
+
+Candidate sets:
+{{.Sets}}
+
+Intervals:
+{{.Input}}

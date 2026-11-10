@@ -35,6 +35,7 @@ callers pass its path.
 | `GITHUB_TOKEN` | `sources.github` collection | Bearer credential for the configured `api_base`. |
 | `GCAL_ICS_URL` | `sources.calendar` collection | Private feed URL; never stored in config or state. |
 | `GRADION_MCP_TOKEN` | `gradion` read/submit boundary | Variable name configurable via `gradion.token_env`; default shown. |
+| (owner-named) | `judge` OpenAI-compatible backend (ADR 0010) | Optional: named in `judge.api_key_env`, no default; leave it empty for a local endpoint. The `command` backend uses the harness's own login and no variable. |
 
 `required_env` in the config document is a name-only reservation. Declaring a
 name never makes a local operation fail and never reaches the network by

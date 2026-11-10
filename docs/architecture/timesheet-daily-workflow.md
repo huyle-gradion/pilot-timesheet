@@ -237,6 +237,50 @@ Validation for this work: the parent baseline passed all Go tests on Linux;
 macOS was not run. The planner tests are hermetic with explicitly seeded
 catalog/store fixtures; live remote behavior remains owner-verified.
 
+## 12. Binary-owned judge (`timesheet judge`)
+
+ADR 0010. With a `judge` section in the configuration, `timesheet judge
+[--config] [--env-file] [--date] [--project]` answers the day's current
+`block_descriptions` or `classifications` judgment itself and writes the
+judgment's answer file; `next --do` then consumes it exactly like an
+agent-written one. Without the section the verb refuses and nothing else
+changes. Wiring it into `next --do` is #242.
+
+```json
+"judge": {"backend": "command", "command": ["<harness>", "<print-mode flags>"]}
+"judge": {"backend": "openai", "base_url": "https://<host>/v1", "model": "<model>", "api_key_env": "<VAR>"}
+```
+
+`timeout_seconds` (default 120) and `daily_token_cap` (default 10000) are
+optional. The `command` backend writes the prompt to the harness's stdin and
+reads one JSON reply from stdout, with every reserved credential variable
+removed from its environment and stderr discarded. The `openai` backend sends
+one chat-completions request; its key is read from the env file by name.
+
+- **Prompts** are `internal/llm/prompts/*.tmpl`, embedded in the binary, with a
+  `prompt: <kind> v<N>` stamp on the first line. The model sees only the
+  blocks (title, topics, PR labels) or the intervals and their candidate sets,
+  never a digest, catalog id, credential or path; the binary fills in
+  `draft_digest`/`ledger_digest` and the catalog id. Evidence is cut to 300
+  runes per title or description, 8 topics of 160 runes and 12 PR labels per
+  block. Prose is cut so the appended `PRs:` list still fits the 500-rune
+  description limit.
+- **Validation**: a descriptions reply must answer every block and name no
+  other; a classifications reply may only pick an option from the interval's
+  own candidate set. A provider error, timeout or invalid reply is retried once
+  with a one-line note; a second failure leaves the judgment open for the
+  agent path.
+- **Response cache**: `<day folder>/judge/<kind>-<key>.json`, keyed by the
+  template bytes, the backend identity and the rendered context. An unchanged
+  prompt reuses the stored reply with no call; editing a template, changing
+  the backend or model, or changing the day's content misses the cache.
+- **Usage**: every call appends `{at, kind, cached, ok, usage}` to
+  `<day folder>/judge-usage.jsonl`; usage is exact from the HTTP backend and
+  estimated (about four bytes per token) from a harness. Non-cached usage at or
+  above `daily_token_cap` stops further calls for the day.
+- A classifications judgment without candidates (saved-day recovery) is not
+  judged by the binary.
+
 ## 11. Golden-day evaluation
 
 `timesheet eval export [--config <path>] [--out <file>]` writes the owner's

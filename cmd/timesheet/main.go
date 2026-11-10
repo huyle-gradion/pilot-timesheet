@@ -38,6 +38,7 @@ const commandSynopsis = `Usage:
   timesheet submit-status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
   timesheet agent-submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
   timesheet resolve-write [--config <path>] [--env-file <path>] --file <decision.json>
+  timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet eval export [--config <path>] [--out <file outside any repository>]
   timesheet eval score --golden <file> [--candidate <file>]
 `
@@ -148,6 +149,14 @@ func main() {
 		}
 	case "stage":
 		if err := runStage(os.Args[2:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
+			os.Exit(1)
+		}
+	case "judge":
+		if err := runJudge(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return
 			}
