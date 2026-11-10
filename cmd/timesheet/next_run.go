@@ -228,6 +228,10 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 	if err != nil {
 		return obs, stoppedAction(day, "cannot read the catalog candidates "+obs.CandidatesPath+": "+err.Error()), nil
 	}
+	obs.History, err = readHistoryFile(filepath.Join(dir, historyFileName))
+	if err != nil {
+		return obs, stoppedAction(day, "cannot read the classification history in "+dir+": "+err.Error()), nil
+	}
 	return obs, nil, nil
 }
 

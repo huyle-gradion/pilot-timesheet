@@ -85,6 +85,7 @@ func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date, projec
 		}
 		bound := choice
 		bound.ContentDigest = timesheet.BlockContentDigest(date, block)
+		bound.Source = timesheet.SelectionSourceDefault
 		selections[id] = bound
 	}
 	applied, err := applySelections(h, date, summary.Revision, selections)

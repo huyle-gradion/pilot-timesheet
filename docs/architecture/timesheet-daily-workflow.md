@@ -67,6 +67,25 @@ Both answer files carry the binding the report published, copied verbatim:
   `block_id`, `start`, `end`, `description`, `candidates`) and
   `judgment.candidates[]`. The judgment is self-contained: no draft,
   descriptions file, temporary artifact or catalog query is needed.
+- Classification priority, highest first: an explicit selection already in
+  the sidecar; the configured default (`gradion.default_classification`),
+  which fills every unselected interval, so nothing below it runs when one is
+  configured; approved history; the judgment.
+- Approved history (`classify --from-history`, derived only when the store
+  holds provider-confirmed submissions for other days and no default is
+  configured). Each staged block is keyed from its description alone: the one
+  repository its inline `PRs:` list names (`repo:<repo>`), or, with no
+  repository, the lower-cased whitespace-collapsed title (`title:<title>`);
+  several repositories give no key. A key whose confirmed submissions carry
+  exactly one classification (the verified remote content, newest submission
+  per interval) is pre-selected once the live catalog, read by that option's
+  name, still returns the id; an ambiguous key or a retired id is skipped with
+  its reason. The step writes `history.json` bound to the ledger digest, and,
+  when history decides every interval, the bound `choices.json` answer, so no
+  judgment is asked. Otherwise the judgment lists only the remaining intervals,
+  and `classify --file` keeps the history picks for intervals the answer does
+  not name. Every sidecar selection records its `source` (`history`,
+  `default` or `judgment`), and `status` lists them before approval.
 - Before that judgment, `next` derives the deterministic `candidates` action
   (`classifications --date <day> --candidates`). It reads the live catalog once
   per distinct topic (the block description without its `PRs:` list, first

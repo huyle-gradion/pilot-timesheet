@@ -181,6 +181,9 @@ type nextObservation struct {
 	// Candidates is the parsed candidates.json (nil when absent); it is used
 	// only when its ledger_digest binds to the current staged ledger.
 	Candidates *candidatesFile
+	// History is the parsed history.json (nil when absent); used only when
+	// its ledger_digest binds to the current staged ledger (issue #235).
+	History *historyFile
 
 	// Artifacts is the ledger and its sidecars, one validated parse each.
 	Artifacts timesheet.DayArtifacts
