@@ -206,14 +206,27 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 // runNextDo is the --do loop: every derivation opens and closes the store, then
 // the winning act opens its own; the terminal report is the only stdout.
 func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day string) error {
+	report, runErr := advanceDayReport(f, cfg, configPath, envFile, day)
+	if report.Day == "" {
+		return runErr
+	}
+	if err := printJSON(report); err != nil {
+		return err
+	}
+	return runErr
+}
+
+// advanceDayReport is the --do run minus its stdout: the scheduled daily run
+// (issue #243) reads the same report to build its notification.
+func advanceDayReport(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day string) (advanceReport, error) {
 	d := actDispatcher{cfg: cfg, configPath: configPath, envFile: envFile, day: day, project: f.project}
 	if f.auto {
 		if cfg.Judge == nil {
-			return fmt.Errorf("next: --auto needs a judge section in the configuration (ADR 0010); without it, run next --do and answer judgments through the agent path")
+			return advanceReport{}, fmt.Errorf("next: --auto needs a judge section in the configuration (ADR 0010); without it, run next --do and answer judgments through the agent path")
 		}
 		backend, err := newJudgeBackend(cfg, envFile)
 		if err != nil {
-			return err
+			return advanceReport{}, err
 		}
 		d.judge = func(j *nextJudgment) (judgeReceipt, error) {
 			return answerJudgment(context.Background(), cfg, day, j, backend, time.Now())
@@ -236,20 +249,17 @@ func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day str
 	}
 	report, runErr := advanceDay(derive, d, advanceLimits{MaxActions: f.maxActions})
 	if report.Day == "" {
-		return runErr
+		return report, runErr
 	}
 	if report.State == stateHumanGates && report.Human != nil {
 		report.Human.Status = readSubmissionStatus(configPath, envFile, day)
-	}
-	if err := printJSON(report); err != nil {
-		return err
 	}
 	if f.auto && report.Usage != nil {
 		if err := appendAutoTokenRow(cfg, day, *report.Usage, time.Now()); err != nil {
 			fmt.Fprintf(os.Stderr, "next: token usage row not written: %v\n", err)
 		}
 	}
-	return runErr
+	return report, runErr
 }
 
 // readSubmissionStatus is the one extra read-only call the gates need, so the

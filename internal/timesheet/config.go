@@ -93,6 +93,9 @@ func (c *Config) validate() error {
 	if err := c.validateJudge(); err != nil {
 		return err
 	}
+	if err := c.validateDaily(); err != nil {
+		return err
+	}
 	return c.validateR3()
 }
 

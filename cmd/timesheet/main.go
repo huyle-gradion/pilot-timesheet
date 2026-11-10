@@ -140,6 +140,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
 			os.Exit(1)
 		}
+	case "daily":
+		if err := runDaily(os.Args[2:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
+			os.Exit(1)
+		}
 	case "judge":
 		if err := runJudge(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {

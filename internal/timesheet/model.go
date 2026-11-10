@@ -147,6 +147,8 @@ type Config struct {
 	WorkHours *WorkHoursConfig `json:"work_hours,omitempty"`
 	// Judge is the optional binary-owned judge (ADR 0010); absent means off.
 	Judge *JudgeConfig `json:"judge,omitempty"`
+	// Daily is the optional scheduled-run policy (issue #243).
+	Daily *DailyConfig `json:"daily,omitempty"`
 }
 
 // WorkHoursConfig names the weekdays and same-day windows of main work time.
