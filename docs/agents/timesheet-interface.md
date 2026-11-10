@@ -187,8 +187,8 @@ the draft, in the record receipt, and in the status summary.
   collection attempt, then the compact draft. stdout carries ONLY the draft
   JSON (the collect source report is not printed; its substance is already in
   the draft's flags and per-block completeness), and the same draft bytes are
-  written to the deterministic artifacts directory
-  `$TMPDIR/timesheet/<store-identity>/<date>/draft.json` (created as needed); the artifacts
+  written to the store's day folder
+  `<state dir>/days/<date>/draft.json` (created as needed); the artifacts
   path is printed on stderr, so redirecting stdout yields exactly the draft
   bytes.
 - `record` validates the reviewed draft (every block keeps its `block_id`

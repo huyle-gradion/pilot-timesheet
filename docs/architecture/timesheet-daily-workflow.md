@@ -42,11 +42,12 @@ There is no `--answer` flag and no `--do` dispatcher. A judgment is the file at
 `judgment.answer_file`; the following `next` invocation consumes it only when
 its binding digest matches the current content.
 
-`run` and `next` share `$TMPDIR/timesheet/<store-identity>/<date>/` for the
-draft and judgment answers. The store identity is the lowercase SHA-256 hex
-digest of the cleaned absolute `state_path`, resolved from the command's working
-directory. Different stores never share drafts or answers. Legacy unscoped
-temporary files are not imported. Use the paths printed by the binary.
+`run` and `next` share the store's day folder `<state dir>/days/<date>/` for
+the draft and judgment answers, next to `<state dir>/entries/<date>.json`, so a
+wiped temp directory never loses a day in progress and different stores never
+share drafts or answers. A day still in the old temp location of earlier releases
+(`$TMPDIR/timesheet/<store-identity>/<date>/`) is reported as `stopped` with the
+one-line move command; it is never silently restarted. Use the paths printed by the binary.
 
 ## 3. Digest-bound judgment envelopes
 
