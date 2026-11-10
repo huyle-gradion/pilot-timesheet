@@ -68,7 +68,3 @@ Never retry automatically, reuse a prior confirmation, or resolve an unknown
 outcome. Read-only `submit-status --date "$DAY"` can report recovery state;
 human `resolve-write` remains terminal-gated. The legacy `approve` and
 `submit` commands keep their terminal protections and are not used here.
-
-Run `"$TS_SKILL_DIR/scripts/ts-metrics"` before each terminal
-response, including refusal, decline and submission failure. Report capture
-unavailability briefly without changing the submission outcome.

@@ -37,7 +37,7 @@ Omitted `--date` means today in the configured timezone. The skill invokes
 | `judgment` | a model decision is required | write only `judgment.answer_file`, then `next` again |
 | `ask_human` | a typed decision only the human makes | relay `ask.question`/`ask.options`; write only the human's answer to `ask.answer_file` |
 | `stopped` | a real blocker: progression cannot be derived | print `reason`; do not guess |
-| `human_gates` | the day is ready for approval/submission | run read-only `submit-status`, report ready plan, capture metrics, stop |
+| `human_gates` | the day is ready for approval/submission | report the ready day, its `usage` and the attached submission status, stop |
 
 There is no `--answer` flag and no `--do` dispatcher. A judgment is the file at
 `judgment.answer_file`; the following `next` invocation consumes it only when
@@ -109,7 +109,7 @@ Both answer files carry the binding the report published, copied verbatim:
 | Owner | Owns | Never does |
 |---|---|---|
 | Compiled binary | derive state and content, read ledger/stage map/answers/store, construct argv | write artifacts, execute actions, decide identity or attendance |
-| Timesheet skill | the two bounded judgments, reporting blockers or readiness, terminal metrics | shell-evaluate `action.cmd`, approve or submit during logging, resolve-write |
+| Timesheet skill | starting `next --do --auto`, relaying `ask_human`, reporting blockers or readiness (and, without a judge, the two bounded judgments) | answer `ask_human`, approve or submit during logging, resolve-write |
 | Human | source acknowledgement, attendance verdicts, identity resolution, approval, submission | rely on the agent to perform a TTY gate |
 
 The skill is a thin adapter: locate the binary, run the argv, write the answer

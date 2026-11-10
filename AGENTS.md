@@ -51,27 +51,15 @@ iCal URL) stored in the macOS Keychain, with code reading from there. See
 ## Timesheet daily log (skill)
 
 When asked to "log today's work" or "log the timesheet" for a day, follow
-`.agents/skills/timesheet/SKILL.md` exactly. The skill resolves `TS_BINARY`
-through its own `scripts/ts-env` helper, checks `next --help`, and builds once
-if the found binary predates the planner; it then drives the day with one `next`
-JSON loop: each invocation prints exactly one `action` (run its `action.cmd`
-argv verbatim, never through a shell), `judgment` (write the model answer file
-it names, copying the report's `draft_digest`/`ledger_digest` verbatim),
-`stopped` (report the precise blocker and stop) or `human_gates` (run
-read-only `submit-status`, report the ready plan, stop).
-The descriptions judgment reads only the draft the protocol names; the
-classification judgment is self-contained in `judgment.blocks[]` and needs no
-draft or `$TMP` artifact. The binary enforces repair-once: a rejected
-answer is re-asked once with `last_error`, then stops as `judgment_failed`. Stopped
-states are never silently acknowledged, guessed or resolved; an explicitly
-user-authorized decision is performed exactly once where safe. It is
-runner-agnostic (Pi or any agent with shell access). It never runs the
-TTY-gated `approve`, `submit` or `resolve-write` — those need an interactive
-terminal and the exact typed `plan_id`/`approval_id`/`write_ref`, and
-attempting them is a contract violation. Submission is never auto-retried, and
-unknown outcomes stay unresolved until a human resolves them. Run the skill's
-mandatory terminal metrics helper on success and blocked exits. Capture errors
-are reported without blocking the day.
+`.agents/skills/timesheet/SKILL.md` exactly. The skill finds the binary with
+its `scripts/ts-env` helper and runs `next --do --auto`: the binary runs the
+day and answers its own judgments (ADR 0010). The agent acts on the one
+`state` it reports. At `human_gates` it reports the ready day and its usage.
+At `ask_human` it relays the question verbatim and writes only the user's own
+answer; it never answers it. At `stopped` it reports the reason and stops. It
+never runs the TTY-gated `approve`, `submit` or `resolve-write`. Without a
+judge configured, it follows the skill's `fallback.md` and answers the two
+judgments itself, under the binary's repair-once policy.
 
 ## Chat-confirmed submission
 

@@ -212,24 +212,12 @@ store path and the existing endpoint/credential context digest. No protocol or
 state schema changes. Chat consent is agent-enforced, not human-presence proof;
 see [ADR 0009](../adr/0009-chat-confirmed-submission.md).
 
-`scripts/tokens.py` completes the skill's evidence loop, runner-agnostic: it
-scans local agent-session transcripts — Claude Code (`~/.claude/projects`,
-default), ordinary Pi and pig, with explicit `--pi-dir`/`--pig-dir` overrides.
-Pi defaults to `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`.
-Pig selects `$PIG_CODING_AGENT_DIR/sessions`, else `agent/sessions` under the
-first nonempty root of `$PIG_HOME`, `$XDG_CONFIG_HOME/pig` or `~/.pig`.
-Empty variables fall through, and leading `~` or `~/` expands to home.
-`PIG_USE_PI_DIRS=1` instead selects `$PI_CODING_AGENT_DIR/sessions` or
-`~/.pi/agent/sessions`, ignoring the pig agent override. The observed legacy
-`~/.config/pig/agent/sessions` remains an additional fallback. `--pig-dir`
-replaces all pig locations. Shared Pi/pig files are counted once under
-`pi+pig-shared:<session>` rather than guessing their originating runtime.
-It selects executable tool arguments invoking the timesheet binary, sums valid
-usage per calendar day, and refreshes one row per date/runtime/session in
-`<repo>/benchmarks/tokens.csv`. The mandatory skill terminal helper invokes it
-on ready and blocked outcomes. Errors never block the day. Missing usage is
-unavailable, and growing sessions are observed snapshots, not performance
-benchmarks. Transcript content stays private.
+Token usage comes from the binary: each `next --do --auto` report carries
+`usage`, judge calls are logged in the day folder, and `judge.tokens_csv`
+appends one row per run to `benchmarks/tokens.csv`. `scripts/tokens.py`
+remains only to import usage from historical agent-session transcripts
+(Claude Code, Pi and pig stores) into the same file; it keeps existing rows,
+never blocks the day, and copies no transcript content.
 
 ## Protocol envelope
 
