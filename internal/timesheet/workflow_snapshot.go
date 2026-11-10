@@ -79,6 +79,9 @@ type WorkflowSnapshot struct {
 	Resolution       *ResolutionSnapshot
 	UnresolvedWrites int
 	NativeUnresolved int
+	// SubmittedHistory counts other days' provider-confirmed interval
+	// submissions; zero means there is no history to classify from (#235).
+	SubmittedHistory int
 }
 
 // ReadWorkflowSnapshot reads the day's durable facts. An unparsable durable
@@ -93,6 +96,7 @@ func ReadWorkflowSnapshot(cfg *Config, store *Store, date string) (WorkflowSnaps
 			snap.ConfiguredDefaultError = err.Error()
 		}
 	}
+	snap.SubmittedHistory = len(submittedSelections(state, date))
 	if day := state.Days[date]; day != nil {
 		snap.Revision = day.Revision
 		snap.Confirmed = append([]Interval(nil), day.Confirmed...)

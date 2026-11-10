@@ -31,6 +31,9 @@ func stepAct(a nextAction) string {
 			if a.Step == "classify" && slices.Contains(a.Action.Cmd, "--configured-default") {
 				return "classify-default"
 			}
+			if a.Step == "classify" && slices.Contains(a.Action.Cmd, "--from-history") {
+				return "classify-history"
+			}
 			return a.Step
 		}
 	}

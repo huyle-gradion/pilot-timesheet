@@ -1278,6 +1278,9 @@ type ClassificationChoiceEntry struct {
 	CatalogID        string `json:"catalog_id"`
 	ClassificationID string `json:"classification_id"`
 	ContentDigest    string `json:"content_digest"`
+	// Source is where the selection came from (SelectionSource*); it is
+	// audit only and never part of the content binding.
+	Source string `json:"source,omitempty"`
 }
 
 // BlockContentDigest is the deterministic content binding of one staged

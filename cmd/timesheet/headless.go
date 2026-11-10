@@ -545,6 +545,9 @@ func runStatus(args []string) error {
 		summary["recorded"] = lines
 		summary["entries_file"] = timesheet.EntriesPath(h.cfg.StatePath, day)
 	}
+	if choices, err := timesheet.ReadClassificationChoices(h.cfg.StatePath, day); err == nil && len(choices) > 0 {
+		summary["classifications"] = statusClassifications(choices)
+	}
 	return printJSON(summary)
 }
 
@@ -564,6 +567,7 @@ func runStatus(args []string) error {
 // the same flag set plus --file.
 type finalizeFlags struct {
 	configuredDefault bool
+	fromHistory       bool
 	configPath        string
 	envFile           string
 	date              string
@@ -1297,6 +1301,8 @@ type ClassifyApplied struct {
 	Classification  string `json:"classification,omitempty"`
 	Code            string `json:"code,omitempty"`
 	CatalogComplete bool   `json:"catalog_complete"`
+	// Source is where the selection came from: judgment, history or default.
+	Source string `json:"source,omitempty"`
 }
 
 // ClassifyReceipt is classify's stdout receipt, in interval_id order.
@@ -1367,6 +1373,9 @@ func runClassify(args []string) error {
 	if f.configuredDefault {
 		return runClassifyDefault(f)
 	}
+	if f.fromHistory {
+		return runClassifyHistory(f)
+	}
 	cfg, err := timesheet.LoadConfig(f.configPath)
 	if err != nil {
 		return err
@@ -1419,6 +1428,7 @@ func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, project, a
 	if err != nil {
 		return ClassifyReceipt{}, err
 	}
+	mergeHistorySelections(cfg.StatePath, date, data, selections)
 	receipt, err := classifyFileCore(h, cfg, date, project, summary, selections)
 	if err != nil {
 		return ClassifyReceipt{}, err
@@ -1543,6 +1553,7 @@ func parseClassifyFlags(args []string) (*finalizeFlags, error) {
 	flags.SetOutput(os.Stderr)
 	f := &finalizeFlags{}
 	flags.BoolVar(&f.configuredDefault, "configured-default", false, "fill unselected unsaved intervals with the configured cached default")
+	flags.BoolVar(&f.fromHistory, "from-history", false, "pre-select intervals from the owner's confirmed submissions on other days (writes the day's history.json)")
 	flags.StringVar(&f.configPath, "config", "", "configuration path (optional; defaults to $HOME/.timesheet/config.json)")
 	flags.StringVar(&f.envFile, "env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
 	flags.StringVar(&f.date, "date", "", "day to operate on, YYYY-MM-DD (required)")
@@ -1565,8 +1576,14 @@ func parseClassifyFlags(args []string) (*finalizeFlags, error) {
 	if _, err := time.Parse("2006-01-02", f.date); err != nil {
 		return nil, fmt.Errorf("classify: --date must be YYYY-MM-DD")
 	}
-	if (f.file != "") == f.configuredDefault {
-		return nil, fmt.Errorf("classify requires exactly one of --file or --configured-default")
+	modes := 0
+	for _, on := range []bool{f.file != "", f.configuredDefault, f.fromHistory} {
+		if on {
+			modes++
+		}
+	}
+	if modes != 1 {
+		return nil, fmt.Errorf("classify requires exactly one of --file, --configured-default or --from-history")
 	}
 	return f, nil
 }
@@ -1605,7 +1622,7 @@ func applySelections(h *headlessSession, date string, revision int, selections m
 		applied = append(applied, ClassifyApplied{
 			IntervalID: id, CatalogID: sel.CatalogID, ClassificationID: sel.ClassificationID,
 			Classification: mutation.Classification, Code: mutation.Code,
-			CatalogComplete: mutation.CatalogComplete,
+			CatalogComplete: mutation.CatalogComplete, Source: sel.Source,
 		})
 	}
 	return applied, nil

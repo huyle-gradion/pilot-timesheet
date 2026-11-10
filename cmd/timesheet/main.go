@@ -25,7 +25,7 @@ const commandSynopsis = `Usage:
   timesheet stage [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--project <id>] [--revise]
   timesheet classifications [--config <path>] [--env-file <path>] --query <text>
   timesheet classifications [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] --candidates
-  timesheet classify [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> (--file <choices.json> | --configured-default) [--project <id>]
+  timesheet classify [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> (--file <choices.json> | --configured-default | --from-history) [--project <id>]
   timesheet acknowledge [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> --source <github|calendar> --collection-id <id>
   timesheet decide [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> --meeting-id <id> --decision <attended|skipped> --collection-id <id>
   timesheet confirm [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--project <id>]

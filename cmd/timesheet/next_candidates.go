@@ -123,9 +123,12 @@ func prefetchCandidates(h *headlessSession, cfg *timesheet.Config, day string) (
 		Sets:         []nextCandidateSet{},
 		Intervals:    map[string]string{},
 	}
+	picked := boundHistory(cfg.StatePath, day, digest)
 	ids := make([]string, 0, len(blocks))
 	for id := range blocks {
-		ids = append(ids, id)
+		if _, ok := picked[id]; !ok {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 	refs := map[string]string{}

@@ -219,13 +219,31 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 		if o.ChoicesPresent {
 			why = "the classification answer at " + o.ChoicesPath + " is stale (its ledger_digest does not match the current staged ledger)"
 		}
+		// Approved history is applied first (no configured default reaches
+		// here); only the intervals it cannot decide are judged.
+		historyBound := o.History != nil && o.History.LedgerDigest == digest
+		if o.Workflow.SubmittedHistory > 0 && !historyBound {
+			return n.withAction("classify", append(o.projectArgv("classify"), "--from-history"),
+				"confirmed submissions exist on other days; classify intervals whose repository or title has one consistent prior classification before the judgment")
+		}
+		judged := blocks
+		kept := ""
+		if historyBound && len(o.History.Selections) > 0 {
+			judged = make(map[string]timesheet.EntryRecord, len(blocks))
+			for id, e := range blocks {
+				if _, picked := o.History.Selections[id]; !picked {
+					judged[id] = e
+				}
+			}
+			kept = "; " + strconv.Itoa(len(blocks)-len(judged)) + " interval(s) were classified from history, are not listed, and are kept"
+		}
 		// The catalog is read by a deterministic step first, so the judgment
 		// is a pick from closed lists bound to this same ledger.
 		if o.Candidates == nil || o.Candidates.LedgerDigest != digest {
 			return n.withAction("candidates", append(o.argv("classifications"), "--candidates"),
 				"no catalog candidates are bound to the current staged ledger; read the catalog once per distinct topic before the classification judgment")
 		}
-		jb := judgmentBlocks(blocks)
+		jb := judgmentBlocks(judged)
 		return n.withJudgment("classify", nextJudgment{
 			Kind:           judgmentClassifications,
 			Day:            o.Day,
@@ -240,7 +258,7 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 				"and will be asked for again); interval_ids and the recorded descriptions are listed in blocks — no draft or " +
 				"descriptions artifact is needed; for each interval pick at most one option from the candidates set its block " +
 				"names, copying that set's catalog_id and the option's classification_id verbatim; omit an interval with no " +
-				"fitting candidate; do not query the catalog; {\"selections\":{}} is the documented no-op — " + why,
+				"fitting candidate; do not query the catalog; {\"selections\":{}} is the documented no-op" + kept + " — " + why,
 		})
 	}
 	if !o.GradionEnabled && o.Artifacts.ChoicesPresent && !binds {
