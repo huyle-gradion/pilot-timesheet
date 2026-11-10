@@ -28,9 +28,10 @@ func TestDailyTargetsCatchUpAndNeverLogAHalfDay(t *testing.T) {
 	policy := (&timesheet.Config{}).EffectiveDaily()
 	cases := map[string]string{
 		"2026-10-26 09:00": "2026-10-23",            // Monday morning: Friday only
-		"2026-10-26 18:00": "2026-10-23,2026-10-26", // Monday evening: Friday and today
-		"2026-10-27 17:00": "2026-10-26,2026-10-27", // exactly log_after counts
-		"2026-10-31 18:00": "2026-10-30",            // Saturday: Friday only
+		"2026-10-26 21:59": "2026-10-23",            // Monday before 22:00: still Friday only
+		"2026-10-26 22:30": "2026-10-23,2026-10-26", // Monday night: Friday and today
+		"2026-10-27 22:00": "2026-10-26,2026-10-27", // exactly log_after counts
+		"2026-10-31 23:00": "2026-10-30",            // Saturday: Friday only
 	}
 	for at, want := range cases {
 		now, _ := time.ParseInLocation("2006-01-02 15:04", at, loc)

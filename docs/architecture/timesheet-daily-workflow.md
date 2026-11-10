@@ -353,7 +353,7 @@ timesheet outcome.
 
 ```json
 "daily": {
-  "log_after": "17:00",
+  "log_after": "22:00",
   "days": ["mon", "tue", "wed", "thu", "fri"],
   "desktop": true,
   "webhook_env": "TIMESHEET_WEBHOOK_URL",

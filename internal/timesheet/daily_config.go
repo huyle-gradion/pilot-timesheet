@@ -9,7 +9,7 @@ import (
 // has a default, so `timesheet daily` works without the section. It holds no
 // secret: the webhook URL is named by variable, never stored.
 type DailyConfig struct {
-	// LogAfter is the local HH:MM after which today is logged (default 17:00);
+	// LogAfter is the local HH:MM after which today is logged (default 22:00);
 	// earlier runs log only the previous working day, so a morning start never
 	// saves a half-finished day.
 	LogAfter string `json:"log_after,omitempty"`
@@ -29,7 +29,7 @@ type DailyConfig struct {
 	NotifyEmpty *bool `json:"notify_empty,omitempty"`
 }
 
-const DefaultDailyLogAfter = "17:00"
+const DefaultDailyLogAfter = "22:00"
 
 var defaultDailyDays = []string{"mon", "tue", "wed", "thu", "fri"}
 
