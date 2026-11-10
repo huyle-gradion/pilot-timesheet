@@ -39,9 +39,12 @@ Omitted `--date` means today in the configured timezone. The skill invokes
 | `stopped` | a real blocker: progression cannot be derived | print `reason`; do not guess |
 | `human_gates` | the day is ready for approval/submission | report the ready day, its `usage` and the attached submission status, stop |
 
-There is no `--answer` flag and no `--do` dispatcher. A judgment is the file at
-`judgment.answer_file`; the following `next` invocation consumes it only when
-its binding digest matches the current content.
+There is no `--answer` flag. Plain `next` is read-only: it derives one state
+and runs nothing. `next --do` is the dispatcher: it runs each derived action
+in-process and stops at the first judgment, `ask_human`, stop or human gate,
+and `--auto` also answers judgments with the configured judge. A judgment is
+the file at `judgment.answer_file`; the following invocation consumes it only
+when its binding digest matches the current content.
 
 `run` and `next` share the store's day folder `<state dir>/days/<date>/` for
 the draft and judgment answers, next to `<state dir>/entries/<date>.json`, so a
@@ -108,7 +111,7 @@ Both answer files carry the binding the report published, copied verbatim:
 
 | Owner | Owns | Never does |
 |---|---|---|
-| Compiled binary | derive state and content, read ledger/stage map/answers/store, construct argv | write artifacts, execute actions, decide identity or attendance |
+| Compiled binary | derive state and content, read ledger/stage map/answers/store, construct argv; under `next --do`, run the derived actions (and, with `--auto`, answer judgments) | decide identity or attendance, answer `ask_human`, approve or submit |
 | Timesheet skill | starting `next --do --auto`, relaying `ask_human`, reporting blockers or readiness (and, without a judge, the two bounded judgments) | answer `ask_human`, approve or submit during logging, resolve-write |
 | Human | source acknowledgement, attendance verdicts, identity resolution, approval, submission | rely on the agent to perform a TTY gate |
 
