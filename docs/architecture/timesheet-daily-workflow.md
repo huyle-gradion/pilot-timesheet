@@ -212,3 +212,27 @@ Read the implementation, not a pseudocode copy:
 Validation for this work: the parent baseline passed all Go tests on Linux;
 macOS was not run. The planner tests are hermetic with explicitly seeded
 catalog/store fixtures; live remote behavior remains owner-verified.
+
+## 11. Golden-day evaluation
+
+`timesheet eval export [--config <path>] [--out <file>]` writes the owner's
+saved days as a dataset: for each day, the draft the descriptions judgment saw
+with the accepted description per `block_id`, and the staged blocks the
+classifications judgment saw with the accepted `classification_id` per
+`interval_id`. A provider-confirmed submission's observed remote content is the
+truth when present (a later remote edit wins); otherwise the local ledger and
+saved selection are. A day part with a missing draft, an unreadable ledger, a
+stage map that no longer matches the ledger, or no accepted classification is
+listed in `skipped` with its reason and never counts as a pass. An empty store
+gives an empty dataset and a note.
+
+The dataset holds personal evidence: it defaults to `<state dir>/eval/golden.json`,
+any path inside a git work tree is refused, and it never carries configuration,
+credentials or env-file contents. Repository fixtures stay synthetic.
+
+`timesheet eval score --golden <file> [--candidate <file>]` reports the
+classification exact-match rate per interval and, for descriptions, coverage
+(every block answered) and mean word-set Jaccard similarity. Without
+`--candidate` it scores the accepted answers against themselves: the 100%
+self-check. The scorer is `timesheet.ScoreGolden`, a pure function the binary's
+own judgments (#241) call in tests.
