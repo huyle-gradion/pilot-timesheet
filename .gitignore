@@ -18,3 +18,5 @@ references/
 # Personal token/benchmark logs stay local; see scripts/tokens.py.
 benchmarks/tokens.csv
 benchmarks/metrics.csv
+# Retired pinned Pi launcher dependencies (#238): never tracked again
+pi/node_modules/
