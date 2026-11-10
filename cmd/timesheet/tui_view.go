@@ -64,6 +64,9 @@ func renderDay(m tuiModel) string {
 	case a.State == stateJudgment && a.Judgment != nil:
 		headPart.WriteString("\n")
 		renderJudgment(&headPart, &listRows, a, s)
+	case a.State == stateAskHuman && a.Ask != nil:
+		headPart.WriteString("\n")
+		renderAsk(&headPart, a.Ask, s)
 	case a.State == stateStopped:
 		// The blocker and remedy render verbatim; CLI remedies arrive as
 		// commands inside the reason text.
@@ -83,6 +86,21 @@ func renderDay(m tuiModel) string {
 func renderAction(b *strings.Builder, a nextAction, s uiStyles) {
 	b.WriteString(s.label.Render("argv") + "\n  " + sanitizeContent(shellJoin(a.Action.Cmd)) +
 		"\n" + s.label.Render("why") + "\n  " + sanitizeContent(a.Action.Why) + "\n")
+}
+
+// renderAsk writes the typed human question the CLI reports, verbatim.
+func renderAsk(head *strings.Builder, q *askHuman, s uiStyles) {
+	head.WriteString(s.label.Render("ask") + "          " + sanitizeContent(q.Kind) + "\n")
+	head.WriteString(s.label.Render("question") + "\n  " + sanitizeContent(q.Question) + "\n")
+	if len(q.Options) > 0 {
+		head.WriteString(s.label.Render("options") + "      " + sanitizeContent(strings.Join(q.Options, " | ")) + "\n")
+	}
+	head.WriteString(s.label.Render("answer file") + "  " + sanitizeContent(q.AnswerFile) + "\n")
+	head.WriteString(s.label.Render("digest") + "       " + sanitizeContent(q.Digest) + "\n")
+	if q.LastError != "" {
+		head.WriteString(s.label.Render("last error") + "\n  " + sanitizeContent(q.LastError) + "\n")
+	}
+	head.WriteString(s.label.Render("protocol") + "\n  " + sanitizeContent(q.Protocol) + "\n")
 }
 
 // renderJudgment writes the judgment's instruction surface (kind, answer file,

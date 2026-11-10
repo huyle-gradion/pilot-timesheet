@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
@@ -126,7 +125,6 @@ func deriveFinalizedDay(o nextObservation, n nextAction) nextAction {
 // re-preview. Equal timestamps are underivable and stop.
 func deriveBlockedPlan(o nextObservation, n nextAction, plan *timesheet.PlanSnapshot) nextAction {
 	reconcile := shellJoin(o.argv("reconcile"))
-	resolve := shellJoin(append(o.argv("resolve"), "--file", filepath.Join(o.artifactDir(), "resolve.json")))
 	blockers := blockerCodes(plan.Blockers)
 
 	observationAfter := false
@@ -162,7 +160,13 @@ func deriveBlockedPlan(o nextObservation, n nextAction, plan *timesheet.PlanSnap
 	} else {
 		head += ". Re-read the date for a fresh observation: " + reconcile
 	}
-	return n.withStop(head + "; the human then authors the resolve decision file and runs: " + resolve)
+	q := o.resolveAsk(plan, head)
+	answer, ask := o.ask(n, q)
+	if ask != nil {
+		return *ask
+	}
+	return n.withAction("resolve", append(o.argv("resolve"), "--file", q.AnswerFile),
+		"the human answered "+answer.Answer+" for the blocked plan "+plan.PlanID+" (via "+answer.Surface+")")
 }
 
 // deriveRecordedDay is the recorded-to-saved prefix. Every freshness decision
@@ -171,8 +175,11 @@ func deriveBlockedPlan(o nextObservation, n nextAction, plan *timesheet.PlanSnap
 // the sidecar's per-block digests bind to that projection.
 func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 	if o.ProjectBlocked {
-		return n.withStop("the configuration defines " + strings.Join(o.ProjectIDs, ", ") +
-			" projects and none was chosen; pass --project <id> to next (the staged intervals carry one project and next will not guess)")
+		// Several projects and none chosen: the human picks one (or passes
+		// --project); next never guesses.
+		q := projectAsk(o.Day, o.artifactDir(), o.ProjectIDs)
+		q.LastError = o.ProjectAskError
+		return n.withAsk(q)
 	}
 
 	if len(o.Units) == 0 {
@@ -311,20 +318,22 @@ func (o nextObservation) sourceGateStop(n nextAction) *nextAction {
 			return &stop
 		}
 	}
-	var unmet []string
+	// Acknowledgment is a human decision: each unacknowledged source is asked
+	// in turn, and only the human's bound answer licenses the acknowledge act.
 	for _, src := range o.Workflow.Sources {
 		if src.Complete || src.Acknowledged {
 			continue
 		}
-		unmet = append(unmet, src.Source+" ("+src.Status+"): "+
-			shellJoin(append(o.argv("acknowledge"), "--source", src.Source, "--collection-id", src.CollectionID)))
+		answer, ask := o.ask(n, o.sourceAckAsk(src))
+		if ask != nil {
+			return ask
+		}
+		act := n.withAction("acknowledge",
+			append(o.argv("acknowledge"), "--source", src.Source, "--collection-id", src.CollectionID),
+			"the human answered acknowledge for the "+src.Source+" collection "+src.CollectionID+" (via "+answer.Surface+")")
+		return &act
 	}
-	if len(unmet) == 0 {
-		return nil
-	}
-	stop := n.withStop("the source gate is closed by an unacknowledged attempt; acknowledgment is a human decision, so next " +
-		"will not run it. The exact command(s): " + strings.Join(unmet, " | "))
-	return &stop
+	return nil
 }
 
 // --- argv construction -------------------------------------------------------

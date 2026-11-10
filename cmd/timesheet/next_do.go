@@ -24,6 +24,9 @@ type actDispatcher struct {
 	day        string
 	project    string
 	held       *headlessSession
+	// cmd is the derived argv the act runs, for acts whose inputs are
+	// carried by their argv (acknowledge, resolve).
+	cmd []string
 }
 
 // run executes one act and returns ONE bounded notice line. It never writes a
@@ -55,6 +58,10 @@ func (d actDispatcher) exec(h *headlessSession, step string) (string, error) {
 		return d.candidatesStep(h)
 	case "classify-history":
 		return d.classifyHistoryStep(h)
+	case "acknowledge":
+		return d.acknowledgeStep(h)
+	case "resolve":
+		return d.resolveStep(h)
 	case "classify-default":
 		return d.classifyDefaultStep(h)
 	case "save":
@@ -129,6 +136,7 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 			return advanceReport{nextAction: stop, Ran: ran}, nil
 		}
 		seen[key] = true
+		d.cmd = a.Action.Cmd
 		notice, actErr := d.run(step)
 		_, _, _, judged := judgedAnswer(obs, a)
 		if actErr != nil {
