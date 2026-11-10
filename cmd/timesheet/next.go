@@ -11,11 +11,11 @@ package main
 // The predicate order below IS the pipeline. It is grounded in what the binary
 // actually persists, which differs from the design sketch in two places:
 //
-//   - A finalized day is derived FIRST. The draft lives in $TMPDIR, so its
+//   - A finalized day is derived FIRST. The draft is a working file, so its
 //     absence says nothing about a saved day; re-running the collect flow after
 //     save would be refused by the verbs anyway.
 //   - A recorded day is monotone: once entries exist, the draft/descriptions
-//     judgment is over even if a fresh TMPDIR no longer holds the artifacts.
+//     judgment is over even if the day folder no longer holds the artifacts.
 //     Re-judging a recorded day would re-run a paid judgment for no progress.
 //
 // Day.Staged and Day.SavedRevision are session-only fields (model.go), so the

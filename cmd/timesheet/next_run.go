@@ -154,6 +154,15 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 		return nextObservation{}, nil, err
 	}
 
+	// A day left in the pre-#233 temp location is reported, never restarted.
+	legacy, err := legacyDayArtifactsStop(cfg.StatePath, day, dir)
+	if err != nil {
+		return nextObservation{}, nil, err
+	}
+	if legacy != "" {
+		return obs, stoppedAction(day, legacy), nil
+	}
+
 	// Durable facts are read under the store's exclusive lock, which the caller
 	// holds. An unreadable durable fact is an underivable state and returns a
 	// typed stop document; only CLI/flag errors and the store's own lock
