@@ -117,9 +117,20 @@ See [ADR 0009](../adr/0009-chat-confirmed-submission.md).
 
 The agent never silently acknowledges a source, guesses a meeting verdict,
 binds an identity or reuses a stale plan. An explicitly user-authorized
-decision is performed exactly once where safe. A repeated failed action is
-repaired only when the error is an answer-file validation error; otherwise it
-stops with one line rather than looping.
+decision is performed exactly once where safe.
+
+Repair-once is enforced by `next --do`, not by skill text. When `record` or
+`classify` rejects a bound answer's content (`bad_request`, `unknown_interval`,
+`unknown_classification`, `stale_catalog`), the failure is saved in the day
+folder as `judgment-failures.json` (`kind`, judged `digest`, rejected
+`answer_sha`, `failures`, `last_error`). The next report repeats the same
+judgment with `judgment.last_error`, one line of at most 300 characters. While
+the answer bytes are unchanged, the act is not re-run. A second rejected answer
+for the same judged content stops with `judgment_failed: <kind>: <error>`; a
+rewritten answer after that stop is tried again, so the day stays resumable. A
+change in the judged content resets the count, and a successful act removes
+the record. Every other act failure keeps `action_failed: <step>: <error>` with
+no retry.
 
 ## 6. Freshness proofs
 

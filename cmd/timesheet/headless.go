@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -1590,6 +1591,11 @@ func applySelections(h *headlessSession, date string, revision int, selections m
 			CatalogID: sel.CatalogID, ClassificationID: sel.ClassificationID,
 		})
 		if err != nil {
+			// Name the interval, so a rejected answer says which selection.
+			var app *timesheet.AppError
+			if errors.As(err, &app) {
+				return nil, &timesheet.AppError{Code: app.Code, Message: "interval " + id + ": " + app.Message}
+			}
 			return nil, err
 		}
 		mutation, ok := res.(timesheet.ClassificationSelection)

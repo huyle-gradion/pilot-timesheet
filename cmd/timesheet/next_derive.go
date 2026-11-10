@@ -17,6 +17,12 @@ import (
 // deriveDayNext is the pure switch. It must not read the filesystem, the store,
 // the clock or the environment.
 func deriveDayNext(o nextObservation) nextAction {
+	return applyRepairPolicy(o, derivePipeline(o))
+}
+
+// derivePipeline is the predicate order itself; deriveDayNext adds the
+// repair-once answer policy on top.
+func derivePipeline(o nextObservation) nextAction {
 	n := nextAction{Day: o.Day}
 
 	if o.Workflow.Finalized {

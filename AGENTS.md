@@ -61,8 +61,8 @@ it names, copying the report's `draft_digest`/`ledger_digest` verbatim),
 read-only `submit-status`, report the ready plan, stop).
 The descriptions judgment reads only the draft the protocol names; the
 classification judgment is self-contained in `judgment.blocks[]` and needs no
-draft or `$TMP` artifact. A repeated failed action is repaired only when the
-answer file has a validation error, otherwise it stops with one line. Stopped
+draft or `$TMP` artifact. The binary enforces repair-once: a rejected
+answer is re-asked once with `last_error`, then stops as `judgment_failed`. Stopped
 states are never silently acknowledged, guessed or resolved; an explicitly
 user-authorized decision is performed exactly once where safe. It is
 runner-agnostic (Pi or any agent with shell access). It never runs the
