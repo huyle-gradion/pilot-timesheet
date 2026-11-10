@@ -52,8 +52,14 @@ func proofOf(entries []timesheet.EntryRecord, stageMap map[string][]string) ([]l
 func unclassifiedDay() nextObservation {
 	entries := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "10:00", "Synthetic work")}
 	stageMap := map[string][]string{"work-1": {"iv-1"}}
-	units, _, _ := proofOf(entries, stageMap)
+	units, _, digest := proofOf(entries, stageMap)
 	return nextObservation{
+		Candidates: &candidatesFile{
+			LedgerDigest: digest,
+			Sets: []nextCandidateSet{{Ref: "c1", Query: "Synthetic work", CatalogID: "cat-1", Complete: true,
+				Options: []nextCandidateOption{{ClassificationID: "cls-1", Label: "Development"}}}},
+			Intervals: map[string]string{"iv-1": "c1"},
+		},
 		Day:                 nextDay,
 		Exe:                 nextExe,
 		ConfigPath:          nextConfig,
@@ -326,6 +332,12 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: changed}
 		o.Units = ledgerUnits(changed, nextDay)
 		n := deriveDayNext(o)
+		if n.State != stateAction || n.Step != "candidates" {
+			t.Fatalf("state/step = %q/%q, want fresh candidates after a content change", n.State, n.Step)
+		}
+		_, _, digest := proofOf(changed, o.Artifacts.StageMap)
+		o.Candidates = &candidatesFile{LedgerDigest: digest, Intervals: map[string]string{}}
+		n = deriveDayNext(o)
 		if n.State != stateJudgment || n.Step != "classify" {
 			t.Fatalf("state/step = %q/%q, want the classification judgment after a content change", n.State, n.Step)
 		}
@@ -554,7 +566,7 @@ func TestDeriveDayNextHumanGates(t *testing.T) {
 // derived verb set is closed, and no generation emits a human-gated or
 // revision/replace verb under any observation shape.
 func TestDeriveDayNextNeverEmitsHumanVerbs(t *testing.T) {
-	derivable := map[string]bool{"run": true, "record": true, "stage": true, "classify": true, "save": true, "plan": true}
+	derivable := map[string]bool{"run": true, "record": true, "stage": true, "classify": true, "save": true, "plan": true, "classifications": true}
 	observations := []nextObservation{unclassifiedDay(), recordedDay(), finalizedDay()}
 	variants := []func(*nextObservation){
 		func(o *nextObservation) { o.Artifacts.StageMap = nil },

@@ -1246,7 +1246,9 @@ func runClassifications(args []string) error {
 	flags.SetOutput(os.Stderr)
 	configFlag := flags.String("config", "", "configuration path (optional; defaults to $HOME/.timesheet/config.json)")
 	envFlag := flags.String("env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
-	query := flags.String("query", "", "search text for the bounded classification read (required)")
+	query := flags.String("query", "", "search text for the bounded classification read (required unless --candidates)")
+	candidates := flags.Bool("candidates", false, "read the catalog for the day's staged intervals and write the day's candidates.json")
+	date := flags.String("date", "", "the day for --candidates (YYYY-MM-DD; defaults to today)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -1256,6 +1258,12 @@ func runClassifications(args []string) error {
 	configPath, envFile, err := resolveStoreFlags("classifications", *configFlag, *envFlag)
 	if err != nil {
 		return err
+	}
+	if *candidates {
+		if *query != "" {
+			return fmt.Errorf("classifications accepts either --query or --candidates, not both")
+		}
+		return runCandidates(configPath, envFile, *date)
 	}
 	if strings.TrimSpace(*query) == "" {
 		return fmt.Errorf("classifications requires --query")

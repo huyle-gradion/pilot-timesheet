@@ -146,6 +146,7 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 		DraftPath:        filepath.Join(dir, "draft.json"),
 		DescriptionsPath: filepath.Join(dir, "descriptions.json"),
 		ChoicesPath:      filepath.Join(dir, "choices.json"),
+		CandidatesPath:   filepath.Join(dir, "candidates.json"),
 		SidecarPath:      timesheet.ChoicesPath(cfg.StatePath, day),
 		GradionEnabled:   cfg.Gradion != nil && cfg.Gradion.Enabled,
 	}
@@ -219,6 +220,10 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 	}
 	obs.ChoicesPresent, obs.ChoicesBinding = answer.Present, answer.Binding
 	obs.Choices, obs.ChoicesError = answer.Selections, answer.SelectionError
+	obs.Candidates, err = readCandidatesFile(obs.CandidatesPath)
+	if err != nil {
+		return obs, stoppedAction(day, "cannot read the catalog candidates "+obs.CandidatesPath+": "+err.Error()), nil
+	}
 	return obs, nil, nil
 }
 

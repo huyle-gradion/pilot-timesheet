@@ -86,6 +86,11 @@ type nextJudgment struct {
 	DraftDigest  string      `json:"draft_digest,omitempty"`
 	LedgerDigest string      `json:"ledger_digest,omitempty"`
 	Blocks       []nextBlock `json:"blocks,omitempty"`
+	// Candidates are the prefetched catalog option lists the classifications
+	// answer picks from; each block names its set by ref (issue #234).
+	Candidates []nextCandidateSet `json:"candidates,omitempty"`
+	// CandidatesNote reports intervals left without candidates by the bound.
+	CandidatesNote string `json:"candidates_note,omitempty"`
 	// Draft is the exact document a descriptions answer must judge: the same
 	// parse record consumes, embedded instead of re-rendered, so the model
 	// never reads draft.json and no second read can disagree with the digest.
@@ -102,6 +107,9 @@ type nextBlock struct {
 	Start       string `json:"start"`
 	End         string `json:"end"`
 	Description string `json:"description"`
+	// Candidates is the ref of this interval's set in judgment.candidates;
+	// empty when the interval has no candidates.
+	Candidates string `json:"candidates"`
 }
 
 // nextHumanGates is the terminal state: the two human-only commands, the
@@ -136,6 +144,7 @@ type nextObservation struct {
 	DraftPath        string
 	DescriptionsPath string
 	ChoicesPath      string
+	CandidatesPath   string
 	// SidecarPath is the durable classification sidecar the verbs replay.
 	SidecarPath string
 	// DraftPresent/DraftValid report the draft artifact and whether it parses
@@ -160,6 +169,9 @@ type nextObservation struct {
 	ChoicesBinding      string
 	Choices             map[string]timesheet.ClassificationChoiceEntry
 	ChoicesError        error
+	// Candidates is the parsed candidates.json (nil when absent); it is used
+	// only when its ledger_digest binds to the current staged ledger.
+	Candidates *candidatesFile
 
 	// Artifacts is the ledger and its sidecars, one validated parse each.
 	Artifacts timesheet.DayArtifacts

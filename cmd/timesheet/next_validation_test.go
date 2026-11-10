@@ -131,7 +131,7 @@ func TestNextClassificationAnswersAreIsolatedByStore(t *testing.T) {
 		})
 		runStageCapture(t, []string{"--config", cfg, "--date", testDate})
 	}
-	judgment := nextDoc(t, "--config", first, "--date", testDate)
+	judgment := nextJudgmentDoc(t, first, "cat-1", "--config", first, "--date", testDate)
 	if judgment.State != stateJudgment || judgment.Judgment.Kind != judgmentClassifications {
 		t.Fatalf("first store = %+v, want classification judgment", judgment)
 	}
@@ -140,7 +140,7 @@ func TestNextClassificationAnswersAreIsolatedByStore(t *testing.T) {
 	if got := nextDoc(t, "--config", first, "--date", testDate); got.Step != "classify" || got.State != stateAction {
 		t.Fatalf("first store did not consume its own bound answer: %+v", got)
 	}
-	got := nextDoc(t, "--config", second, "--date", testDate)
+	got := nextJudgmentDoc(t, second, "cat-1", "--config", second, "--date", testDate)
 	if got.State != stateJudgment || got.Judgment.AnswerFile == judgment.Judgment.AnswerFile {
 		t.Fatalf("second store consumed first store's choices: %+v", got)
 	}
