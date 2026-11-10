@@ -38,6 +38,7 @@ type classificationAnswer struct {
 	Binding        string
 	Selections     map[string]timesheet.ClassificationChoiceEntry
 	SelectionError error
+	SHA            string
 }
 
 func readClassificationAnswer(path string) (classificationAnswer, error) {
@@ -52,11 +53,11 @@ func readClassificationAnswer(path string) (classificationAnswer, error) {
 		LedgerDigest string `json:"ledger_digest"`
 	}
 	if err := json.Unmarshal(data, &answer); err != nil {
-		return classificationAnswer{Present: true}, nil
+		return classificationAnswer{Present: true, SHA: answerSHA(data)}, nil
 	}
 	choices, selectionErr := timesheet.ParseClassificationChoices(data)
 	return classificationAnswer{
-		Present: true, Binding: answer.LedgerDigest,
+		Present: true, Binding: answer.LedgerDigest, SHA: answerSHA(data),
 		Selections: choices, SelectionError: selectionErr,
 	}, nil
 }

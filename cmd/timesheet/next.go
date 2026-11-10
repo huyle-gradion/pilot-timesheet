@@ -96,6 +96,9 @@ type nextJudgment struct {
 	// never reads draft.json and no second read can disagree with the digest.
 	// Absent for the classifications judgment.
 	Draft *timesheet.Draft `json:"draft,omitempty"`
+	// LastError is the one-line reason the previous answer for this same
+	// content was rejected (issue #240); absent when no answer has failed.
+	LastError string `json:"last_error,omitempty"`
 }
 
 // nextBlock is one staged interval's current recorded content, so the
@@ -169,6 +172,12 @@ type nextObservation struct {
 	ChoicesBinding      string
 	Choices             map[string]timesheet.ClassificationChoiceEntry
 	ChoicesError        error
+	// DescriptionsSHA/ChoicesSHA identify the exact answer bytes, so the
+	// repair policy can tell a rewritten answer from the rejected one.
+	DescriptionsSHA string
+	ChoicesSHA      string
+	// JudgmentFailure is the day's saved rejected-answer record, if any.
+	JudgmentFailure *judgmentFailure
 	// Candidates is the parsed candidates.json (nil when absent); it is used
 	// only when its ledger_digest binds to the current staged ledger.
 	Candidates *candidatesFile

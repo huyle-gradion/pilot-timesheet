@@ -210,7 +210,7 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 			obs.DraftValid, obs.DraftBlocks, obs.Draft = true, len(parsed.Blocks), &parsed
 		}
 	}
-	obs.DescriptionsPresent, obs.DescriptionsBinding, err = readAnswerBinding(obs.DescriptionsPath, "draft_digest")
+	obs.DescriptionsPresent, obs.DescriptionsBinding, obs.DescriptionsSHA, err = readAnswerBinding(obs.DescriptionsPath, "draft_digest")
 	if err != nil {
 		return obs, stoppedAction(day, "cannot read the descriptions answer "+obs.DescriptionsPath+": "+err.Error()), nil
 	}
@@ -218,7 +218,11 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 	if err != nil {
 		return obs, stoppedAction(day, "cannot read the classification answer "+obs.ChoicesPath+": "+err.Error()), nil
 	}
-	obs.ChoicesPresent, obs.ChoicesBinding = answer.Present, answer.Binding
+	obs.ChoicesPresent, obs.ChoicesBinding, obs.ChoicesSHA = answer.Present, answer.Binding, answer.SHA
+	obs.JudgmentFailure, err = readJudgmentFailure(filepath.Join(dir, judgmentFailuresFile))
+	if err != nil {
+		return obs, stoppedAction(day, "cannot read the judgment failure record in "+dir+": "+err.Error()), nil
+	}
 	obs.Choices, obs.ChoicesError = answer.Selections, answer.SelectionError
 	obs.Candidates, err = readCandidatesFile(obs.CandidatesPath)
 	if err != nil {

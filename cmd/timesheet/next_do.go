@@ -128,10 +128,26 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 		}
 		seen[key] = true
 		notice, actErr := d.run(step)
+		_, _, _, judged := judgedAnswer(obs, a)
 		if actErr != nil {
 			ran = append(ran, advanceStep{Step: step, Result: "failed", Error: boundedNotice(actErr.Error())})
+			if judged && isAnswerValidation(actErr) {
+				// The answer itself was rejected: save it and re-derive, which
+				// re-asks the judgment once with last_error or stops with
+				// judgment_failed (issue #240).
+				if err := recordJudgmentFailure(d.cfg, d.day, obs, a, actErr); err != nil {
+					failed := nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + err.Error())
+					return advanceReport{nextAction: failed, Ran: ran}, err
+				}
+				continue
+			}
 			failed := nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + actErr.Error())
 			return advanceReport{nextAction: failed, Ran: ran}, actErr
+		}
+		if judged {
+			if err := clearJudgmentFailure(d.cfg, d.day); err != nil {
+				return advanceReport{nextAction: nextAction{Day: a.Day}.withStop(err.Error()), Ran: ran}, err
+			}
 		}
 		ran = append(ran, advanceStep{Step: step, Result: "ok", Notice: boundedNotice(notice)})
 	}

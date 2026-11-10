@@ -187,21 +187,22 @@ func draftDigest(data []byte) string {
 // presence and its binding value (empty when the file is absent, not JSON, or
 // carries no binding). An unbound answer is treated as stale: the judgment is
 // requested again rather than a stale file handed to the consuming verb.
-func readAnswerBinding(path, key string) (present bool, binding string, err error) {
+func readAnswerBinding(path, key string) (present bool, binding, sha string, err error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, "", nil
+		return false, "", "", nil
 	}
 	if err != nil {
-		return false, "", err
+		return false, "", "", err
 	}
+	sha = answerSHA(data)
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		return true, "", nil
+		return true, "", sha, nil
 	}
 	var value string
 	if err := json.Unmarshal(envelope[key], &value); err != nil {
-		return true, "", nil
+		return true, "", sha, nil
 	}
-	return true, value, nil
+	return true, value, sha, nil
 }
