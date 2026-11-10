@@ -40,6 +40,9 @@ func runLog(args []string) error {
 	if f.do || f.auto {
 		return fmt.Errorf("log always runs the day; drop --do and --auto (the judge section decides whether judgments are answered in-process)")
 	}
+	if f.maxActionsSet && f.maxActions < 1 {
+		return fmt.Errorf("log: --max-actions must be at least 1")
+	}
 	cfg, err := timesheet.LoadConfig(f.configPath)
 	if err != nil {
 		return err

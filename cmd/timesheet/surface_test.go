@@ -119,11 +119,14 @@ func TestLogRunsTheDayAndRejectsTheOldFlags(t *testing.T) {
 	if err := runLog([]string{"--config", cfg, "--do"}); err == nil || !strings.Contains(err.Error(), "drop --do and --auto") {
 		t.Fatalf("log --do = %v", err)
 	}
+	if err := runLog([]string{"--config", cfg, "--max-actions", "0"}); err == nil || !strings.Contains(err.Error(), "at least 1") {
+		t.Fatalf("log --max-actions 0 = %v", err)
+	}
 }
 
 func TestRetiredCommandsNameTheirReplacement(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "timesheet")
-	if out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	for old, want := range map[string]string{
@@ -131,7 +134,7 @@ func TestRetiredCommandsNameTheirReplacement(t *testing.T) {
 		"submit-status": "timesheet submit status", "resolve-write": "timesheet submit resolve",
 		"collect": "timesheet log", "draft": "timesheet log", "confirm": "timesheet log",
 	} {
-		cmd := exec.Command(binary, old, "--date", testDate)
+		cmd := exec.CommandContext(t.Context(), binary, old, "--date", testDate)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		err := cmd.Run()

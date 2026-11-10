@@ -213,8 +213,9 @@ state schema changes. Chat consent is agent-enforced, not human-presence proof;
 see [ADR 0009](../adr/0009-chat-confirmed-submission.md).
 
 Token usage comes from the binary: each `log` report that used the judge carries
-`usage`, judge calls are logged in the day folder, and `judge.tokens_csv`
-appends one row per run to `benchmarks/tokens.csv`. `scripts/tokens.py`
+`usage`, and judge calls are logged in the day folder. When `judge.tokens_csv`
+names a file (typically the repository's `benchmarks/tokens.csv`), each run
+appends one row there; when it is empty, no row is written. `scripts/tokens.py`
 remains only to import usage from historical agent-session transcripts
 (Claude Code, Pi and pig stores) into the same file; it keeps existing rows,
 never blocks the day, and copies no transcript content.

@@ -164,7 +164,7 @@ func TestAgentSubmitCLIFromForeignDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(dir, "timesheet")
-	build := exec.Command("go", "build", "-o", binary, ".")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
 	build.Env = append(os.Environ(), "HOME="+buildHome, "GOPROXY=off", "GOTOOLCHAIN=local")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, output)
@@ -179,7 +179,7 @@ func TestAgentSubmitCLIFromForeignDirectory(t *testing.T) {
 	}
 	run := func(args ...string) []byte {
 		t.Helper()
-		cmd := exec.Command(binary, append([]string{"submit", "--chat"}, args...)...)
+		cmd := exec.CommandContext(t.Context(), binary, append([]string{"submit", "--chat"}, args...)...)
 		cmd.Dir = dir
 		out, err := cmd.Output()
 		if err != nil {
