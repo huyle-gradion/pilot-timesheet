@@ -234,7 +234,7 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	executable(t, step)
 
 	// 2. the classification judgment carries the current content and binding.
-	step = nextDoc(t, args...)
+	step = nextJudgmentDoc(t, cfg, "cat-1", args...)
 	if step.State != stateJudgment || step.Judgment == nil || step.Judgment.Kind != judgmentClassifications {
 		t.Fatalf("state = %+v, want the classification judgment", step)
 	}
@@ -283,7 +283,7 @@ func TestNextClassificationContentBinding(t *testing.T) {
 		{BlockID: "work-1", Date: testDate, Start: "09:00", End: "10:00", Description: "Build the bridge, edited", Kind: "work"},
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Review the deck", Kind: "work"},
 	})
-	step = nextDoc(t, args...)
+	step = nextJudgmentDoc(t, cfg, "cat-1", args...)
 	if step.State != stateJudgment || step.Step != "classify" {
 		t.Fatalf("state/step = %q/%q, want a fresh classification judgment after a content edit", step.State, step.Step)
 	}

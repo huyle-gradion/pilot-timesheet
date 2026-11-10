@@ -31,6 +31,10 @@ type stubRemote struct {
 	mu      sync.Mutex
 	entries map[string][]map[string]any
 	calls   []string
+	// classifications is the get_classifications text content; with
+	// classificationsError the tool returns a tool-level error instead.
+	classifications      string
+	classificationsError bool
 }
 
 func (s *stubRemote) setEntries(date string, entries []map[string]any) {
@@ -91,6 +95,12 @@ func (s *stubRemote) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				},
 				"content": []any{map[string]any{"type": "text", "text": "week"}},
 			}
+		case "timesheet__get_classifications":
+			if s.classificationsError || s.classifications == "" {
+				result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "catalog unavailable"}}}
+				break
+			}
+			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": s.classifications}}}
 		default:
 			result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "unexpected tool"}}}
 		}

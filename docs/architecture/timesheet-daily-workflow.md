@@ -63,8 +63,21 @@ Both answer files carry the binding the report published, copied verbatim:
 - Descriptions are judged from the draft path named in `judgment.protocol`; the
   answer is bound to those exact draft bytes.
 - Classifications are judged from `judgment.blocks[]` (`interval_id`,
-  `block_id`, `start`, `end`, `description`). The judgment is self-contained:
-  no draft, descriptions file or temporary artifact is needed.
+  `block_id`, `start`, `end`, `description`, `candidates`) and
+  `judgment.candidates[]`. The judgment is self-contained: no draft,
+  descriptions file, temporary artifact or catalog query is needed.
+- Before that judgment, `next` derives the deterministic `candidates` action
+  (`classifications --date <day> --candidates`). It reads the live catalog once
+  per distinct topic (the block description without its `PRs:` list, first
+  line, at most 80 characters; `candidateQuery` is the one place to change
+  that), caches each catalog in the store as `classifications --query` does,
+  and writes `candidates.json` in the day folder bound to the staged ledger's
+  `ledger_digest`. A catalog failure fails the step closed and writes nothing.
+  At most 12 distinct topics are read and at most 10 options are kept per
+  topic, so the judgment carries at most 120 options however many intervals the
+  day has; a capped or provider-truncated set says `complete: false`, and
+  intervals beyond the topic bound are named in `judgment.candidates_note`. A
+  ledger edit makes the file stale, and `next` asks for the step again.
 - An absent, malformed or stale binding is re-judged. A stale answer is never
   handed to `record` or `classify`, and `next` emits the `classify` action only
   after the file's `ledger_digest` matches the current staged ledger.

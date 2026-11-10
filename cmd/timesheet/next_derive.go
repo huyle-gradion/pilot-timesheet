@@ -213,18 +213,28 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 		if o.ChoicesPresent {
 			why = "the classification answer at " + o.ChoicesPath + " is stale (its ledger_digest does not match the current staged ledger)"
 		}
+		// The catalog is read by a deterministic step first, so the judgment
+		// is a pick from closed lists bound to this same ledger.
+		if o.Candidates == nil || o.Candidates.LedgerDigest != digest {
+			return n.withAction("candidates", append(o.argv("classifications"), "--candidates"),
+				"no catalog candidates are bound to the current staged ledger; read the catalog once per distinct topic before the classification judgment")
+		}
+		jb := judgmentBlocks(blocks)
 		return n.withJudgment("classify", nextJudgment{
-			Kind:         judgmentClassifications,
-			Day:          o.Day,
-			AnswerFile:   o.ChoicesPath,
-			LedgerDigest: digest,
-			Blocks:       judgmentBlocks(blocks),
+			Kind:           judgmentClassifications,
+			Day:            o.Day,
+			AnswerFile:     o.ChoicesPath,
+			LedgerDigest:   digest,
+			Candidates:     judgmentCandidates(o.Candidates, jb),
+			CandidatesNote: o.Candidates.Note,
+			Blocks:         jb,
 			Protocol: "write {\"ledger_digest\":\"" + digest +
 				"\",\"selections\":{\"<interval_id>\":{\"catalog_id\":\"...\",\"classification_id\":\"...\"}}} to " +
 				o.ChoicesPath + "; copy ledger_digest verbatim from this report (an answer bound to different content is stale " +
 				"and will be asked for again); interval_ids and the recorded descriptions are listed in blocks — no draft or " +
-				"descriptions artifact is needed; catalog_id and classification_id are copied verbatim from a " +
-				"`classifications --query <text>` receipt, which reads the live catalog; {\"selections\":{}} is the documented no-op — " + why,
+				"descriptions artifact is needed; for each interval pick at most one option from the candidates set its block " +
+				"names, copying that set's catalog_id and the option's classification_id verbatim; omit an interval with no " +
+				"fitting candidate; do not query the catalog; {\"selections\":{}} is the documented no-op — " + why,
 		})
 	}
 	if !o.GradionEnabled && o.Artifacts.ChoicesPresent && !binds {

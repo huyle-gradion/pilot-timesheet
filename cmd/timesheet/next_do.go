@@ -51,6 +51,8 @@ func (d actDispatcher) exec(h *headlessSession, step string) (string, error) {
 		return d.stageStep(h)
 	case "classify":
 		return d.classifyStep(h)
+	case "candidates":
+		return d.candidatesStep(h)
 	case "classify-default":
 		return d.classifyDefaultStep(h)
 	case "save":
