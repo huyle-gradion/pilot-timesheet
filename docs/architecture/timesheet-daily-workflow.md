@@ -327,3 +327,86 @@ classification exact-match rate per interval and, for descriptions, coverage
 `--candidate` it scores the accepted answers against themselves: the 100%
 self-check. The scorer is `timesheet.ScoreGolden`, a pure function the binary's
 own judgments (#241) call in tests.
+
+## 13. Scheduled daily log (`timesheet daily`)
+
+Issue #243. `timesheet daily [--config] [--env-file]` is what the scheduler
+runs. It needs a `judge` section (§12) and logs, through `next --do --auto`:
+
+- the **previous working day**, every run, so a machine that was off in the
+  evening catches up at the next start; and
+- **today**, only at or after `daily.log_after`, so a morning start never saves
+  a half-finished day (a recorded day is not re-judged).
+
+Each day then gets one notification, and the same result is never notified
+twice (`<day folder>/notified.sha256`). A second run while one holds
+`<state dir>/daily.lock` exits at once. The notification carries only the day,
+counts, the reason or question, and the command to run:
+
+| Result | Notification |
+|---|---|
+| `human_gates` | `<day>: <n> entries, <h>h<mm>m ready to submit. Review and approve in a terminal: <approve command>` |
+| `ask_human` | the question, its options, the answer file, and the command to resume |
+| no evidence | `<day>: nothing to log` (skipped with `"notify_empty": false`) |
+| `stopped` or an error | the reason |
+
+Approval stays in the terminal: no notification or webhook can approve or
+write. A failed notification is logged to stderr and never changes the
+timesheet outcome.
+
+```json
+"daily": {
+  "log_after": "22:00",
+  "days": ["mon", "tue", "wed", "thu", "fri"],
+  "desktop": true,
+  "webhook_env": "TIMESHEET_WEBHOOK_URL",
+  "webhook_kind": "discord",
+  "notify_empty": true
+}
+```
+
+Every field is optional; the values above are the defaults, except that
+`webhook_env` is unset by default. Desktop notifications use `notify-send` on
+Linux and `osascript` on macOS (or `desktop_command`, with the message
+appended as its last argument). The webhook URL is a secret, read from the env
+file by the variable name in `webhook_env`; `webhook_kind` is `discord` or
+`slack`.
+
+### Install (Linux, systemd user timer)
+
+`timesheet daily --print-units systemd` prints the service and timer with this
+binary's absolute path and the resolved config and env paths. The timer runs
+at `log_after` on the working days, three minutes after login
+(`OnStartupSec`), and catches up a missed run at the next start
+(`Persistent=true`).
+
+```bash
+timesheet daily --print-units systemd > /tmp/pilot-units.txt
+# split at the "# file:" lines into ~/.config/systemd/user/pilot-timesheet-daily.{service,timer}
+systemd-analyze verify --user ~/.config/systemd/user/pilot-timesheet-daily.{service,timer}   # dry run
+systemd-analyze calendar "$(grep ^OnCalendar ~/.config/systemd/user/pilot-timesheet-daily.timer | cut -d= -f2)"
+systemctl --user daemon-reload
+systemctl --user enable --now pilot-timesheet-daily.timer
+systemctl --user list-timers pilot-timesheet-daily.timer
+```
+
+`notify-send` needs the session bus in the user manager's environment. Most
+desktops import it; if notifications don't appear, run
+`systemctl --user import-environment DISPLAY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS`
+from the session's startup. Run once by hand with
+`systemctl --user start pilot-timesheet-daily.service` and read the result with
+`journalctl --user -u pilot-timesheet-daily.service`.
+
+### Install (macOS, launchd agent)
+
+```bash
+timesheet daily --print-units launchd > ~/Library/LaunchAgents/com.pilot-timesheet.daily.plist   # drop the first comment line
+plutil -lint ~/Library/LaunchAgents/com.pilot-timesheet.daily.plist                              # dry run
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pilot-timesheet.daily.plist
+```
+
+The agent runs at login (`RunAtLoad`) and at `log_after` on each working day.
+
+The scheduled run uses `--auto`, so the same gate applies as in §12: it is not
+recommended in the README until the judge meets the owner's golden-day eval
+threshold.
