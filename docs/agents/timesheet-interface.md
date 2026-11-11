@@ -9,7 +9,8 @@ implemented surface is the accepted R1-R5 slices: the local review-first
 workflow, R2 verification-only evidence collection, the R3 migration/read-only
 boundary, the R4 native approval ledger and ONE verified submission path, and
 the R5 pinned Pi consumer (retired in `0.2.0-dev.10`: the native `tui` verb is
-the operator surface and `serve` remains the protocol server). R6 changes no
+the operator surface; `serve` stays as an internal command whose only consumer
+is legacy migration, see below). R6 changes no
 protocol, schema or store behavior: it
 retires the legacy CLI, moves the one entry point to `cmd/timesheet` and makes
 `bin/timesheet` the production-named child. The stage descriptions below remain
@@ -36,23 +37,50 @@ complete observation.
 
 ## Command line
 
+The public surface (`timesheet help` prints it):
+
 ```text
+timesheet init [--project <id>=<name>[=<classification>]]... [--seed-config <path>] [--tz <IANA>]
+timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--max-actions <n>]
+timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet status [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
+timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
+timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
+timesheet submit status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
+timesheet submit resolve [--config <path>] [--env-file <path>] --file <decision.json>
+timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
+timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet eval export [--config <path>] [--out <file outside any repository>]
+timesheet eval score --golden <file> [--candidate <file>]
 timesheet version
-timesheet serve --config <path> --env-file <path>
-timesheet collect --config <path> [--env-file <path>] [--date <YYYY-MM-DD>]
-timesheet draft --config <path> [--env-file <path>] [--date <YYYY-MM-DD>]
-timesheet run --config <path> [--env-file <path>] [--date <YYYY-MM-DD>]
-timesheet record --config <path> [--date <YYYY-MM-DD>] --file <reviewed.json>
-timesheet status --config <path> [--env-file <path>] [--date <YYYY-MM-DD>]
-timesheet tui --config <path> [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
 ```
+
+Internal commands stay callable but are not part of the public surface: the
+steps `next` derives (`run`, `record`, `stage`, `classifications`, `classify`,
+`save`, `plan`, `acknowledge`, `decide`, `reconcile`, `resolve`) and the
+JSONL protocol command:
+
+```text
+timesheet serve --config <path> --env-file <path>
+```
+
+A removed command (`setup`, `approve`, `agent-submit`, `submit-status`,
+`resolve-write`, `collect`, `draft`, `confirm`) exits `2` with one line naming
+its replacement.
 
 `version` prints the application version and protocol schema and exits 0. It
 loads no configuration, environment file, credentials, or evidence.
 
-`serve` starts one persistent process. It reads one JSON request per line from
-stdin and writes one JSON response per line to stdout. Diagnostics go to stderr
-and are sanitized. The process never launches a shell.
+`serve` is internal. Its only consumer is legacy migration: `migration_preview`
+and `migration_apply` exist only as `serve` ops, and there is no CLI verb for
+them. Every other op in the protocol tables below is also reachable through the
+public commands, which drive the same session dispatcher in-process. `serve`
+starts one persistent process. It reads one JSON request per line from stdin
+and writes one JSON response per line to stdout. Diagnostics go to stderr and
+are sanitized. The process never launches a shell. The protocol is pinned by
+in-repo end-to-end tests (`internal/timesheet/serve_test.go`,
+`cmd/timesheet/serve_test.go`).
 
 `--config` and `--env-file` are process inputs for `serve`, `tui` and the
 headless subcommands. There are no request fields for paths, executable names,
@@ -71,7 +99,7 @@ as `timesheet: <code>: <message>` on stderr.
 
 Only one process may open a given state file. A second `serve` against the same
 state fails with `store_locked`; it does not race or overwrite the first.
-`collect`, `draft`, `run` and `status` open the store the same way, so they also fail
+`run`, `status` and the other store-opening commands open the store the same way, so they also fail
 with `store_locked` while a `serve` process holds the state. `record` opens no
 store and never interferes with a running `serve`.
 
@@ -147,8 +175,8 @@ Interactive scrolling is not part of this release.
 
 ## Headless skill surface
 
-`collect`, `draft`, `run`, `record` and `status` are the deterministic [Script]
-layer of the timesheet skill (`.agents/skills/timesheet/`). They construct
+`run`, `record`, `status` and the other steps `next` derives are the
+deterministic [Script] layer of the timesheet skill (`.agents/skills/timesheet/`). They construct
 the same session `serve` uses and drive its request dispatcher in-process;
 there is no second protocol and no new request grammar.
 
@@ -156,7 +184,7 @@ Draft blocks and the staged intervals derived from them share one merge rule
 (issue #183): work and evidence blocks that overlap become one block over the
 union span with every contributing POW named, a meeting absorbs the work and
 evidence it overlaps, and blocks that merely touch stay separate. A merged
-block's id is the union-derived `kind-start-end`, the same one `draft`,
+block's id is the union-derived `kind-start-end`, the same one `run`,
 `record` and `stage` use, so recording a draft replaces the entry a recovery
 merge already wrote instead of duplicating it; a single block keeps its own
 id. A meeting's title keeps the wording of absorbed work that has no topic
@@ -166,15 +194,14 @@ applies the same merge, so a staged interval covers the union span and each
 other contributor is reported as merged into its union block rather than dropped; classification selections are bound to the union span and joined
 description, so changing any contributor fails the replay closed.
 
-`collect`, `draft`, `run`, `record` and `status` treat an omitted `--date` as
+`run`, `record` and `status` treat an omitted `--date` as
 today in the configured `timezone`, resolved by the binary rather than the host
 clock; an explicit `--date` always wins. The resolved date appears as `date` in
 the draft, in the record receipt, and in the status summary.
 
-- `collect` performs exactly one bounded collection attempt for the day and
-  prints its result (per-source status, topic and meeting counts).
-- `draft` performs the same collection and then prints the compact one-day
-  draft: time blocks with topic candidates, inline PR identities, bounded
+- `run` performs exactly one bounded collection attempt for the day and then
+  builds the compact one-day draft (the retired `collect` and `draft` commands
+  were its two halves): time blocks with topic candidates, inline PR identities, bounded
   source references and per-source completeness. The partitioning rule is
   fixed: eligible calendar meetings become blocks in start order; confirmed
   intervals become work blocks; evidence topics attach to the first block
@@ -182,10 +209,8 @@ the draft, in the record receipt, and in the status summary.
   with no time anchors still yields one whole-day block. When `work_hours` is
   configured, blocks are additionally annotated
   (see [Work-hours annotation](#work-hours-annotation-optional-non-blocking)).
-  This draft is the skill's entire model input.
-- `run` composes collect and draft in one process: the same single bounded
-  collection attempt, then the compact draft. stdout carries ONLY the draft
-  JSON (the collect source report is not printed; its substance is already in
+  This draft is the skill's entire model input. stdout carries ONLY the draft
+  JSON (the collection source report is not printed; its substance is already in
   the draft's flags and per-block completeness), and the same draft bytes are
   written to the store's day folder
   `<state dir>/days/<date>/draft.json` (created as needed); the artifacts
@@ -1102,7 +1127,7 @@ rejected by the strict decoder. The four-hour per-entry bound is the remote's
 fixed policy, not a `work_hours` setting, and cannot be raised through
 configuration.
 
-`draft` and `run` then annotate each block against the day's windows in the
+`run` then annotates each block against the day's windows in the
 day's recorded timezone. Every absolute provider instant — meeting anchors and
 evidence-topic anchors/items, which arrive as RFC3339 in the provider's offset —
 is resolved into the recorded day's timezone before a clock is derived (a
@@ -1481,7 +1506,7 @@ integrity are unchanged.
   example with synthetic placeholders.
 - The optional pinned Pi launcher and its adapter (`pi/`) retired in
   `0.2.0-dev.10`. The native `tui` verb is the operator surface, and `serve`
-  remains the documented protocol server. The local daily flow, migration,
+  remains as an internal command whose only consumer is legacy migration. The local daily flow, migration,
   reconciliation, approval, submission and recovery remain the current
   contract.
 - Readiness is unchanged and honest: the dev.17 proof is Linux, hermetic and

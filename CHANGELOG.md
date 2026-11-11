@@ -2,6 +2,14 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- Keep `serve` as an internal, migration-only command and pin it with in-repo
+  end-to-end JSONL tests (the status handshake, `migration_preview` /
+  `migration_apply`, malformed lines, close and EOF, and the binary's own
+  stdin/stdout); the interface doc now lists the #262 public surface and marks
+  `serve` internal, matching the README (#230).
+
 ## 0.2.0-dev.10
 
 - Retire the optional pinned Pi launcher/TUI (`pi/`): its launcher, adapter,
