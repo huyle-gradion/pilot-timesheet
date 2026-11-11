@@ -2,6 +2,10 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- Docs: start the day with `timesheet log` in the Linux setup, rewrite the guided-workflow note around `tui` and terminal `submit`, retire the journal source note (ADR 0007 amended), and drop the vault-generator line from the lessons (#270).
+
 ## 0.2.0-dev.11
 
 The 12-factor redesign (#246): the binary owns its LLM judgments, runs the day

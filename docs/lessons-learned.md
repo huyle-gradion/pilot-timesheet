@@ -1,9 +1,8 @@
 # Lessons learned
 
 Durable lessons from this project. Each line is one lesson, one or two
-sentences. This is the curated source the vault generator compacts; keep it
-short and hand-maintainable, and add a lesson only when it has already been paid
-for at least once.
+sentences. Keep it short and hand-maintainable, and add a lesson only when it
+has already been paid for at least once.
 
 - Unknown is never zero. An unavailable measurement is recorded honestly as
   unknown and must never be read as 0.

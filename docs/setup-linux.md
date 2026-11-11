@@ -56,9 +56,14 @@ bin/timesheet init --project 'pilot=Personal Pilot Timesheet'
   relative paths against the seed file's own directory. Pass either `--project`
   or `--seed-config`, not both.
 
-After setup, start the day with `bin/timesheet next` (it defaults to today in
-the configured timezone) and follow its one typed state until `stopped` or
-`human_gates`; the skill does the same loop.
+After setup, start the day with `bin/timesheet log` (it defaults to today in
+the configured timezone). It runs the day itself and reports one typed state:
+at `human_gates` you approve and submit with `bin/timesheet submit --date
+<YYYY-MM-DD>` in a terminal, in `bin/timesheet tui`, or with `/submit` in an
+agent chat; at `ask_human` or `judgment` it stops for your answer, and you run
+`log` again; at `stopped` it names the reason. The agent skill runs the same
+command. `bin/timesheet next` stays available as a read-only view of the
+day's current state.
 
 Then add credential values yourself:
 
