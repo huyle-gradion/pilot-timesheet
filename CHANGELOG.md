@@ -31,6 +31,7 @@ command that reads the store and returns.
   `(protocol schema N)` suffix.
 - The protocol sections of the interface doc are kept under a historical
   banner.
+- Docs: start the day with `timesheet log` in the Linux setup, rewrite the guided-workflow note around `tui` and terminal `submit`, retire the journal source note (ADR 0007 amended), and drop the vault-generator line from the lessons (#270).
 
 ## 0.2.0-dev.11
 

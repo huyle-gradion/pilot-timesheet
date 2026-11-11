@@ -1,5 +1,10 @@
 # Journal collection: which headings are read and which are skipped
 
+> **Historical.** The journal source and the collector code this note cites were
+> removed in the CLI cut-over (f2c80880); see the 2026-11-11 amendment to
+> [ADR 0007](adr/0007-journal-evidence-source.md). The note below is kept
+> unchanged as the record of what that collector did.
+
 This note records what the journal evidence source actually does, grounded in the
 collector code rather than in intention: `internal/evidence/plugins/journal.go`,
 with the tests in `journal_test.go`. It is the repository's list of collected and
