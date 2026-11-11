@@ -37,9 +37,12 @@ fix was to re-record the after-midnight part by hand on the next date (issue
    start before midnight. The last chunk that starts before midnight runs a
    full 240 minutes: it crosses midnight or ends exactly at it. That end is the
    cutoff. The source day keeps the part up to midnight plus up to 240 minutes
-   after it, and every interval it stages is at most 240 minutes. The remainder
-   `[cutoff, end]` is the carry. Total minutes across both days equal the
-   recorded span exactly.
+   after it. When a carry is made, every interval the source day stages is at
+   most 240 minutes. The remainder `[cutoff, end]` is the carry. Total minutes
+   across both days equal the recorded span exactly. A unit with exactly 240
+   minutes after midnight makes no carry and still stages one interval longer
+   than 240 minutes (as under #176). Each of its per-date allocations, which
+   are what the remote receives, is at most 240, so `plan` accepts it.
 
 4. **Where a carry lives.** The source day's entries ledger is never modified.
    The carry is a derived, durable record keyed to its source:
@@ -81,7 +84,23 @@ fix was to re-record the after-midnight part by hand on the next date (issue
    not finalized, a carry record that differs from what the ledger derives
    makes the stage not current, so `next` routes `stage`, which rewrites it.
    On a finalized source day saved under this rule, a differing record is a
-   stop.
+   stop for `next` and a refusal for `submit --chat`. The target side checks it
+   too. Wherever a day consumes a carry (`stage`/`confirm`/`save`, `classify`,
+   `next`/`log` for a saved or unsaved day, `submit --chat`), it first
+   re-derives the source's carry from the source's current ledger, in the
+   carry's timezone, and requires the same segments. A source ledger edited
+   without a re-stage stops the target and names `stage --date <source>`. A
+   deleted source ledger stops it with its own reason. A stale or orphaned
+   carry record never adds minutes. A legacy source has no carry record and
+   has nothing to check.
+
+12. **Carry into a non-working day.** The owner chose to carry automatically,
+    including into days the scheduled log does not normally visit. After
+    `daily` logs a day, it also logs the next date in the same run when that
+    date has a carry-in, working day or not. It does not log today before
+    `log_after`. The notification counts the minutes each day stages,
+    including carried-in segments and excluding the carried-out remainder. The
+    TUI gate view and the agent skill both show `human.carried`.
 
 9. **After-midnight stamps sit on the extended timeline.** An entry whose RFC
    3339 start stamp falls on the next date is placed 24 hours later on the
@@ -98,9 +117,18 @@ fix was to re-record the after-midnight part by hand on the next date (issue
     `stage --revise`. `plan` still blocks its over-long allocation as before.
 
 11. **Fallbacks stay loud.** A cut whose wall time does not resolve to one
-    instant (DST at midnight, for example `America/Santiago` falling back on
-    2026-04-05) produces no carry. The unit stages as one span, exactly as
-    under #176, and `plan` blocks it with `remote_entry_too_long`. A carry whose
+    instant produces no carry. The unit stages as one span, exactly as under
+    #176, and `plan` blocks it with `remote_entry_too_long`. Two cases are
+    known:
+    - DST at midnight, for example `America/Santiago` falling back on
+      2026-04-05.
+    - A fall-back night whose cutoff lands in the repeated hour, for example
+      `Europe/Berlin` `2026-10-24 22:00→05:00`. Its cutoff is 02:00 on a night
+      when 02:00–03:00 occurs twice, so it stages one 480-minute span.
+
+    The binary never picks an occurrence of a repeated wall time
+    (`ambiguous_time`), so it does not pick the earlier instance here either.
+    The human records that night by hand. A carry whose
     source timezone differs from the target day's recorded timezone is
     refused by `stage` and stops `next`. Its clocks would otherwise be read in
     the wrong zone.
@@ -127,8 +155,8 @@ fix was to re-record the after-midnight part by hand on the next date (issue
 file (factor 5), and the split is a pure function of the ledger and the
 timezone (factor 12). A target day staged before its source day was staged
 gets the carry later, and the stop in decision 7 surfaces it. The golden-day
-export (`eval`) derives units from the ledger alone. It honestly skips a
-carried day's classifications as a stale stage map instead of including them.
+export (`eval export`) derives a carried target day from the same stage input
+as the other derivations, and it accepts the legacy derivations.
 A day is finalized only by confirmed intervals of its own. The locked
 segment that spills in from the previous date's midnight-crossing interval
 does not count, so the target day can still stage its carry. Carrying across

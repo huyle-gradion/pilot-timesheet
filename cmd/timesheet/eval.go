@@ -136,17 +136,22 @@ func exportGolden(cfg *timesheet.Config, state *timesheet.State, now time.Time) 
 	}
 	for _, date := range dates {
 		artifacts, err := timesheet.ReadDayArtifacts(cfg.StatePath, date)
-		if err != nil || artifacts.Entries == nil || len(artifacts.Entries.Entries) == 0 {
+		if err != nil || ((artifacts.Entries == nil || len(artifacts.Entries.Entries) == 0) && len(artifacts.CarryIn) == 0) {
 			skip(date, "day", "the entries ledger is missing or unreadable")
 			continue
 		}
 		day := timesheet.GoldenDay{Date: date}
-		units := ledgerUnits(artifacts.Entries.Entries, date, state.Days[date].Timezone)
+		// The day's stage input includes segments carried in from the previous
+		// date (ADR 0011). Finalized days only: a stage map written under a
+		// legacy overnight rule (#176 or before) is as current as today's.
+		entries := artifactStageEntries(artifacts)
+		tz := state.Days[date].Timezone
 		var staged map[string]timesheet.EntryRecord
-		// Finalized days only: a stage map written under the legacy unsplit
-		// overnight rule is as current as one written under today's (#176).
-		if stageMapMatchesUnits(artifacts.StageMap, units) || stageMapMatchesUnits(artifacts.StageMap, legacyUnits(units)) {
-			staged = stagedBlocksFrom(units, artifacts.StageMap)
+		for _, units := range append([][]ledgerUnit{ledgerUnits(entries, date, tz)}, legacyDerivations(entries, date, tz)...) {
+			if stageMapMatchesUnits(artifacts.StageMap, units) {
+				staged = stagedBlocksFrom(units, artifacts.StageMap)
+				break
+			}
 		}
 
 		if staged == nil {
@@ -241,6 +246,9 @@ func goldenDescriptions(cfg *timesheet.Config, date string, artifacts timesheet.
 	var draft timesheet.Draft
 	if err != nil || json.Unmarshal(data, &draft) != nil || len(draft.Blocks) == 0 {
 		return nil, "the draft artifact is unreadable or empty"
+	}
+	if artifacts.Entries == nil {
+		return nil, "the day has no entries ledger of its own (carried segments only)"
 	}
 	ledger := map[string]string{}
 	for _, e := range artifacts.Entries.Entries {

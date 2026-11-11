@@ -469,9 +469,29 @@ past the next date's midnight is skipped with its own reason.
 
 A carry never revises a saved or submitted day. `next` stops on that day and
 names the carry, and `submit --chat` refuses. Only `stage --revise --date
-<target>` takes it in. A carry computed in another timezone is refused. A cut
-that does not resolve to one instant (DST at midnight) makes no carry: the span
-stages as one interval, and `plan` blocks it with `remote_entry_too_long`.
+<target>` takes it in. A carry computed in another timezone is refused.
+
+A carry is consumed only while its source still derives it. If the source
+ledger was edited without a re-stage, every day that would take the carry in
+stops and names `stage --date <source>`. If the source ledger was deleted, it
+stops with its own reason. This covers `stage`, `save`, `classify`, `next` and
+`submit --chat`.
+
+`daily` also logs a non-working day that has a carry-in. Notifications count
+the minutes each day stages. `human_gates` lists the carry under
+`human.carried`.
+
+A cut that does not resolve to one instant makes no carry: the span stages as
+one interval, and `plan` blocks it with `remote_entry_too_long`. This happens
+on DST at midnight (`America/Santiago`, 2026-04-05). It also happens on a
+fall-back night whose cutoff lands in the repeated hour (`Europe/Berlin`
+`2026-10-24 22:00→05:00`). The binary never chooses an occurrence of a repeated
+wall time.
+
+When a carry is made, each interval on the source day is at most 240 minutes.
+With exactly 240 minutes after midnight there is no carry: the source day
+keeps one longer interval, and each of its per-date allocations is at most 240
+minutes.
 
 ### Timezone transitions
 

@@ -70,8 +70,19 @@ func runAgentSubmit(args []string) error {
 	if err := timesheet.CheckCarryTimezone(artifacts.CarryIn, snapshot.Timezone); err != nil {
 		return fmt.Errorf("submit --chat: %w", err)
 	}
-	if !dayDerivesSaved(artifactStageEntries(artifacts), day, snapshot.Timezone, snapshot.Confirmed) {
+	if err := checkCarryIn(h.cfg.StatePath, day, artifacts.CarryIn); err != nil {
+		return fmt.Errorf("submit --chat: %w", err)
+	}
+	entries := artifactStageEntries(artifacts)
+	units, carryOut := deriveLedger(entries, day, snapshot.Timezone)
+	current, legacy := ledgerDerivesSaved(units, legacyDerivations(entries, day, snapshot.Timezone), snapshot.Confirmed)
+	if !current && !legacy {
 		return fmt.Errorf("submit --chat: recorded ledger differs from saved intervals; review stage --revise and classify before requesting fresh confirmation")
+	}
+	// The day's own carry record must be what its saved derivation carries,
+	// exactly as next checks it, so the next date's minutes are not lost.
+	if !carryOutCurrent(current, carryOut, artifacts.CarryOut) {
+		return fmt.Errorf("submit --chat: the carry record into the next date does not match the saved derivation; review stage --revise --date %s before requesting fresh confirmation", day)
 	}
 	res, err := h.call("preview_plan", timesheet.Request{Day: day})
 	if err != nil {

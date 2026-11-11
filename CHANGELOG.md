@@ -10,9 +10,23 @@ Carry the after-midnight remainder of long overnight entries into the next day
 - An overnight entry with more than 240 minutes after midnight (for example
   `23:00→05:00`) no longer stages a next-day allocation that `plan` blocks with
   `remote_entry_too_long`. The source day keeps the part up to midnight plus up
-  to 240 minutes after it (`23:00→03:00`), and every interval it stages is at
-  most 240 minutes. The remainder (`03:00→05:00`) is carried into the next
-  date. Minutes across both days equal the recorded span exactly.
+  to 240 minutes after it (`23:00→03:00`). When a carry is made, each interval
+  it stages is at most 240 minutes. The remainder (`03:00→05:00`) is carried
+  into the next date. Minutes across both days equal the recorded span
+  exactly. With exactly 240 minutes after midnight there is no carry, as
+  under #176: the source day keeps one longer interval, and each of its
+  per-date allocations is at most 240 minutes.
+- A carry is consumed only while its source ledger still derives it. A source
+  edited without a re-stage, or deleted, stops every day that would take the
+  carry in (`stage`, `save`, `classify`, `next`/`log`, `submit --chat`). The
+  stop names `stage --date <source>`. `submit --chat` also checks a source
+  day's own carry record, as `next` does.
+- `daily` also logs a non-working day that has a carry-in, for example the
+  Saturday after a Friday `20:00→06:00`. The notification counts the minutes
+  each day stages, so Friday reports 4h ready, not 10h. The TUI gate view and
+  the agent skill show `human.carried`.
+- A fall-back night whose cutoff lands in the repeated hour, like DST at
+  midnight, makes no carry and stays loud at `plan`.
 - The carry is a derived record, `entries/<date>.carry.json`. Every
   derivation of the source day replaces it, and the ledger is never modified.
   The next date stages each carried segment as
@@ -41,8 +55,8 @@ Carry the after-midnight remainder of long overnight entries into the next day
   chunking. No carry exists for them until a human runs `stage --revise`, and
   `plan` still blocks their over-long allocation as before. A source day
   staged but not yet saved re-stages with the carry at its next
-  `stage`/`save`. The golden-day export skips a carried day's classifications
-  as a stale stage map.
+  `stage`/`save`. `eval export` derives a carried target day from its full
+  stage input and accepts the legacy derivations.
 
 - Add `timesheet eval run --golden <file> [--out <file>]` (#279): replays
   every golden day through the configured judge with the same owned prompts,

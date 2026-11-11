@@ -842,6 +842,9 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 	if err := timesheet.CheckCarryTimezone(carryIn, summary.Timezone); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
+	if err := checkCarryIn(cfg.StatePath, date, carryIn); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
 	if ledger == nil && len(carryIn) == 0 {
 		return nil, fmt.Errorf("%s: no recorded entries file for %s; run record first", name, date)
 	}

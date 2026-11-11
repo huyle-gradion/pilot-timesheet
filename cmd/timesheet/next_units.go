@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 
@@ -166,10 +167,45 @@ func ledgerDerivesSaved(units []ledgerUnit, legacy [][]ledgerUnit, confirmed []t
 	return false, false
 }
 
-// dayDerivesSaved is ledgerDerivesSaved over one day's stage entries.
-func dayDerivesSaved(entries []timesheet.EntryRecord, date, timezone string, confirmed []timesheet.Interval) bool {
-	current, legacy := ledgerDerivesSaved(ledgerUnits(entries, date, timezone), legacyDerivations(entries, date, timezone), confirmed)
-	return current || legacy
+// checkCarryIn proves the segments carried into date are still what their
+// source day's CURRENT ledger derives (ADR 0011). The carry record is written
+// at the source's stage, so an edit or deletion of the source ledger without
+// a re-stage would otherwise reach the target as phantom minutes. It
+// re-derives the source's carry in the carry's own timezone from the source's
+// stage input (its ledger plus anything carried into it) and requires the same
+// segments. A source with no carry record (a legacy day) has nothing to prove.
+func checkCarryIn(statePath, date string, carryIn []timesheet.CarrySegment) error {
+	if len(carryIn) == 0 {
+		return nil
+	}
+	source := carryIn[0].SourceDate
+	src, err := timesheet.ReadDayArtifacts(statePath, source)
+	if err != nil {
+		return fmt.Errorf("the segment(s) carried from %s cannot be checked against its ledger: %w", source, err)
+	}
+	if !src.EntriesPresent && len(src.CarryIn) == 0 {
+		return fmt.Errorf("%d segment(s) are recorded as carried from %s into %s, but %s has no entries ledger; "+
+			"a carry is never staged without its source: restore the ledger of %s and run `stage --date %s` "+
+			"(or remove %s if the overnight work was not done)",
+			len(carryIn), source, date, source, source, source, timesheet.CarryPath(statePath, source))
+	}
+	_, derived := deriveLedger(artifactStageEntries(src), source, carryIn[0].Timezone)
+	if !timesheet.SameCarries(derived, carryIn) {
+		return fmt.Errorf("the %d segment(s) recorded as carried from %s into %s no longer match what the ledger of %s derives (%d); "+
+			"the source changed without a re-stage: run `stage --date %s` (or `stage --revise --date %s` if it is saved) before %s",
+			len(carryIn), source, date, source, len(derived), source, source, date)
+	}
+	return nil
+}
+
+// carryOutCurrent is a finalized day's own carry-record proof: a day saved
+// under today's rule carries exactly what it derives; a day saved under a
+// legacy rule carries nothing.
+func carryOutCurrent(current bool, derived, recorded []timesheet.CarrySegment) bool {
+	if !current {
+		derived = nil
+	}
+	return timesheet.SameCarries(derived, recorded)
 }
 
 // stageMapMatchesUnits proves the stored stage map was derived from the current

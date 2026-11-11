@@ -206,6 +206,11 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 	if err := timesheet.CheckCarryTimezone(ledger.CarryIn, snapshot.Timezone); err != nil {
 		return obs, stoppedAction(day, err.Error()), nil
 	}
+	// A carry is consumed only while its source ledger still derives it: a
+	// stale or orphaned carry record stops every day that would take it in.
+	if err := checkCarryIn(cfg.StatePath, day, ledger.CarryIn); err != nil {
+		return obs, stoppedAction(day, err.Error()), nil
+	}
 	if ledger.Entries != nil || len(ledger.CarryIn) > 0 {
 		entries := artifactStageEntries(ledger)
 		obs.Units, obs.CarryDerived = deriveLedger(entries, day, snapshot.Timezone)

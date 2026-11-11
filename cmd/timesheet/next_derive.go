@@ -111,13 +111,9 @@ func deriveFinalizedDay(o nextObservation, n nextAction) nextAction {
 	// The day's own carry record must be what its saved derivation carries: a
 	// day saved under today's rule carries exactly CarryDerived, and a day saved
 	// under a legacy rule carries nothing (ADR 0011).
-	wantCarry := o.CarryDerived
-	if !current {
-		wantCarry = nil
-	}
-	if !timesheet.SameCarries(wantCarry, o.Artifacts.CarryOut) {
+	if !carryOutCurrent(current, o.CarryDerived, o.Artifacts.CarryOut) {
 		return n.withStop("the day is finalized, but its carry record into the next date (" + strconv.Itoa(len(o.Artifacts.CarryOut)) +
-			" segment(s)) does not match what its saved derivation carries (" + strconv.Itoa(len(wantCarry)) + "); " + revise)
+			" segment(s)) does not match what its saved derivation carries; " + revise)
 	}
 	if o.Workflow.PlanAmbiguous {
 		return n.withStop("two plan records for " + o.Day + " share the newest created_at, so which one is current " +

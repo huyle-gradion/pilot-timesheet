@@ -41,6 +41,13 @@ func TestSplitClusterCarry(t *testing.T) {
 		}
 	}
 
+	// A fall-back night whose cutoff (02:00) lands in the repeated hour: no
+	// occurrence is chosen, so no carry is made and the span stays whole.
+	if spans, carry := timesheet.SplitCluster("2026-10-24", "Europe/Berlin", timesheet.EntryCluster{BlockID: "b", Start: "22:00", End: "05:00"}); carry != nil ||
+		len(spans) != 1 || spans[0] != [2]string{"22:00", "05:00"} {
+		t.Fatalf("Berlin fall-back 22:00-05:00 = %v carry %+v, want one span and no carry", spans, carry)
+	}
+
 	sweeps := []struct{ date, tz string }{
 		{testDate, overnightTZ},
 		{"2026-03-28", "Europe/Berlin"},    // springs forward at 02:00 on the next date
