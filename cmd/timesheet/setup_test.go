@@ -130,6 +130,10 @@ func TestSetupHappyPath(t *testing.T) {
 			t.Fatalf("stdout %q lacks %q", out, want)
 		}
 	}
+	// The next step names the public daily command, never an internal verb.
+	if !strings.Contains(out, "then run 'timesheet log'") || strings.Contains(out, "'timesheet run'") {
+		t.Fatalf("stdout %q does not point at 'timesheet log'", out)
+	}
 	if _, statErr := os.Stat(cfg.StatePath); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("setup created a state file at %s; it must only configure", cfg.StatePath)
 	}

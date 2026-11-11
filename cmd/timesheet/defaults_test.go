@@ -41,12 +41,14 @@ func TestResolveConfigPath(t *testing.T) {
 	}
 
 	// A missing configuration is an error naming both candidates and the fix.
+	// The fix names the live first-run command, never the retired `setup`.
 	_, err = resolveConfigPath("run", "")
 	if err == nil || !strings.Contains(err.Error(), "no configuration at") ||
 		!strings.Contains(err.Error(), filepath.Join(home, ".timesheet", "config.json")) ||
 		!strings.Contains(err.Error(), "./timesheet.json") ||
 		!strings.Contains(err.Error(), "pass --config") ||
-		!strings.Contains(err.Error(), "timesheet setup") {
+		!strings.Contains(err.Error(), "run 'timesheet init'") ||
+		strings.Contains(err.Error(), "timesheet setup") {
 		t.Fatalf("missing default config: err = %v", err)
 	}
 

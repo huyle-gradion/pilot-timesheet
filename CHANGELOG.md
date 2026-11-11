@@ -11,6 +11,22 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   clamp each exist once. The hostile-content test now covers the ask, gate
   kind, gate/bench error and caret branches it missed. Rendered frames are
   byte-identical.
+- Point the missing-configuration error at `timesheet init` instead of the
+  retired `setup` command, and bring the configuration docs in line with the
+  current loader (#194): `docs/agents/collection-config.md` and the setup and
+  configuration sections of `docs/agents/product-usage.md` now document the
+  real `sources`/`gradion`/`judge`/`daily` keys, `init` and the env-file-only
+  credential policy instead of `evidence.sources`, `storage_dir` and
+  `keychain:<service>` references. `timesheet.example.json` uses neutral
+  `/path/to/home` paths, a test loads it and every JSON example in the
+  collection guide with the real loader, and ADR 0004 gains a dated amendment
+  retiring its Keychain storage note.
+- `timesheet init` now ends with `next: … run 'timesheet log'` instead of the
+  internal `timesheet run`, and its env template says `init` (not `setup`)
+  never reads credential values. `docs/agents/product-usage.md` leads with the
+  current build, `init` and the binary-owned `log` flow, documents the real
+  source statuses, and moves the retired workflow modes, `--offline`/journal
+  notes and `$TS` examples under one historical banner (#194).
 - Keep `serve` as an internal command (the only route to legacy migration,
   `cancel`, `check_environment` and `revoke_approval`) and pin it with in-repo
   end-to-end JSONL tests (the status handshake, `migration_preview` /
