@@ -1,7 +1,5 @@
 package timesheet
 
-// R3 explicit legacy migration.
-//
 // The authoritative legacy daily format is workflow schema 1 at
 // <configured legacy records root>/workflow/YYYY-MM-DD.json. This file reads
 // those files as data with a private, read-only shape. It deliberately does not
@@ -36,7 +34,6 @@ type MigrationConflict struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// MigrationCounts is the bounded shape of what a candidate would import.
 type MigrationCounts struct {
 	Days            int `json:"days"`
 	Intervals       int `json:"intervals"`
@@ -79,8 +76,6 @@ type MigrationApplyReceipt struct {
 	Unresolved  int             `json:"unresolved_outcomes"`
 }
 
-// --- private legacy document shape -----------------------------------------
-//
 // These structs are a read-only provenance mirror of workflow schema 1. Only the
 // attributes R3 preserves or reports are decoded; unknown additive legacy fields
 // are ignored (not rejected), exactly as a forward-compatible reader must.
@@ -277,8 +272,6 @@ type legacyApproval struct {
 	InvalidatedReason string `json:"invalidated_reason"`
 }
 
-// --- reading -----------------------------------------------------------------
-
 type migrationSource struct {
 	Date   string
 	Hash   string
@@ -384,8 +377,6 @@ func readMigrationSource(cfg *Config, date string) (migrationSource, *MigrationC
 	}
 	return migrationSource{Date: date, Hash: hex.EncodeToString(sum[:]), Record: rec}, nil
 }
-
-// --- candidate construction --------------------------------------------------
 
 func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migrationCandidate, error) {
 	if cfg.Migration == nil || !cfg.Migration.Enabled {
@@ -868,7 +859,6 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 			})
 		}
 
-		// Advance the local allocation counter past any preserved legacy id shape.
 		prefix := "iv-" + strings.ReplaceAll(src.Date, "-", "") + "-"
 		for _, iv := range day.Confirmed {
 			if strings.HasPrefix(iv.ID, prefix) {
@@ -1078,15 +1068,12 @@ func outcomeBlocks(o WriteOutcome) bool {
 	return true
 }
 
-// unresolvedOutcomeDetail explains one blocking preserved outcome truthfully.
 func unresolvedOutcomeDetail(o WriteOutcome) string {
 	if !knownOutcomeStatus(o.Status) {
 		return "a preserved write outcome has an unrecognised status and is treated as unresolved; R3 never replays or clears it"
 	}
 	return "a preserved " + o.Status + " write outcome is unresolved; R3 never replays or clears it"
 }
-
-// --- identity ----------------------------------------------------------------
 
 func migrationSourceIdentity(dates []string, tz string, hashes map[string]string) string {
 	type identity struct {
@@ -1123,8 +1110,6 @@ func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
-
-// --- activation --------------------------------------------------------------
 
 // mergeMigrationCandidate applies a validated candidate to a clone of the
 // durable snapshot. Nothing is written here; the caller commits the whole

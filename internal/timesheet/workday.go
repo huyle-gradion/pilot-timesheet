@@ -8,49 +8,23 @@ import (
 	"time"
 )
 
-// The draft partition is an interval algebra. Meetings keep the span the
-// calendar gave them, confirmed work keeps its own, and the day's proof-of-work
-// instants claim only the minutes neither of those already owns. Every span is
-// half-open, so adjacency (a.end == b.start) is not an overlap, and the remote's
-// non-overlap rule holds by construction instead of being repaired by a merge
-// afterwards.
-//
-// partitionDay is the only place that decides which block owns a minute.
-// BuildDraft renders its blocks and attachDraftSources recomputes them from the
-// same durable inputs, so the draft and the recorded audit sources cannot drift
-// apart.
-
 const (
-	// dayEndMinutes is the last representable minute: 24:00 does not round-trip
-	// through clockString.
-	dayEndMinutes = 23*60 + 59
-	// workdayStartMinute is when work is assumed to begin when the day's earliest
-	// evidence of it is a later published commit. A commit records when work was
-	// pushed, not when it started.
+	dayEndMinutes      = 23*60 + 59
 	workdayStartMinute = 9 * 60
-	// workdayBackfillMax stops that assumption from dragging an evening burst
-	// back to the morning.
 	workdayBackfillMax = 18 * 60
 	lunchStartMinute   = 12 * 60
 	lunchEndMinute     = 13 * 60
-	// powMaxSilence is the longest publish silence one stretch of work may
-	// contain: 14:19 -> 22:00 on 2026-11-04 is 7h41m and splits, while
-	// 09:30 -> 14:00 is 4h30m and stays one stretch.
-	powMaxSilence = 6 * 60
+	powMaxSilence      = 6 * 60
 	// powMinBurst gives a lone off-hours instant a positive span, because the
 	// remote refuses a zero-duration interval.
 	powMinBurst = 15
 )
 
-// itemRef names one retained evidence item by the topic and item it came from.
 type itemRef struct{ topicIdx, itemIdx int }
 
 // minuteStamp is one proof-of-work instant on the recorded day's local clock.
 type minuteStamp struct{ minute, topicIdx, itemIdx int }
 
-// dayBlock is one block while it is being filled. cluster ties an evidence block
-// back to the stamps it came from, so a carved slot can inherit their topics
-// instead of rendering empty.
 type dayBlock struct {
 	blk      DraftBlock
 	span     minuteSpan
@@ -61,8 +35,6 @@ type dayBlock struct {
 	overflow []*topicOverflow
 }
 
-// partitionResult is everything the draft and the record path need: the blocks,
-// their per-line overflow payloads and the count the day note reports.
 type partitionResult struct {
 	Blocks           []dayBlock
 	EligibleMeetings int
@@ -81,10 +53,6 @@ func (b *dayBlock) addRef(r itemRef) {
 	b.addTopic(r.topicIdx)
 }
 
-// render fills one block's AI-visible fields from its evidence. Topics render in
-// evidence order, and a topic's overflow summary is attached once per day, on the
-// first block that names it, so a topic spread across blocks is not counted
-// twice.
 func (b *dayBlock) render(topics []TopicCandidate, loc *time.Location, taken []bool) {
 	if b.hasSpan {
 		b.blk.Start, b.blk.End = clockString(b.span.start), clockString(b.span.end)
@@ -140,7 +108,6 @@ func partitionDay(topics []TopicCandidate, meetings []ProposedMeeting, segments 
 	return partitionResult{Blocks: blocks, EligibleMeetings: eligible}
 }
 
-// sortBlocks puts timed blocks in start order and the whole-day fallback last.
 func sortBlocks(blocks []dayBlock) {
 	sort.SliceStable(blocks, func(i, j int) bool {
 		a, b := blocks[i], blocks[j]
@@ -164,8 +131,6 @@ func blockIDs(blocks []dayBlock) []string {
 	return resolveBlockIDs(ids, fixed)
 }
 
-// partitionMeetings converts the eligible calendar proposals to local minutes,
-// because a proposal carries an absolute instant in the provider's offset.
 func partitionMeetings(meetings []ProposedMeeting, loc *time.Location) ([]dayBlock, int) {
 	var parts []dayBlock
 	eligible := 0
@@ -182,9 +147,6 @@ func partitionMeetings(meetings []ProposedMeeting, loc *time.Location) ([]dayBlo
 	return clusterParts(parts, nil), eligible
 }
 
-// partitionWork folds the confirmed segments and carves each meeting out of them.
-// Confirmed work is never lunch-carved: the human stated it, and the partition
-// does not rewrite a statement.
 func partitionWork(segments []Segment, meetings []minuteSpan) []dayBlock {
 	var parts []dayBlock
 	for _, seg := range segments {
@@ -199,9 +161,6 @@ func partitionWork(segments []Segment, meetings []minuteSpan) []dayBlock {
 	return clusterParts(parts, meetings)
 }
 
-// clusterParts folds each connected component of strictly overlapping parts into
-// one span over its union, joins every contributor's title, and carves cut out of
-// the result. Touching parts stay separate.
 func clusterParts(parts []dayBlock, cut []minuteSpan) []dayBlock {
 	spans := make([]powSpan, len(parts))
 	for i, p := range parts {
@@ -232,8 +191,6 @@ func spansOf(blocks []dayBlock) []minuteSpan {
 	return out
 }
 
-// mergeItem folds one evidence item's PR identity and bounded audit reference
-// into a block, respecting the fixed per-block source cap.
 func mergeItem(blk DraftBlock, item EvidenceItem) DraftBlock {
 	if strings.HasPrefix(item.Resource, "pr:") {
 		if pr := prLabel(item.Resource); pr != "" && !containsString(blk.PRs, pr) {

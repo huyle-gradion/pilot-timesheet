@@ -1,125 +1,5 @@
 package timesheet
 
-// github.go implements the configured-user GitHub activity collector for an
-// opened day. It combines seven REST endpoint families and never reduces
-// coverage to a single event feed.
-//
-// Verified API inventory (official GitHub REST API documentation at
-// docs.github.com, apiVersion 2022-11-28, checked 2026-10-22):
-//
-//   1. Commits — GET /repos/{owner}/{repo}/commits with author (username or
-//      email match), since/until ISO 8601 timestamps, per_page max 100, page
-//      pagination (REST commits, "List commits",
-//      https://docs.github.com/en/rest/commits/commits#list-commits).
-//      Every returned commit is verified against the provider-named actor in
-//      the response itself: a commit whose GitHub user document names a
-//      different login is dropped even when a query filter returned it. A
-//      commit with no user document is omitted because a commit-author email
-//      is a filter value, not proof of the configured user's ownership; the
-//      omission is reported as a visible coverage limitation (F6).
-//   2. Authored pull requests — GET /search/issues with the qualifiers
-//      type:pr, author:{user}, repo:{owner}/{repo}, created:{date}..{date}
-//      (REST search, "Search issues and pull requests",
-//      https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests);
-//      the search API returns at most 1,000 results, may return
-//      incomplete_results:true on timeout, and is rate-limited to 30
-//      requests/minute authenticated. Because `created:` is date-granular,
-//      the collector over-fetches the UTC date range of the day window and
-//      attributes each result by its exact created_at instant and its
-//      provider-named user.login.
-//   3. Merged pull requests — GET /search/issues with the qualifiers type:pr,
-//      repo:{owner}/{repo}, merged:{date}..{date}; `merged:` is the documented
-//      merge-date qualifier and there is no `merged-by:` qualifier, so the
-//      issue-shaped results supply candidate PR numbers, not merger identity.
-//      GET /repos/{owner}/{repo}/pulls/{pull_number} verifies each candidate
-//      (https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request).
-//      Attribution requires the detail document's merged_by.login to name the
-//      configured user and its exact merged_at to fall in [start, end).
-//      Search bounds match the authored-PR family. Detail requests are bounded
-//      by maxMergePRCandidates unique PRs. Skipped candidates, failed detail
-//      requests, and unresolved detail attribution make coverage incomplete;
-//      a failed search remains failed. Verified evidence is retained.
-//   4. Submitted PR reviews — candidate pull requests come from
-//      GET /search/issues with type:pr, reviewed-by:{user}, repo:{repo}; no
-//      date qualifier is used because GitHub's `updated` qualifier is when the
-//      resource was last updated, not when a review was submitted, and a PR
-//      reviewed in the window and updated later would be excluded. The
-//      candidate set is therefore a superset independent of later resource
-//      updates. Each candidate is verified with
-//      GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews ("List reviews
-//      for a pull request",
-//      https://docs.github.com/en/rest/pulls/reviews#list-reviews-for-a-pull-request),
-//      keeping reviews whose reviewer user.login is the configured user and
-//      whose submitted_at falls in the window, with the provider-named
-//      review state (APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED).
-//      A search that lists a candidate without the verification call is
-//      never attributed. Search totals above the documented 1,000-result
-//      bound, the search incomplete_results flag, the page ceiling, more
-//      candidate pull requests than the collector's maxReviewPRCandidates
-//      bound, or a per-review pagination beyond the ceiling make the family
-//      incomplete, never silently exhausted. The search families run under
-//      the dedicated maxSearchResultPages ceiling (maxSearchResultPages in
-//      model.go), whose pairing with these families is documented there: the
-//      search endpoint's pagination semantics differ from the REST families.
-//   5. PR review comments — GET /repos/{owner}/{repo}/pulls/comments
-//      (repository-wide review comments) with page pagination; attribution
-//      requires the comment's user.login to be the configured user (REST
-//      pulls, "List review comments in a repository"),
-//      https://docs.github.com/en/rest/pulls/comments#list-review-comments-in-a-repository.
-//   6. Issue activity/comments — GET /repos/{owner}/{repo}/issues/comments
-//      with since, page pagination; attributable comments filtered by
-//      user.login (REST issues, "List issue comments for a repository"),
-//      https://docs.github.com/en/rest/issues/comments#list-issue-comments-for-a-repository.
-//      That document carries no pull_request field, so each comment target is
-//      resolved once per run with the documented issue document
-//      (GET /repos/{owner}/{repo}/issues/{n}, whose pull_request key is the
-//      discriminator). The lookups are bounded per repository per attempt;
-//      an unverified target stays an issue comment and the family reports
-//      incomplete with the count, never a guess.
-//   7. Discussions and other attributable repository interactions —
-//      GET /repos/{owner}/{repo}/events with per_page max 100 and page
-//      pagination (REST activity events doc,
-//      https://docs.github.com/en/rest/activity/events#list-repository-events).
-//      GitHub documents the shared event timeline cap: the timeline includes
-//      up to 300 events and only events created within the past 30 days;
-//      the collector therefore treats the feed as bounded coverage, never
-//      completeness. Its FamilyReport steady state is the dedicated
-//      `windowed` status (StatusWindowed): a fully-walked feed is bounded by
-//      the provider's design, not by the collector, and never reads as a
-//      collection limitation in the aggregate. Valid terminal Link metadata
-//      ends the walk even on a full page. An actual 422 still reports
-//      `incomplete` with retained evidence and a status+body diagnostic;
-//      it never establishes that the retained window was exhausted.
-//
-// Canonical identity: the same provider action seen through two endpoint
-// families carries one event identity and its provenance is merged — issue
-// comment gh:{repo}:issue-comment:{id} (issues/comments and events),
-// PR review comment gh:{repo}:pr-review-comment:{id} (pulls/comments and
-// events), submitted review gh:{repo}:review:{id} (pulls/{n}/reviews and
-// events), merge gh:{repo}:pr-merge:{number} (search/issues discovery with
-// pulls/{number} verification, and events).
-// Distinct provider actions keep distinct identities and are never
-// merged. Topics group by retained provider resource identity (pull request,
-// issue, discussion numbers taken from provider payload/resource fields),
-// never from rendered display strings.
-//
-// Bounds surfaced when hit, named per family and repository: the collector's
-// page ceilings (maxGithubFamilyPages for REST families, maxSearchResultPages
-// for the three search families), the events feed's 30-day/300-event retention,
-// maxMergePRCandidates for merged-PR detail requests, the submitted-review
-// candidate ceiling, the issue-comment PR-discriminator lookup ceiling,
-// search incomplete_results and the 1,000-result limit, HTTP
-// 403/429 rate limiting, permission failures, topic item caps, and undecodable
-// responses. A nonempty response is never treated as complete coverage.
-//
-// Attribution: items are kept only when the provider names the configured
-// user as the acting identity at the event itself (commit GitHub user
-// document, the search `author:` qualifier plus user.login, merged_by.login
-// for a merge, comment user.login, event actor.login, verified review
-// user.login). A commit-author email is never treated as verified ownership;
-// an item whose ownership cannot be established is omitted with a reported
-// coverage limitation. A resource's latest update by another actor is never
-// claimed as the user's activity.
 // Requests carry the configured GITHUB_TOKEN as a Bearer credential; the token
 // value never appears in errors, diagnostics, state, or reports, and request
 // URLs are never echoed.
@@ -143,7 +23,6 @@ type collectGithubResult struct {
 	Topics   []TopicCandidate
 }
 
-// githubScope bundles the non-secret per-run collection inputs.
 type githubScope struct {
 	user    string
 	repos   []string
@@ -151,8 +30,6 @@ type githubScope struct {
 	token   string
 }
 
-// collectGithub gathers attributable activity for the repository set and one
-// recorded day window.
 func collectGithub(scope *githubScope, windowStart, windowEnd time.Time) collectGithubResult {
 	if strings.TrimSpace(scope.token) == "" {
 		return collectGithubResult{
@@ -169,12 +46,6 @@ func collectGithub(scope *githubScope, windowStart, windowEnd time.Time) collect
 		allItems = append(allItems, items...)
 		families = append(families, fams...)
 	}
-	// The aggregate count names only genuinely limited or failed families.
-	// "complete" and "empty" are fully-walked coverage, and "windowed" is the
-	// repo_events timeline's documented steady state — bounded by the
-	// provider's design (only the past 30 days, up to 300 events), not a
-	// collection limitation — so a fully collected day reads complete and the
-	// detail never counts a windowed family against the day.
 	bounded := 0
 	for _, fam := range families {
 		if fam.Status == StatusIncomplete || fam.Status == StatusFailed {
@@ -231,16 +102,10 @@ type githubRun struct {
 	issueTargets map[string]issueTarget
 }
 
-// issueTarget is one cached issue-document resolution: whether the number is a
-// pull request. Only successful, decoded lookups are cached.
 type issueTarget struct {
 	isPR bool
 }
 
-// issueLookupBudget is one issue_comments family attempt's lookup accounting
-// for one repository. lookups is bounded by maxIssueTargetLookups;
-// failedComments and boundedComments count the retained comments left
-// unclassified, so the family detail states honest counts rather than guesses.
 type issueLookupBudget struct {
 	lookups         int
 	failedComments  int
@@ -286,8 +151,6 @@ func (g *githubRun) issueTargetFor(repo, owner, name string, number int, budget 
 	return target.isPR, known, false
 }
 
-// --- provider document shapes ------------------------------------------------
-
 type actor struct {
 	Login string `json:"login"`
 	Email string `json:"email"`
@@ -332,8 +195,6 @@ type commentDoc struct {
 	User           *actor `json:"user"`
 }
 
-// reviewDoc is the documented shape of one submitted pull request review
-// from GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews.
 type reviewDoc struct {
 	ID          int    `json:"id"`
 	State       string `json:"state"`
@@ -378,12 +239,8 @@ type ghEventPayloadDoc struct {
 	} `json:"review"`
 }
 
-// wthin collectors' output assembly
-
 var issueNumberTailRE = regexp.MustCompile(`/issues/(\d+)$`)
 var pullNumberTailRE = regexp.MustCompile(`/pulls/(\d+)$`)
-
-// --- the families ------------------------------------------------------------
 
 func collectRepo(g *githubRun, repo string, windowStart, windowEnd time.Time) ([]EvidenceItem, []FamilyReport) {
 	var items []EvidenceItem
@@ -421,10 +278,6 @@ func collectRepo(g *githubRun, repo string, windowStart, windowEnd time.Time) ([
 	return items, reports
 }
 
-// --- collectors --------------------------------------------------------------
-
-// --- collectors --------------------------------------------------------------
-
 func fetchCommits(g *githubRun, repo, owner, name string, windowStart, windowEnd time.Time) ([]EvidenceItem, FamilyReport) {
 	since := windowStart.UTC().Format(time.RFC3339)
 	until := windowEnd.UTC().Format(time.RFC3339)
@@ -449,11 +302,6 @@ func fetchCommits(g *githubRun, repo, owner, name string, windowStart, windowEnd
 			if err != nil || !at.Before(windowEnd) || !at.After(windowStart.Add(-time.Second)) {
 				continue
 			}
-			// Verify the provider-named actor (F6): only the response's GitHub
-			// user document establishes that the configured user performed the
-			// commit. A commit-author email is a server-side filter value, not
-			// proof of ownership, so an email alone is never retained; the
-			// omission is reported as a visible coverage limitation instead.
 			if doc.Author == nil || strings.TrimSpace(doc.Author.Login) == "" {
 				unverified++
 				continue
@@ -485,6 +333,9 @@ func fetchCommits(g *githubRun, repo, owner, name string, windowStart, windowEnd
 	return items, FamilyReport{Family: "commits", QueriedRepo: repo, Count: n, Status: status, Detail: detail}
 }
 
+// Because `created:` is date-granular, the collector over-fetches the UTC date
+// range of the day window and attributes each result by its exact created_at
+// instant and its provider-named user.login.
 func fetchAuthoredPulls(g *githubRun, repo, owner, name string, windowStart, windowEnd time.Time) ([]EvidenceItem, FamilyReport) {
 	dayFrom := windowStart.UTC().Format("2006-01-02")
 	dayTo := windowEnd.Add(-time.Second).UTC().Format("2006-01-02")
@@ -527,10 +378,6 @@ func fetchAuthoredPulls(g *githubRun, repo, owner, name string, windowStart, win
 		}
 		return len(doc.Items), nil
 	}
-	// The search endpoint's pagination semantics differ from the REST
-	// families (documented 1,000-result bound, incomplete_results flag), so
-	// this family runs under the dedicated maxSearchResultPages ceiling; the
-	// pairing is documented at the constant in model.go.
 	walk := g.familyPageLoop(query, path, maxSearchResultPages, decode)
 	n := len(items)
 	status, detail := familyStatus(walk, n, "authored-pull-request search")
@@ -548,15 +395,11 @@ func fetchAuthoredPulls(g *githubRun, repo, owner, name string, windowStart, win
 	return items, FamilyReport{Family: "authored_pull_requests", QueriedRepo: repo, Count: n, Status: status, Detail: detail}
 }
 
-// fetchSubmittedReviews is family 4: submitted pull request reviews by the
-// configured user (F6). Candidate pull requests are a deliberate superset:
-// every PR in the repository the user has reviewed, independent of when the
-// resource was last updated, because GitHub's search `updated` qualifier means
-// "last updated", not "review submitted" — a PR reviewed inside the window and
-// touched later would otherwise be excluded. Each candidate's reviews are
-// verified against the documented reviews endpoint and filtered by the exact
-// `submitted_at` instant before attribution, so a later resource update never
-// supplies or suppresses a selected-day review. Search bounds, the candidate
+// Candidate pull requests are a deliberate superset: every PR in the repository
+// the user has reviewed, independent of when the resource was last updated,
+// because GitHub's search `updated` qualifier means "last updated", not "review
+// submitted" — a PR reviewed inside the window and touched later would
+// otherwise be excluded. Search bounds, the candidate
 // ceiling and the page ceiling make the family incomplete, never silently
 // exhausted.
 func fetchSubmittedReviews(g *githubRun, repo, owner, name string, windowStart, windowEnd time.Time) ([]EvidenceItem, FamilyReport) {
@@ -593,8 +436,6 @@ func fetchSubmittedReviews(g *githubRun, repo, owner, name string, windowStart, 
 		}
 		return len(doc.Items), nil
 	}
-	// Same search-endpoint pairing as fetchAuthoredPulls: the candidate
-	// search runs under maxSearchResultPages, documented at the constant.
 	searchWalk := g.familyPageLoop(query, "/search/issues", maxSearchResultPages, decode)
 	if searchWalk.err != nil {
 		return nil, FamilyReport{Family: "submitted_pr_reviews", QueriedRepo: repo, Count: 0, Status: StatusFailed, Detail: truncateRunes(searchWalk.err.Error(), maxDetailRunes)}
@@ -653,10 +494,6 @@ func fetchSubmittedReviews(g *githubRun, repo, owner, name string, windowStart, 
 		}
 		walk := g.familyPageLoop(url.Values{}, path, maxGithubFamilyPages, decode)
 		if walk.err != nil {
-			// Reviews verified before this candidate's request failed are real
-			// attributable evidence; retain them and keep the honest failed
-			// status. The detail must not imply the remaining candidates were
-			// verified (F7).
 			detail := niceJoin(walk.err.Error(), fmt.Sprintf(
 				"%d submitted review(s) retained before the failure; remaining review coverage is unverified", len(items)))
 			return items, FamilyReport{Family: "submitted_pr_reviews", QueriedRepo: repo, Count: len(items), Status: StatusFailed, Detail: truncateRunes(detail, maxDetailRunes)}
@@ -713,11 +550,7 @@ func fetchIssueComments(g *githubRun, repo, owner, name string, windowStart, win
 	}
 	// The issues/comments document has no pull_request field, so a PR
 	// conversation comment is indistinguishable from an issue comment in that
-	// response. The documented issue document is the authority: resolve the
-	// number from the comment's issue_url and ask issueTargetFor. Only a known
-	// PR answer reclassifies; an unknown answer leaves the item an issue
-	// comment and is reported as incomplete with the honest count — never
-	// guessed.
+	// response.
 	budget := &issueLookupBudget{}
 	unparsable := 0
 	refine := func(item *EvidenceItem, doc *commentDoc) {
@@ -771,13 +604,6 @@ func fetchIssueComments(g *githubRun, repo, owner, name string, windowStart, win
 	return items, FamilyReport{Family: "issue_comments", QueriedRepo: repo, Count: n, Status: status, Detail: detail}
 }
 
-// fetchCommentsPageLoop walks one paged comment family. kind is the
-// EvidenceItem kind; refKind is the canonical identity token shared with the
-// same provider action seen through the events feed, so REST and event
-// records for one comment deduplicate and merge provenance. refine, when
-// non-nil, may adjust the constructed item without changing its canonical
-// identity (the issue-comment family uses it to classify a PR conversation
-// comment from the documented issue document).
 func fetchCommentsPageLoop(g *githubRun, query url.Values, path, repo string, windowStart, windowEnd time.Time, kind, refKind, provenancePrefix, label string, resourceFn func(*commentDoc) string, refine func(*EvidenceItem, *commentDoc)) ([]EvidenceItem, familyWalk) {
 	var items []EvidenceItem
 	window := &commentWindow{windowEnd: windowEnd}
@@ -787,10 +613,6 @@ func fetchCommentsPageLoop(g *githubRun, query url.Values, path, repo string, wi
 		if err := json.Unmarshal(body, &docs); err != nil {
 			return 0, err
 		}
-		// The window-end proof is decided from the whole decoded page BEFORE
-		// the attribution filter: under the declared created-ascending sort a
-		// page ending at/after the exclusive window end means every later page
-		// does too. The page's items are still processed normally either way.
 		pagePassedWindow = window.observePage(docs)
 		for _, doc := range docs {
 			if doc.User == nil || doc.User.Login != g.scope.user {
@@ -829,15 +651,10 @@ func fetchCommentsPageLoop(g *githubRun, query url.Values, path, repo string, wi
 	return items, walk
 }
 
-// fetchRepoEvents is family 7: discussions and other attributable repository
-// interactions. GitHub bounds the events timeline by design (only the past 30
-// days, up to 300 events per timeline), so the family's steady state is the
-// dedicated `windowed` status — honest bounded recent-window coverage, never
-// `empty` and never a forced `incomplete`. A genuine 422 stays `incomplete`
-// with retained evidence and a diagnostic, not proof of exhaustion.
-// Reaching the collector's own page
-// ceiling stays `incomplete`, because that bound is the collector's, not the
-// provider's.
+// GitHub bounds the events timeline by design (only the past 30 days, up to 300
+// events per timeline), so the family's steady state is the dedicated
+// `windowed` status — honest bounded recent-window coverage, never `empty` and
+// never a forced `incomplete`.
 func fetchRepoEvents(g *githubRun, repo, owner, name string, windowStart, windowEnd time.Time) ([]EvidenceItem, FamilyReport) {
 	query := url.Values{}
 	path := "/repos/" + owner + "/" + name + "/events"
@@ -883,22 +700,11 @@ func fetchRepoEvents(g *githubRun, repo, owner, name string, windowStart, window
 		status, detail := familyStatus(walk, n, "repository events")
 		return items, FamilyReport{Family: "repo_events", QueriedRepo: repo, Count: n, Status: status, Detail: detail}
 	}
-	// Steady state: the walk finished or emptied inside the retained window.
-	// The timeline is bounded by the provider's documented design regardless
-	// of how many items were retained, so the honest status is `windowed`.
 	_, detail := familyStatus(walk, n, "repository events")
 	detail = niceJoin(detail, "the events timeline is bounded by the provider (only the past 30 days, up to 300 events per timeline); exhausting its retained pages establishes windowed coverage, not completeness for the selected day")
 	return items, FamilyReport{Family: "repo_events", QueriedRepo: repo, Count: n, Status: StatusWindowed, Detail: detail}
 }
 
-// evidenceFromEvent maps one attributable event; unrelated actors are dropped
-// before any record is created. Events carry the same canonical identity and
-// resource identity their REST family counterparts use, so one provider
-// action seen twice merges provenance and distinct actions stay distinct.
-// user is the configured user; it is needed because a pull-request merge is
-// attributable only when the payload names that user as the merger. The
-// window is re-checked for a merge's merged_at: the caller filters the event
-// by its created_at, and the item must never be dated outside the day.
 func evidenceFromEvent(doc ghEventDoc, repo string, at time.Time, user string, windowStart, windowEnd time.Time) *EvidenceItem {
 	if doc.Actor == nil {
 		return nil
@@ -910,11 +716,6 @@ func evidenceFromEvent(doc ghEventDoc, repo string, at time.Time, user string, w
 		Repo:       repo,
 		Provenance: "repos/events",
 	}
-	// A merge is a merge for this day only when the provider names the
-	// configured user as the merger and the full-precision merged_at instant
-	// is inside [windowStart, windowEnd). Otherwise the event falls through to
-	// the generic-event branch below; it is never attributed with an
-	// out-of-window time.
 	var mergeAt time.Time
 	windowedMerge := false
 	if strings.EqualFold(doc.Type, "PullRequestEvent") && doc.Payload.Action == "closed" &&
@@ -928,11 +729,6 @@ func evidenceFromEvent(doc ghEventDoc, repo string, at time.Time, user string, w
 	}
 	switch {
 	case windowedMerge:
-		// Same canonical identity as the merged_pull_requests REST family so
-		// the two endpoint families merge provenance instead of double
-		// counting one merge. A close without merged, a merge by another
-		// actor, or an out-of-window merged_at keeps the generic-event
-		// behavior below.
 		base.Ref = fmt.Sprintf("gh:%s:pr-merge:%d", repo, doc.Payload.PullRequest.Number)
 		base.Kind = "merged_pull_request"
 		base.Resource = fmt.Sprintf("pr:%s:%d", repo, doc.Payload.PullRequest.Number)
@@ -976,8 +772,6 @@ func evidenceFromEvent(doc ghEventDoc, repo string, at time.Time, user string, w
 		base.Title = sanitizerText(fmt.Sprintf("issue comment on %s#%d", repo, doc.Payload.Issue.Number))
 		return &base
 	default:
-		// Other attributable interactions (fork, star, release, gollum,
-		// commit comments, and so on) stay visible as bounded feed content.
 		if doc.ID == "" {
 			return nil
 		}
@@ -988,10 +782,6 @@ func evidenceFromEvent(doc ghEventDoc, repo string, at time.Time, user string, w
 	}
 }
 
-// --- family status and text helpers -------------------------------------------
-
-// providerURLRE matches http(s) URLs so provider error bodies (which embed
-// documentation links) can be stripped from diagnostics.
 var providerURLRE = regexp.MustCompile(`https?://\S+`)
 
 // sanitizeHTTPDiagnostic renders a bounded, sanitized provider-error
@@ -1009,14 +799,6 @@ func sanitizeHTTPDiagnostic(status int, body []byte) string {
 	return fmt.Sprintf("the provider responded with HTTP %d; provider error body: %s", status, snippet)
 }
 
-// familyStatus maps a pagination walk result to honest family coverage.
-// "finished"/"empty"/window_passed and the events feed's own windowed
-// reporting are the only paths to a non-incomplete status; anything else
-// preserves the visible bound. The capped detail names the ceiling the walk
-// actually ran under (walk.maxPages) and never claims more pages exist: the
-// walk simply never established coverage beyond what it examined. The
-// window_passed detail carries the parsed watermark and the declared-sort
-// proof that ended the walk.
 func familyStatus(walk familyWalk, n int, label string) (string, string) {
 	if walk.err != nil {
 		return StatusFailed, truncateRunes(walk.err.Error(), maxDetailRunes)
@@ -1087,9 +869,6 @@ func issueRefFromURL(u, repo string) string {
 	return "issue in " + repo
 }
 
-// pullResourceFromURL and issueResourceFromURL derive the provider resource
-// identity for grouping from the provider link's own resource path — never
-// from a rendered title.
 func pullResourceFromURL(u, repo string) string {
 	if m := pullNumberTailRE.FindStringSubmatch(u); m != nil {
 		return fmt.Sprintf("pr:%s:%s", repo, m[1])
@@ -1113,29 +892,7 @@ func providerEventTypeName(t string) string {
 	return strings.ToLower(strings.TrimSuffix(t, "Event"))
 }
 
-// --- topic grouping -------------------------------------------------------------
-
-// buildGithubTopics groups attributable items into Topic Candidates while
-// de-duplicating the same provider event seen through two endpoint families.
-// Duplicate provenance is merged into the retained item's provenance field
-// instead of deleting a supporting record; minutes are never derived.
-// When a topic has more provider items than the fixed per-topic item cap,
-// the fact is recorded honestly on the topic (truncated), the items beyond
-// the cap are retained durably as OverflowItems up to the fixed per-topic
-// (maxTopicOverflowItems) and per-attempt (maxTotalOverflowItems) ceilings,
-// and anything beyond those ceilings is counted in DroppedItems — never
-// silently discarded.
-//
-// Retention allocation rule (deterministic): each topic fills its retained
-// Items first, then its OverflowItems, both in de-duplicated item arrival
-// order; the attempt-wide overflow pool is filled in the same order, so once
-// maxTotalOverflowItems is reached, overflow items arriving later (in later
-// topics) are the ones counted lost. FirstAt/LastAt stay computed from the
-// retained Items only: overflow retention never changes a topic's span,
-// keeping the draft's topic-to-block mapping stable.
 func buildGithubTopics(items []EvidenceItem) []TopicCandidate {
-	// De-duplicate same-event hits (same canonical ref) before grouping;
-	// document the merged provenance on the retained item.
 	byRef := map[string]int{}
 	var deduped []EvidenceItem
 	for _, item := range items {
@@ -1203,11 +960,6 @@ func buildGithubTopics(items []EvidenceItem) []TopicCandidate {
 	return out
 }
 
-// githubTopicKey picks a deterministic grouping identity from the retained
-// provider resource identity (pull request, issue, or discussion numbers
-// carried in provider payloads and provider links), never from rendered
-// display strings. Commits stay a per-repository group because
-// commit-to-pull-request linkage is not verified fact.
 func githubTopicKey(item EvidenceItem) (string, string) {
 	repo := item.Repo
 	if repo == "" {
@@ -1229,8 +981,6 @@ func githubTopicKey(item EvidenceItem) (string, string) {
 	return "gh:" + repo + ":other-activity", "Other attributable activity (" + repo + ")"
 }
 
-// resourceGroupID splits a retained resource identity of the form
-// "pr:{repo}:{number}" (also issue, discussion) into its parts.
 func resourceGroupID(resource string) (kind, groupRepo, number string, ok bool) {
 	parts := strings.SplitN(resource, ":", 3)
 	if len(parts) != 3 {

@@ -4,6 +4,9 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- `internal/timesheet` comments are removed (#258). New tests pin the
+  constraints they stated, including that a write left in flight blocks the
+  plan, its approval and any new submit after a restart.
 - `cmd/timesheet` comments are removed (#258). New tests pin the constraints
   they stated, including that the judge command never gets a nil environment.
 

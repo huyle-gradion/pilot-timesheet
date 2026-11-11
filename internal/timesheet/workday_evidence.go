@@ -6,12 +6,6 @@ import (
 	"time"
 )
 
-// The evidence half of the draft partition: it turns the day's proof-of-work
-// instants into the evidence spans the days' meetings and confirmed work leave
-// unclaimed, and decides which block owns each instant. It never changes a
-// meeting's or a confirmed interval's span; partitionDay in workday.go owns the
-// pipeline that calls it.
-
 func collectStamps(topics []TopicCandidate, loc *time.Location) []minuteStamp {
 	var out []minuteStamp
 	for ti := range topics {
@@ -33,9 +27,6 @@ func collectStamps(topics []TopicCandidate, loc *time.Location) []minuteStamp {
 	return out
 }
 
-// clusterStamps groups the day's instants into stretches of work. A new stretch
-// starts after more than powMaxSilence of silence, and none bridges morning sleep
-// into the workday, so a 05:52 commit does not claim everything up to 09:23.
 func clusterStamps(stamps []minuteStamp) [][]int {
 	var out [][]int
 	for i, s := range stamps {
@@ -54,9 +45,6 @@ func clusterStamps(stamps []minuteStamp) [][]int {
 	return out
 }
 
-// evidenceBlocks turns each unoccupied work stretch into non-overlapping evidence
-// spans. A stretch whose every instant sits inside a meeting or confirmed work
-// invents nothing: its stamps attach to those blocks instead.
 func evidenceBlocks(stamps []minuteStamp, clusters [][]int, occupied []minuteSpan) []dayBlock {
 	inLunch := slices.ContainsFunc(stamps, func(s minuteStamp) bool {
 		return s.minute >= lunchStartMinute && s.minute < lunchEndMinute
@@ -72,8 +60,6 @@ func evidenceBlocks(stamps []minuteStamp, clusters [][]int, occupied []minuteSpa
 			start = workdayStartMinute
 		}
 		if start == end {
-			// A lone off-hours instant states that work happened, not when it
-			// began, so it looks backward for its span.
 			floor := 0
 			for _, s := range append(append([]minuteSpan{}, occupied...), carved...) {
 				if s.end <= end {
@@ -100,10 +86,6 @@ func evidenceBlocks(stamps []minuteStamp, clusters [][]int, occupied []minuteSpa
 	return out
 }
 
-// stampBlock picks the block that owns one minute. A stamp sitting exactly on a
-// carve boundary belongs to the block it closes, which is where the work that
-// produced it happened; a stamp no block can hold goes to the nearest one, so no
-// proof of work is dropped.
 func stampBlock(blocks []dayBlock, minute int) int {
 	for i := range blocks {
 		if blocks[i].hasSpan && blocks[i].span.contains(minute) {
@@ -129,9 +111,6 @@ func stampBlock(blocks []dayBlock, minute int) int {
 	return best
 }
 
-// inheritSlotTopics gives a carved slot that owns no stamp of its own the
-// cluster's unoccupied stamps nearest it, so a slot between a meeting and lunch
-// carries the real topics, PRs and sources of the work around it.
 func inheritSlotTopics(blocks []dayBlock, stamps []minuteStamp, clusters [][]int, occupied []minuteSpan) {
 	for i := range blocks {
 		b := &blocks[i]
@@ -161,10 +140,6 @@ func hasAnchor(item EvidenceItem, loc *time.Location) bool {
 	return ok
 }
 
-// attachUntimedTopics homes every item without a parsable anchor. An untimed item
-// follows its topic's first attributed block; a topic with no timed item at all
-// lands on the first evidence block, or on one spanless evidence block when the
-// day has none, so a topic is never silently dropped.
 func attachUntimedTopics(blocks []dayBlock, topics []TopicCandidate, loc *time.Location) []dayBlock {
 	timed, needHome := make([]bool, len(topics)), false
 	for ti := range topics {

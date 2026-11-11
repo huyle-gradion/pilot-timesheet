@@ -7,11 +7,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/mcp"
 )
 
-// TestSanitizeProviderDetail: the write-receipt detail is bounded, control
-// characters and URLs are stripped, and credential-bearing query strings never
-// survive (issue #167). URL stripping is the ONLY removal promised — text
-// outside a URL is passed through — and the effective bound is the sanitizer's
-// own 240 runes, not maxDetailRunes (issue #173).
 func TestSanitizeProviderDetail(t *testing.T) {
 	raw := "Entry exceeds the 4 hour limit.\nSee https://workspace.gradion.com/api/mcp?token=ghp_secret123 for details.\r\n\x00"
 	got := sanitizeProviderDetail(raw)
@@ -33,8 +28,6 @@ func TestSanitizeProviderDetail(t *testing.T) {
 	}
 }
 
-// TestClassifyWriteAttemptCarriesDetail: an error result carries its sanitized
-// provider text so a write_uncertain receipt names the refusal reason.
 func TestClassifyWriteAttemptCarriesDetail(t *testing.T) {
 	res := mcp.CallResult{IsError: true, Content: "Entry longer than 4 hours is not allowed (max 240 minutes)"}
 	attempt := classifyWriteAttempt(nil, res)

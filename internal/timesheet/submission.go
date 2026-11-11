@@ -1,9 +1,5 @@
 package timesheet
 
-// R4 verified submission: a narrowly scoped writer boundary, exact approved
-// bodies, durable pre-write intents, content verification and explicit
-// uncertain-write recovery.
-//
 // The writer adds exactly two tool calls over the R3 read boundary. Where the
 // reader verifies the two read tools, the writer additionally requires
 // timesheet__log_time and timesheet__edit_time. There is deliberately NO
@@ -34,7 +30,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/mcp"
 )
 
-// Native submission receipt statuses.
 const (
 	SubmitAllConfirmed          = "all_confirmed"
 	SubmitPartialStopped        = "partial_stopped"
@@ -152,8 +147,6 @@ func (w *GradionWriter) Classifications(ctx context.Context, query string) (*Cat
 	return classificationsCall(ctx, w.session, query)
 }
 
-// observeDate performs one bounded read-back of a written entry's date through
-// the shared observation construction.
 func (w *GradionWriter) observeDate(ctx context.Context, date string) *RemoteObservation {
 	if err := w.verifyWriteCapabilities(ctx); err != nil {
 		return capabilityFailureObservation(date, err)
@@ -302,10 +295,6 @@ func writeAckID(res mcp.CallResult) string {
 	return ""
 }
 
-// classifyWriteAttempt maps one write result to a bounded attempt class. A
-// tool-level error or a transport failure is UNCERTAIN (the effect is unknown;
-// it is never retried); an unparseable response is UNIDENTIFIED; only a real
-// acknowledgment yields an identity to verify with a read-back.
 // sanitizeProviderDetail renders a bounded, sanitized provider error text for
 // write receipts: control characters replaced, URLs removed, rune-bounded. It
 // strips transport detail — a provider refusal names its reason without echoing
@@ -342,9 +331,6 @@ func classifyWriteAttempt(err error, res mcp.CallResult) writeAttempt {
 	return writeAttempt{Status: "identified", RemoteID: id}
 }
 
-// --- receipts -----------------------------------------------------------------
-
-// WriteReceiptRow is one attempt row in a submission receipt.
 type WriteReceiptRow struct {
 	WriteRef  string `json:"write_ref"`
 	OpIndex   int    `json:"op_index"`
@@ -360,13 +346,11 @@ type WriteReceiptRow struct {
 	ErrorDetail string `json:"error_detail,omitempty"`
 }
 
-// SubmissionCallCounts is the bounded call inventory of one submit request.
 type SubmissionCallCounts struct {
 	WriteCalls int `json:"write_calls"`
 	ReadCalls  int `json:"read_calls"`
 }
 
-// SubmissionReceipt is the submit_plan result.
 type SubmissionReceipt struct {
 	Date        string               `json:"date"`
 	ApprovalID  string               `json:"approval_id"`
@@ -384,7 +368,6 @@ type SubmissionReceipt struct {
 	Calls       SubmissionCallCounts `json:"calls"`
 }
 
-// UnresolvedRow is one unresolved write in submission_status output.
 type UnresolvedRow struct {
 	Origin      string `json:"origin"` // native | migrated
 	WriteRef    string `json:"write_ref"`
@@ -399,7 +382,6 @@ type UnresolvedRow struct {
 	ApprovalID  string `json:"approval_id,omitempty"`
 }
 
-// SubmissionStatusResult is the submission_status result.
 type SubmissionStatusResult struct {
 	Date       string            `json:"date"`
 	Approvals  []ApprovalRow     `json:"approvals"`
@@ -409,7 +391,6 @@ type SubmissionStatusResult struct {
 	NextAction string            `json:"next_action"`
 }
 
-// WriteResolutionReceipt is the resolve_write result.
 type WriteResolutionReceipt struct {
 	WriteRef      string `json:"write_ref"`
 	Origin        string `json:"origin"`
@@ -445,8 +426,6 @@ func migratedWriteRef(o WriteOutcome) string {
 	}
 	return "mw-" + sha256Hex(data)
 }
-
-// --- submission_status ---------------------------------------------------------
 
 // submission_status reports bounded approvals, execution history and every
 // unresolved native intent or migrated outcome relevant to the date, with the
@@ -561,8 +540,6 @@ func nextSafeAction(unresolved []UnresolvedRow) string {
 	return "preview a fresh plan, approve it and submit; no unresolved native or migrated write exists for this date"
 }
 
-// --- exact write verification --------------------------------------------------
-
 // writeContentMatches compares the verified observed entry against an
 // operation's INTENDED content: date/spans/classification/description. Task and
 // billable are preserved by omission and are not part of what was sent.
@@ -594,10 +571,6 @@ func (w *GradionWriter) verifyWrite(ctx context.Context, op PlanOperation, attem
 	if obs.Failed || !obs.Complete {
 		return ackID, nil, obs, ErrCodeWriteContentUnverified
 	}
-	// R4F4: an edit is verified against exactly its approved bound remote
-	// identity. An acknowledgment for another entry is an unresolved identity
-	// question and never a confirmation, even when that entry carries matching
-	// content.
 	if op.Kind == "edit" && ackID != strings.TrimSpace(op.RemoteID) {
 		return ackID, nil, obs, editIdentityMismatch
 	}
@@ -610,8 +583,6 @@ func (w *GradionWriter) verifyWrite(ctx context.Context, op PlanOperation, attem
 	}
 	return ackID, &found, obs, ""
 }
-
-// --- submit_plan ----------------------------------------------------------------
 
 // submitPlan consumes one persisted, unconsumed native approval. It
 // re-validates every precondition immediately before dispatch (fresh plan
@@ -671,9 +642,6 @@ func (s *Session) submitPlan(req Request) (SubmissionReceipt, error) {
 		}), nil
 	}
 
-	// Consumption revalidation: re-render the exact plan fresh. This re-observes
-	// every relevant date, rejects dirty/unsaved origin sessions and readiness
-	// blockers, and yields a different identity for ANY changed precondition.
 	preview, err := s.previewPlan(date)
 	if err != nil {
 		code, detail := CodeInternal, err.Error()
@@ -707,8 +675,6 @@ func (s *Session) submitPlan(req Request) (SubmissionReceipt, error) {
 	ctx, cancel := contextWithTimeout()
 	defer cancel()
 
-	// Fresh classification proof against the CURRENT authoritative catalog:
-	// never stored truth, never approval-time-only proof.
 	st = s.store.State()
 	proof, err := proofClassifications(ctx, writer, st.Remote, preview.Operations)
 	if err != nil {
@@ -755,9 +721,6 @@ func (s *Session) submitPlan(req Request) (SubmissionReceipt, error) {
 		}
 	}
 
-	// The effective endpoint/credential context must be the one the approval
-	// bound. Identical entry data from a different provider cannot authorize a
-	// write against this plan.
 	digest, err := approvalContextDigest(s.cfg, s.env)
 	if err != nil {
 		code, detail := CodeInternal, err.Error()
@@ -780,7 +743,6 @@ func (s *Session) submitPlan(req Request) (SubmissionReceipt, error) {
 	return run.execute(ctx, writer), nil
 }
 
-// submissionRun is the per-request execution state.
 type submissionRun struct {
 	store     *Store
 	approval  *ApprovalRecord
@@ -842,8 +804,6 @@ func newSubmissionRun(store *Store, approval *ApprovalRecord, preview PlanPrevie
 
 func nowUTC() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// cloneEntryVal deep-copies one entry value (map-clone helper for the expected
-// baseline).
 func cloneEntryVal(e RemoteEntry) RemoteEntry {
 	if e.Billable != nil {
 		b := *e.Billable
@@ -856,8 +816,6 @@ func cloneEntryVal(e RemoteEntry) RemoteEntry {
 	return e
 }
 
-// knownEntries returns the freshest known entries for a date, preferring this
-// run's read-backs over the consumption-time baseline.
 func (run *submissionRun) knownEntries(date string) map[string]RemoteEntry {
 	if m, ok := run.fresh[date]; ok {
 		return m
@@ -927,7 +885,6 @@ func (run *submissionRun) checkDrift(op PlanOperation) *Blocker {
 	return nil
 }
 
-// bindingByLocalAndDate returns the binding for one local allocation.
 func bindingByLocalAndDate(r *RemoteState, localID, date string) (int, *RemoteBinding) {
 	if r == nil {
 		return -1, nil
@@ -940,7 +897,6 @@ func bindingByLocalAndDate(r *RemoteState, localID, date string) (int, *RemoteBi
 	return -1, nil
 }
 
-// buildIntent creates the durable pre-dispatch intent row for one operation.
 func (run *submissionRun) buildIntent(st *State, op PlanOperation, index int) *WriteIntent {
 	ref := "wr-" + randHex(12)
 	if ref == "" {
@@ -997,7 +953,6 @@ func (run *submissionRun) commitIntent(intent *WriteIntent, first bool) string {
 	return ""
 }
 
-// prepareExecutionUpdate applies the run's execution summary to a candidate.
 func (run *submissionRun) prepareExecutionUpdate(next *State, state, outcome, nextAction, finishedAt string) {
 	for i := range next.Executions {
 		if next.Executions[i].ExecutionID != run.execution.ExecutionID {
@@ -1190,7 +1145,6 @@ func (run *submissionRun) execute(ctx context.Context, writer *GradionWriter) Su
 		}
 	}
 
-	// Finalize the durable execution summary.
 	run.execution.State = ExecutionCompleted
 	run.execution.Outcome = SubmitAllConfirmed
 	run.execution.NextAction = "the exact approved operations completed and verified; no further action is required for this approval"
@@ -1271,10 +1225,6 @@ func (run *submissionRun) consumeWithoutWrites(receipt SubmissionReceipt, writer
 		receipt.Status = SubmitDurabilityUncertain
 		receipt.Blockers = []Blocker{}
 	default:
-		// Pre-activation failure: CommitState restored the previous in-memory
-		// snapshot and the previous file is intact, so this approval was never
-		// consumed and no execution row exists. The receipt names that
-		// truthfully instead of borrowing the success status.
 		receipt.Status = SubmitPersistenceFailed
 		receipt.ExecutionID = ""
 		receipt.Blockers = []Blocker{{
@@ -1286,7 +1236,6 @@ func (run *submissionRun) consumeWithoutWrites(receipt SubmissionReceipt, writer
 	return receipt
 }
 
-// lastIntentRef returns the most recent intent reference this run created.
 func (run *submissionRun) lastIntentRef() string {
 	for i := len(run.rows) - 1; i >= 0; i-- {
 		if run.rows[i].WriteRef != "" {
@@ -1369,9 +1318,6 @@ func (run *submissionRun) dispatch(ctx context.Context, writer *GradionWriter, o
 			row.RemoteID = ackID
 		}
 		if code == editIdentityMismatch {
-			// R4F4: the acknowledgment did not name the approved bound
-			// identity; the write reference stays unresolved and reportable,
-			// with the attempted and acknowledged ids as distinct audit.
 			status = IntentUnidentified
 			run.blockers = append(run.blockers, Blocker{Code: editIdentityMismatch, Date: op.Date,
 				LocalID: op.LocalID, RemoteID: op.RemoteID,
@@ -1398,7 +1344,6 @@ func (run *submissionRun) dispatch(ctx context.Context, writer *GradionWriter, o
 		return
 	}
 
-	// Verified: persist the confirmed outcome and the one-to-one binding.
 	binding, bindingErr := run.bindingFor(op, ackID, verified, intent)
 	if bindingErr != nil {
 		row.Status = IntentUncertain
@@ -1511,7 +1456,6 @@ func (run *submissionRun) bindingFor(op PlanOperation, ackID string, verified *R
 			CreatedAt:      now, UpdatedAt: now, Origin: "submission",
 		}, nil
 	}
-	// Edit: retain the intended remote identity.
 	idx, b := bindingByLocalAndDate(remote, op.LocalID, op.Date)
 	_ = idx
 	if b == nil || b.RemoteID != op.RemoteID {
@@ -1529,7 +1473,6 @@ func (run *submissionRun) bindingFor(op PlanOperation, ackID string, verified *R
 	}, nil
 }
 
-// callCounts is this run's bounded mutation/read inventory.
 func (run *submissionRun) callCounts(writer *GradionWriter) SubmissionCallCounts {
 	return SubmissionCallCounts{
 		WriteCalls: writer.writeCalls,
@@ -1537,7 +1480,6 @@ func (run *submissionRun) callCounts(writer *GradionWriter) SubmissionCallCounts
 	}
 }
 
-// assemble copies run state into the receipt.
 func (run *submissionRun) assemble(receipt SubmissionReceipt, writer *GradionWriter) SubmissionReceipt {
 	receipt.Attempts = run.attempts
 	receipt.Confirmed = run.confirmed
@@ -1554,8 +1496,6 @@ func (run *submissionRun) assemble(receipt SubmissionReceipt, writer *GradionWri
 	}
 	return receipt
 }
-
-// --- resolve_write --------------------------------------------------------------
 
 // resolveWrite addresses ONE unresolved write (a native interrupted intent or a
 // migrated unresolved outcome) with an explicit human decision bound to a
@@ -1598,8 +1538,6 @@ func (s *Session) resolveWrite(req Request) (WriteResolutionReceipt, error) {
 	return s.resolveMigratedOutcome(st, ref, observationID, decision, remoteID, &receipt)
 }
 
-// observationForResolution returns the current complete observation named by
-// the request for the resolution date.
 func observationForResolution(remote *RemoteState, date, observationID string) (*RemoteObservation, error) {
 	if remote == nil {
 		return nil, newError(CodeStaleObservation, "no current observation exists for this date; reconcile first")
@@ -1711,8 +1649,6 @@ func bindResolvedWrite(next *State, intent *WriteIntent, remoteID string, observ
 		if byRemote == nil || (idx < 0) || existing.RemoteID != remoteID {
 			return newError(CodeIdentityConflict, "the observed id does not match the edit's intended one-to-one allocation identity")
 		}
-		// The binding stays; the verified observation refreshes its intent
-		// content and LastObserved.
 		b := &next.Remote.Bindings[idx]
 		b.Date = intent.Date
 		b.StartTime = intent.Operation.StartTime
@@ -1724,7 +1660,6 @@ func bindResolvedWrite(next *State, intent *WriteIntent, remoteID string, observ
 		b.UpdatedAt = now
 		return nil
 	}
-	// Adopt-adopt create: allocate one fresh binding.
 	if _, b := bindingByLocalAndDate(next.Remote, intent.LocalID, intent.Date); b != nil {
 		return newError(CodeIdentityConflict, "the allocation is already bound; adoption never rebinding an active allocation")
 	}
@@ -1859,7 +1794,6 @@ func (s *Session) resolveMigratedOutcome(st *State, ref, observationID, decision
 			return *receipt, newError(CodeUnknownRemote, "remote_id does not name an entry in the current observation; adopt binds one explicitly selected observed entry")
 		}
 		adoptEntry := entry
-		// The intended content of the migrated write:
 		matched := writeContentMatches(PlanOperation{
 			Date: outcome.Date, StartTime: outcome.StartTime, EndTime: outcome.EndTime,
 			ClassificationID: outcome.ClassificationID, Description: outcome.Description,

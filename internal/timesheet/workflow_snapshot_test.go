@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-// --- N4 read-only workflow snapshot ------------------------------------------
-//
-// One accessor over already-durable state and sidecars. It defines no new
-// durable data and mutates nothing; these tests pin exactly which existing
-// fields it exposes.
-
 const snapshotDate = "2026-10-27"
 
 func snapshotStore(t *testing.T) (*Store, string) {
@@ -91,7 +85,6 @@ func TestReadWorkflowSnapshotExposesDurableFacts(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("commit evidence: %v", err)
 	}
-	// Read through a second store handle, exactly as a fresh process would.
 	_ = store.Close()
 	reopened, err := OpenStore(path)
 	if err != nil {
@@ -178,7 +171,6 @@ func TestReadWorkflowSnapshotPlanTieIsNamed(t *testing.T) {
 	if !snap.PlanAmbiguous {
 		t.Fatalf("snapshot = %+v, want the same-timestamp plans flagged ambiguous rather than guessed", snap)
 	}
-	// The pick is deterministic (lowest PlanID) even though the planner stops.
 	if snap.Plan == nil || snap.Plan.PlanID != "plan-a" {
 		t.Fatalf("plan = %+v, want the deterministic pick plan-a", snap.Plan)
 	}
@@ -198,9 +190,6 @@ func TestReadWorkflowSnapshotRejectsUnparsableTimestamp(t *testing.T) {
 	}
 }
 
-// TestReadDayArtifactsParsesContentOnce pins the content facts: the ledger and
-// both sidecars are loaded by their authoritative readers, with no timestamp
-// and no second read.
 func TestReadDayArtifactsParsesContentOnce(t *testing.T) {
 	_, path := snapshotStore(t)
 	empty, err := ReadDayArtifacts(path, snapshotDate)
@@ -241,7 +230,6 @@ func TestReadDayArtifactsParsesContentOnce(t *testing.T) {
 		t.Fatalf("choices = %+v, want the stored selections", got.Choices)
 	}
 
-	// A corrupt sidecar is an underivable state, never a silent absence.
 	if err := os.WriteFile(StagePath(path, snapshotDate), []byte(`{"date":"2026-10-27"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -250,9 +238,6 @@ func TestReadDayArtifactsParsesContentOnce(t *testing.T) {
 	}
 }
 
-// TestStagedLedgerDigestBindsContent pins the judgment binding: any change to
-// any staged block's content changes the digest, so an answer authored for one
-// ledger can never be applied to another.
 func TestStagedLedgerDigestBindsContent(t *testing.T) {
 	blocks := map[string]EntryRecord{
 		"iv-1": sampleEntry("work-1", "09:00", "10:00", "Build the bridge"),
@@ -265,7 +250,6 @@ func TestStagedLedgerDigestBindsContent(t *testing.T) {
 	if again := StagedLedgerDigest(snapshotDate, blocks); again != base {
 		t.Fatalf("digest is not deterministic: %q vs %q", base, again)
 	}
-	// Map iteration order must not matter.
 	reordered := map[string]EntryRecord{"iv-2": blocks["iv-2"], "iv-1": blocks["iv-1"]}
 	if got := StagedLedgerDigest(snapshotDate, reordered); got != base {
 		t.Fatalf("digest depends on map order: %q vs %q", got, base)

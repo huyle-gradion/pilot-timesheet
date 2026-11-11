@@ -9,8 +9,6 @@ import (
 
 const vnTZ = "Asia/Ho_Chi_Minh"
 
-// powDay builds one day's durable inputs: its calendar meetings plus one topic
-// per proof-of-work instant, so each stamp is addressable on its own.
 func powDay(date string, meetings []ProposedMeeting, stamps ...string) Review {
 	topics := make([]TopicCandidate, 0, len(stamps))
 	for i, at := range stamps {
@@ -38,9 +36,6 @@ func draftBlockIDs(d Draft) []string {
 	return out
 }
 
-// day20261104 is the reported defect: two disjoint calendar meetings, one
-// morning PR, a mid-afternoon burst inside the second meeting, and an evening
-// burst 7h41m after the previous commit.
 func day20261104() Review {
 	return powDay("2026-11-04",
 		[]ProposedMeeting{
@@ -59,8 +54,6 @@ func day20261104() Review {
 	)
 }
 
-// recordDraft records the draft against a state carrying the same durable
-// inputs and returns the entries by block id.
 func recordDraft(t *testing.T, review Review, d Draft) map[string]EntryRecord {
 	t.Helper()
 	statePath := filepath.Join(t.TempDir(), "state.json")
@@ -83,10 +76,6 @@ func recordDraft(t *testing.T, review Review, d Draft) map[string]EntryRecord {
 	return byID
 }
 
-// TestWorkdayPartitionLive20261104 is the acceptance test for the reported
-// defect: meetings keep their calendar spans, the two evening bursts stay
-// apart, the empty lunch hour is not logged, and the slot between the morning
-// meeting and lunch still names the work it sits in.
 func TestWorkdayPartitionLive20261104(t *testing.T) {
 	review := day20261104()
 	d := BuildDraft(review, "test")
@@ -143,8 +132,6 @@ func TestWorkdayPartitionLive20261104(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionLunchEvidencedByPOW: a published item inside 12:00-13:00
-// proves the person worked through lunch, so the hour is not carved.
 func TestWorkdayPartitionLunchEvidencedByPOW(t *testing.T) {
 	review := powDay("2026-11-04", nil,
 		"2026-11-04T09:30:00+07:00",
@@ -157,9 +144,6 @@ func TestWorkdayPartitionLunchEvidencedByPOW(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionMeetingAcrossLunch: a meeting keeps its own 11:30-12:30
-// span, and the evidence around it is carved at both the meeting and the
-// un-evidenced lunch hour.
 func TestWorkdayPartitionMeetingAcrossLunch(t *testing.T) {
 	review := powDay("2026-11-04",
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-11-04T11:30:00+07:00", End: "2026-11-04T12:30:00+07:00",
@@ -174,8 +158,6 @@ func TestWorkdayPartitionMeetingAcrossLunch(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionSinglePOWBackfillsWorkdayStart: a lone instant records
-// when the work was published, so work starts at 09:00 and ends at the proof.
 func TestWorkdayPartitionSinglePOWBackfillsWorkdayStart(t *testing.T) {
 	early := powDay("2026-11-04", nil, "2026-11-04T09:30:00+07:00")
 	if got := draftBlockIDs(BuildDraft(early, "test")); !sameStrings(got, []string{"evidence-09:00-09:30"}) {
@@ -192,8 +174,6 @@ func TestWorkdayPartitionSinglePOWBackfillsWorkdayStart(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionPreDawnPOW: work that was published before the workday
-// starts keeps its own early span instead of being pulled forward to 09:00.
 func TestWorkdayPartitionPreDawnPOW(t *testing.T) {
 	review := powDay("2026-10-28", nil, "2026-10-28T05:52:00+07:00")
 	d := BuildDraft(review, "test")
@@ -202,8 +182,6 @@ func TestWorkdayPartitionPreDawnPOW(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionLateEveningPOW: an evening instant is never backfilled to
-// the morning; it looks backward for its positive span instead.
 func TestWorkdayPartitionLateEveningPOW(t *testing.T) {
 	review := powDay("2026-11-04", nil, "2026-11-04T20:10:00+07:00")
 	d := BuildDraft(review, "test")
@@ -212,10 +190,6 @@ func TestWorkdayPartitionLateEveningPOW(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionStampOnConfirmedClosingMinute: a commitment published at
-// the exact minute confirmed work closes proves that work's tail, and must not
-// grow a one-minute evidence block after it (the guard this pins once fell back
-// to [end, end+1)).
 func TestWorkdayPartitionStampOnConfirmedClosingMinute(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{{IntervalID: "i1", Date: "2026-11-04", Start: "08:00", End: "09:00", Description: "planned stretch"}},
@@ -239,8 +213,6 @@ func TestWorkdayPartitionStampOnConfirmedClosingMinute(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionOverlappingMeetings: two calendar entries that overlap
-// each other merge into one meeting over their union, and both titles survive.
 func TestWorkdayPartitionOverlappingMeetings(t *testing.T) {
 	review := powDay("2026-11-04",
 		[]ProposedMeeting{
@@ -270,8 +242,6 @@ func TestWorkdayPartitionOverlappingMeetings(t *testing.T) {
 	}
 }
 
-// workdayFixtures is every day the partition is checked against: the four real
-// days plus synthetic shapes that stress a carve boundary.
 func workdayFixtures() map[string]Review {
 	return map[string]Review{
 		"2026-10-27": powDay("2026-10-27",
@@ -293,9 +263,6 @@ func workdayFixtures() map[string]Review {
 	}
 }
 
-// TestWorkdayPartitionRegressionDays pins the three other real days from the
-// report: each now starts at the workday, keeps its meeting exact, and never
-// logs the empty lunch hour.
 func TestWorkdayPartitionRegressionDays(t *testing.T) {
 	want := map[string][]string{
 		"2026-10-27": {
@@ -316,8 +283,6 @@ func TestWorkdayPartitionRegressionDays(t *testing.T) {
 	}
 }
 
-// TestWorkdayPartitionInvariants holds on every fixture: blocks are positive,
-// pairwise non-overlapping, uniquely identified, and never drop a topic.
 func TestWorkdayPartitionInvariants(t *testing.T) {
 	for name, review := range workdayFixtures() {
 		t.Run(name, func(t *testing.T) {

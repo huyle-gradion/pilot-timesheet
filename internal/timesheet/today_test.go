@@ -5,12 +5,8 @@ import (
 	"time"
 )
 
-// TestTodayInUsesTheConfiguredZone is the daily-driver regression: the same
-// instant must resolve to different civil dates when the configured timezone
-// differs from the host's, because the binary - not the model's clock - owns
-// "today".
 func TestTodayInUsesTheConfiguredZone(t *testing.T) {
-	instant := mustParseInstant(t, "2026-10-26T18:00:00Z") // 01:00 next day in +07
+	instant := mustParseInstant(t, "2026-10-26T18:00:00Z")
 
 	cases := []struct {
 		zone string
@@ -30,8 +26,6 @@ func TestTodayInUsesTheConfiguredZone(t *testing.T) {
 	}
 }
 
-// TestTodayInRejectsAnUnusableZone: no zone means no honest answer, so the
-// helper fails closed instead of assuming UTC.
 func TestTodayInRejectsAnUnusableZone(t *testing.T) {
 	instant := mustParseInstant(t, "2026-10-26T18:00:00Z")
 	for _, zone := range []string{"", "  ", "Not/AZone"} {

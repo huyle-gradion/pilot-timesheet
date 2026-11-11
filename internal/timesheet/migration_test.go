@@ -143,14 +143,11 @@ func TestMigrationPreservesWorkAndIsRepeatSafe(t *testing.T) {
 		t.Fatal("raw collected-evidence count not recorded")
 	}
 
-	// Source bytes are never written by migration.
 	original, err := os.ReadFile(filepath.Join(legacyRoot, "workflow", "2026-10-20.json"))
 	if err != nil || string(original) != legacyDayOne {
 		t.Fatal("legacy source bytes changed")
 	}
 
-	// A repeat preview of identical bytes is a no-change result, including after
-	// a restart.
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -172,9 +169,6 @@ func TestMigrationPreservesWorkAndIsRepeatSafe(t *testing.T) {
 	_ = dir
 }
 
-// F8: legacy terminal outcomes are HISTORY, not pending writes. Only
-// unresolved in_flight/uncertain/unidentified rows block; an unrecognised
-// status is never imported as safe history.
 func TestMigrationTerminalAndUnknownOutcomes(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t) // dirs/config reuse; our own files below
 	cfg.Migration.LegacyRoot = legacyRoot
@@ -215,8 +209,6 @@ func TestMigrationTerminalAndUnknownOutcomes(t *testing.T) {
 		t.Fatalf("outcomes must still be preserved as audit: %+v", cand.Outcomes)
 	}
 
-	// A genuinely unresolved in_flight row keeps blocking, and an unrecognised
-	// status is rejected rather than imported as safe.
 	writeLegacy(t, legacyRoot, "2026-10-26", `{
 		"schema_version": 1,
 		"date": "2026-10-26",
@@ -251,7 +243,6 @@ func TestMigrationTerminalAndUnknownOutcomes(t *testing.T) {
 		t.Fatalf("expected one malformed_outcome for the unknown status: %+v", cand2.Conflicts)
 	}
 
-	// The same row with only unresolved in_flight keeps its blocking status.
 	writeLegacy(t, legacyRoot, "2026-10-27", `{
 		"schema_version": 1,
 		"date": "2026-10-27",
@@ -277,8 +268,6 @@ func TestMigrationTerminalAndUnknownOutcomes(t *testing.T) {
 	}
 }
 
-// F2: a duplicated local ID inside one source record is rejected before any
-// alias or binding is guessed, and nothing is activated.
 func TestMigrationRejectsDuplicateLocalID(t *testing.T) {
 	cfg, legacyRoot, dir := migrationFixture(t)
 	writeLegacy(t, legacyRoot, "2026-10-26", `{
@@ -358,10 +347,6 @@ func TestMigrationRejectsDuplicateLocalID(t *testing.T) {
 	}
 }
 
-// F2: legitimate cross-date ID collisions stay distinct: the first date keeps
-// the legacy ID, the second gets a deterministic date-scoped alias, and both
-// mapping and outcome references translate per date. The audit keeps the
-// original ID and date for every row.
 func TestMigrationAliasesCollidingIDsPerDate(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	mappingA := `{"local_id": "legacy-shared", "remote_id": "rs-a", "date": "2026-10-27", "start_time": "09:00", "end_time": "10:00", "description": "Alias work", "last_observed": {"remote_id": "rs-a", "date": "2026-10-27", "start_time": "09:00", "end_time": "10:00", "description": "Alias work", "observed_at": "2026-10-27T12:00:00Z", "content_observed": true}}`
@@ -427,9 +412,6 @@ func TestMigrationAliasesCollidingIDsPerDate(t *testing.T) {
 	}
 }
 
-// F3: audit capacity bounds are explicit. A selection exceeding a preserved
-// audit bound is rejected with a capacity conflict before activation; rows are
-// never silently truncated, and target bytes do not change.
 func TestMigrationCapacityRejectsInsteadOfTruncating(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	var evidence strings.Builder
@@ -469,8 +451,6 @@ func TestMigrationCapacityRejectsInsteadOfTruncating(t *testing.T) {
 		t.Fatal("an over-bound selection must stay blocked")
 	}
 
-	// Within the bound, nothing is truncated: 2000 preserved pointers is one
-	// coherent audit, not a silent slice.
 	evidence.Reset()
 	for i := 0; i < maxMigrationEvidenceRows; i++ {
 		evidence.WriteString(fmt.Sprintf(`{"id": "e-%d", "source": "github", "title": "Pointer %d", "ref": "o/r%d", "timestamp": "2026-10-29T08:00:00Z", "observed_at": "2026-10-29T08:01:00Z"},`, i, i, i))
@@ -495,7 +475,6 @@ func TestMigrationCapacityRejectsInsteadOfTruncating(t *testing.T) {
 		t.Fatalf("the bounded audit must be complete: %d rows", len(cand.Receipt.LegacyEvidence))
 	}
 
-	// An over-bound selection refuses activation and changes no target bytes.
 	evidence.Reset()
 	for i := 0; i < maxMigrationEvidenceRows+1; i++ {
 		evidence.WriteString(fmt.Sprintf(`{"id": "e-%d", "source": "github", "title": "Pointer %d", "ref": "o/r%d", "timestamp": "2026-10-29T08:00:00Z", "observed_at": "2026-10-29T08:01:00Z"},`, i, i, i))
@@ -541,9 +520,6 @@ func TestMigrationCapacityRejectsInsteadOfTruncating(t *testing.T) {
 	}
 }
 
-// F3: review history is preserved per date with authored reasons, exclusions and
-// attendance decisions, restart-safe and inert. Raw collected documents are
-// never imported; only their count is recorded.
 func TestMigrationPreservesPerDateReviewAudit(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	writeLegacy(t, legacyRoot, "2026-10-21", `{
@@ -621,7 +597,6 @@ func TestMigrationPreservesPerDateReviewAudit(t *testing.T) {
 	if rec.LegacyCollectedEvidence != 3 {
 		t.Fatalf("legacy collected evidence is counted, never imported: %+v", rec.LegacyCollectedEvidence)
 	}
-	// The unimported raw documents left no evidence collector state behind.
 	if len(reopened.State().Evidence) != 0 {
 		t.Fatal("legacy raw provider documents must not enter evidence state")
 	}
@@ -647,8 +622,6 @@ func TestMigrationRejectsChangedSourceAndOccupiedDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Changed source bytes on an already-imported date are a conflict, never an
-	// overwrite.
 	writeLegacy(t, legacyRoot, "2026-10-20", strings.Replace(legacyDayOne, "Synthetic legacy work", "Changed legacy work", 1))
 	changed, err := buildMigrationCandidate(cfg, store.State(), []string{"2026-10-20"})
 	if err != nil {
@@ -661,8 +634,6 @@ func TestMigrationRejectsChangedSourceAndOccupiedDestination(t *testing.T) {
 		t.Fatalf("expected source_changed: %+v", changed.Conflicts)
 	}
 
-	// A different store that already has work on the destination date is a
-	// conflict too.
 	fresh, err := OpenStore(filepath.Join(t.TempDir(), "other-state.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -684,9 +655,6 @@ func TestMigrationRejectsChangedSourceAndOccupiedDestination(t *testing.T) {
 	}
 }
 
-// TestMigrationRejectsOverlapButNotAnUnmappedProject: overlap stays a
-// conflict; since ADR 0012 a legacy project needs no configured target and
-// survives only in the receipt's audit.
 func TestMigrationRejectsOverlapButNotAnUnmappedProject(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	body := `{"schema_version":1,"date":"2026-10-20","revision":1,"updated_at":"2026-10-20T18:00:00Z",
@@ -744,7 +712,6 @@ func TestSchemaOneStateUpgradesInMemoryOnly(t *testing.T) {
 	if got := len(store.State().Days["2026-10-20"].Confirmed); got != 1 {
 		t.Fatalf("work lost: %d", got)
 	}
-	// The file is untouched by loading.
 	raw, _ := os.ReadFile(path)
 	var onDisk map[string]any
 	if err := json.Unmarshal(raw, &onDisk); err != nil {
@@ -753,7 +720,6 @@ func TestSchemaOneStateUpgradesInMemoryOnly(t *testing.T) {
 	if onDisk["schema"] != float64(1) {
 		t.Fatal("startup rewrote the schema-1 file")
 	}
-	// A durable write activates schema 2.
 	day := store.State().Days["2026-10-20"].clone()
 	if err := store.Commit(day.Revision, day); err != nil {
 		t.Fatal(err)
@@ -816,7 +782,6 @@ func TestMigrationPreviewApplyThroughSession(t *testing.T) {
 		t.Fatalf("unresolved outcome must stay visible: %+v", applied)
 	}
 
-	// A repeated preview + apply after the same process is a no-change result.
 	again, err := s.migrationPreview(Request{ID: "4", Op: "migration_preview", Dates: []string{"2026-10-20"}})
 	if err != nil {
 		t.Fatal(err)
@@ -835,7 +800,6 @@ func TestMigrationPreviewApplyThroughSession(t *testing.T) {
 		t.Fatal("repeat apply duplicated a receipt")
 	}
 
-	// No opened day is allowed during activation.
 	if _, err := s.openDay(Request{ID: "6", Op: "open_day", Day: "2026-10-20"}); err != nil {
 		t.Fatal(err)
 	}
@@ -849,10 +813,6 @@ func TestMigrationPreviewApplyThroughSession(t *testing.T) {
 	}
 }
 
-// F3 continuation: a legacy approval's own binding history (record_revision,
-// remote_observed_at) survives migration and restart as inert audit with its
-// exact values, distinct from the linked plan's values and never inferred from
-// them. The audit stays unusable history.
 const legacyDayApprovalBinding = `{
   "schema_version": 1,
   "date": "2026-11-10",
@@ -910,8 +870,6 @@ func TestMigrationApprovalBindingAuditFields(t *testing.T) {
 	}
 	assertAudit(store.State())
 
-	// The fields live in the durable state, not only the in-memory candidate:
-	// they survive a restart verbatim.
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -923,9 +881,6 @@ func TestMigrationApprovalBindingAuditFields(t *testing.T) {
 	assertAudit(reopened.State())
 }
 
-// F9: every successful no-change apply revalidates the fresh candidate first.
-// A stale source or a durable target changed by a valid transaction since the
-// preview is a structured failure, never a false exact-preview success.
 func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	store, err := OpenStore(cfg.StatePath)
@@ -943,7 +898,6 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A repeated no-change preview is ordinary idempotence.
 	repeat, err := s.migrationPreview(Request{ID: "3", Op: "migration_preview", Dates: []string{"2026-10-20"}})
 	if err != nil {
 		t.Fatal(err)
@@ -956,8 +910,6 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 		t.Fatalf("identical repeat apply must stay no_change: %+v (%v)", noop, err)
 	}
 
-	// Change the durable target through one valid protocol transaction while a
-	// newer no-change preview is still pending.
 	revalidation, err := s.migrationPreview(Request{ID: "5", Op: "migration_preview", Dates: []string{"2026-10-20"}})
 	if err != nil {
 		t.Fatal(err)
@@ -978,8 +930,6 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 		t.Fatalf("the old pending preview must not succeed against changed target state: %v", err)
 	}
 
-	// Change the source bytes of the imported date: the pending preview must
-	// not restate a success over input it did not revalidate.
 	staleSource, err := s.migrationPreview(Request{ID: "7", Op: "migration_preview", Dates: []string{"2026-10-20"}})
 	if err != nil {
 		t.Fatal(err)
@@ -999,7 +949,6 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 		t.Fatalf("a fresh preview must disclose the source change: %+v", disclosed)
 	}
 
-	// Work and receipts remain intact: two applies only, nothing overwritten.
 	if len(store.State().Migration.Receipts) != 2 {
 		t.Fatalf("failed applies must not alter receipts: %+v", store.State().Migration.Receipts)
 	}
@@ -1010,11 +959,6 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 	writeLegacy(t, legacyRoot, "2026-10-20", legacyDayOne)
 }
 
-// F9: the declared legacy timezone is part of the per-date repeat identity —
-// the same bytes under a different declaration are an interpretation conflict,
-// never an already-imported no-change result — while a repeated subset of a
-// larger imported batch with matching bytes and timezone stays a no-change
-// result.
 func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	writeLegacy(t, legacyRoot, "2026-11-03", `{"schema_version":1,"date":"2026-11-03","revision":1,"updated_at":"2026-11-03T18:00:00Z","confirmed":[{"id":"legacy-m1","date":"2026-11-03","start_time":"09:00","end_time":"10:00","project":"OLD-1","description":"batch one","attendance":false,"confirmed_at":"2026-11-03T17:00:00Z","revision":1,"kind":"work","manual":true}]}`)
@@ -1037,8 +981,6 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A repeated single-date subset of the imported batch is a legitimate
-	// no-change result, including after a restart.
 	subsetPreview := func() MigrationPreview {
 		t.Helper()
 		p, err := s.migrationPreview(Request{ID: "3", Op: "migration_preview", Dates: []string{"2026-11-04"}})
@@ -1067,9 +1009,6 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 		t.Fatalf("repeated subset must stay no_change after restart: %+v", again)
 	}
 
-	// The same source bytes under a different declared legacy timezone are an
-	// interpretation conflict: no no-change success, and the recorded
-	// day/receipt timezone is preserved.
 	ampsterdamState := reopened.State()
 	cfgUTC := *cfg
 	cfgUTC.Migration = &MigrationConfig{
@@ -1101,7 +1040,6 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 		t.Fatalf("a conflicted apply must not add receipts: %+v", ampsterdamState.Migration.Receipts)
 	}
 
-	// The original declaration is still the governing one.
 	if back := subsetPreview(); !back.NoChange {
 		t.Fatalf("the original timezone repeat stays no_change: %+v", back)
 	}
@@ -1134,7 +1072,6 @@ func TestCommitStateKeepsDurableFailureSemantics(t *testing.T) {
 	}
 	before := store.State().cloneState()
 
-	// A pre-rename failure rolls back exactly and a retry is safe.
 	storeFaultHook = func(stage string) error {
 		if stage == "before_rename" {
 			return os.ErrPermission
@@ -1155,8 +1092,6 @@ func TestCommitStateKeepsDurableFailureSemantics(t *testing.T) {
 		t.Fatalf("retry after a pre-rename failure must be safe: %v", err)
 	}
 
-	// A post-rename failure keeps the activated snapshot and blocks further
-	// claims until restart.
 	storeFaultHook = func(stage string) error {
 		if stage == "directory_sync" {
 			return os.ErrPermission

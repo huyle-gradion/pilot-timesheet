@@ -53,7 +53,6 @@ func RemoveRetiredConfigKeys(path string) (removed []string, backup string, err 
 	if !info.Mode().IsRegular() {
 		return nil, "", fmt.Errorf("%s is not a regular file", path)
 	}
-	// Replacing a file with other hard links would split it from them.
 	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
 		return nil, "", fmt.Errorf("%s has other hard links", path)
 	}
@@ -170,8 +169,6 @@ func withoutRetiredKeys(data []byte) ([]byte, []string, error) {
 		if !strings.EqualFold(m.key, "migration") {
 			continue
 		}
-		// The member's value is the bytes before valueEnd that decode as one
-		// JSON value; re-find it from the key.
 		start, raw, ok := memberValue(data, m)
 		if !ok || len(raw) == 0 || raw[0] != '{' {
 			continue
@@ -201,7 +198,6 @@ func withoutRetiredKeys(data []byte) ([]byte, []string, error) {
 	return out, removed, nil
 }
 
-// memberValue returns the value bytes of member m and their offset in data.
 func memberValue(data []byte, m member) (int, []byte, bool) {
 	dec := json.NewDecoder(bytes.NewReader(data[m.keyStart:m.valueEnd]))
 	var key string
@@ -223,7 +219,6 @@ func skipSpace(b []byte, i int) int {
 	return i
 }
 
-// sameExceptRetired proves the edit removed only the retired members.
 func sameExceptRetired(before, after []byte) error {
 	var a, b map[string]any
 	if err := json.Unmarshal(before, &a); err != nil {

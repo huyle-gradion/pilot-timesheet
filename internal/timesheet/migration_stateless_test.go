@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// openFromDisk loads config and env file from disk and opens the store, the
-// way every stateless command does (issue #272): one fresh session per
-// invocation, nothing carried between them but the store.
 func openFromDisk(t *testing.T, cfgPath, envPath string) (*Session, func()) {
 	t.Helper()
 	cfg, err := LoadConfig(cfgPath)
@@ -27,7 +24,6 @@ func openFromDisk(t *testing.T, cfgPath, envPath string) (*Session, func()) {
 	return NewSession(cfg, MergeEnv(fileEnv), store), func() { _ = store.Close() }
 }
 
-// decodeResult re-encodes a dispatcher result into its typed shape.
 func decodeResult(t *testing.T, resp Response, v any) {
 	t.Helper()
 	requireOK(t, resp)
@@ -40,14 +36,6 @@ func decodeResult(t *testing.T, resp Response, v any) {
 	}
 }
 
-// TestMigrationApplyIsStatelessAcrossProcesses ports the serve end-to-end
-// migration test (#267) to the stateless path that replaced it: preview and
-// apply run in SEPARATE sessions over the same store, so the migration_id is
-// a content binding rebuilt from the store and the legacy source, never an
-// in-process grant. A mismatched id is migration_stale and writes nothing; an
-// already-migrated selection is no_change on both preview and apply. The
-// dispatcher's envelope behavior (malformed line, unknown op) is pinned here
-// too, since the commands and the TUI still drive it in-process.
 func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 	fixture, _, dir := migrationFixture(t)
 	cfgBytes, err := json.Marshal(fixture)
@@ -64,7 +52,6 @@ func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 	}
 	dates := []string{"2026-10-20"}
 
-	// Process 1: preview, then exit.
 	s, done := openFromDisk(t, cfgPath, envPath)
 	if resp, _ := s.HandleLine([]byte("{not json")); resp.OK || resp.Error == nil || resp.Error.Code != CodeBadRequest {
 		t.Fatalf("malformed line: %+v", resp)
@@ -81,8 +68,6 @@ func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Process 2: a bogus id and an id for another selection are stale and
-	// write nothing; the preview's own id applies with no shared memory.
 	s, done = openFromDisk(t, cfgPath, envPath)
 	requireCode(t, call(t, s, Request{ID: "m2", Op: "migration_apply", Dates: dates, MigrationID: "bogus"}), CodeMigrationStale)
 	requireCode(t, call(t, s, Request{ID: "m3", Op: "migration_apply", Dates: []string{"2026-10-20", "2026-10-21"}, MigrationID: preview.MigrationID}), CodeMigrationStale)
@@ -104,11 +89,9 @@ func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 	if status.AppVersion != AppVersion || status.MigrationReceipts != 1 {
 		t.Fatalf("status after apply: %+v", status)
 	}
-	// The applied id is spent: the target changed, so it no longer rebuilds.
 	requireCode(t, call(t, s, Request{ID: "m6", Op: "migration_apply", Dates: dates, MigrationID: preview.MigrationID}), CodeMigrationStale)
 	done()
 
-	// Process 3: the already-migrated day is no_change on preview and apply.
 	s, done = openFromDisk(t, cfgPath, envPath)
 	defer done()
 	var again MigrationPreview
@@ -123,11 +106,6 @@ func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 	}
 }
 
-// TestMigrationApplyIsStaleWhenTheConfigChanged (PR #275 review): each
-// command reloads the config, so the migration_id must bind what apply would
-// commit, not only the source bytes and the target. A classification_map
-// edited between preview and apply changes the migrated content and must be
-// migration_stale with nothing written.
 func TestMigrationApplyIsStaleWhenTheConfigChanged(t *testing.T) {
 	cfg, _, _ := migrationFixture(t)
 	dates := []string{"2026-10-20"}
@@ -153,7 +131,6 @@ func TestMigrationApplyIsStaleWhenTheConfigChanged(t *testing.T) {
 		t.Fatal("a stale apply wrote the store")
 	}
 
-	// The edited config previews its own id, and that id applies.
 	var fresh MigrationPreview
 	decodeResult(t, call(t, s, Request{ID: "p2", Op: "migration_preview", Dates: dates}), &fresh)
 	if fresh.MigrationID == preview.MigrationID {

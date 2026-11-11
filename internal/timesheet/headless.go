@@ -20,7 +20,6 @@ import (
 // result as the day's log entries. Neither function performs collection,
 // confirmation, approval, submission, or any network access.
 
-// DraftSourceItem is one bounded evidence reference inside a draft block.
 type DraftSourceItem struct {
 	Kind  string `json:"kind"`
 	Repo  string `json:"repo,omitempty"`
@@ -53,9 +52,7 @@ type DraftBlock struct {
 	// judgment step copies it verbatim into the block description; record
 	// validates only that a block with PRs carries a "PRs:" list — prs_inline
 	// is the exact string the script supplies for it.
-	PRsInline string `json:"prs_inline,omitempty"`
-	// Sources and SourcesTruncated never serialize into the AI-visible draft
-	// (audit-only content; the durable store and entries schema keep theirs).
+	PRsInline        string            `json:"prs_inline,omitempty"`
 	Sources          []DraftSourceItem `json:"-"`
 	SourcesTruncated bool              `json:"-"`
 	Completeness     map[string]string `json:"completeness,omitempty"`
@@ -313,7 +310,6 @@ func (o *topicOverflow) merge(p *topicOverflow) {
 	}
 }
 
-// empty reports whether the accumulator carries no overflow and no loss.
 func (o *topicOverflow) empty() bool {
 	return o == nil || (o.kept == 0 && o.lost == 0)
 }
@@ -350,8 +346,6 @@ func (o *topicOverflow) suffix() string {
 	return " — overflow: " + strings.Join(parts, ", ")
 }
 
-// draftOverflowSummary renders one topic's own overflow summary: the same
-// deterministic suffix a verbatim (non-grouped) rendered line carries.
 func draftOverflowSummary(t TopicCandidate) string {
 	return topicOverflowOf(t, nil).suffix()
 }
@@ -367,8 +361,7 @@ func prLabel(resource string) string {
 
 // sortPRs orders PR labels by their numeric PR number, then by label text, so
 // the draft's prs and prs_inline order is stable and human-numeric ("#2"
-// before "#10"). The pre-change order was lexicographic; the numeric order is
-// a deliberate representation change required for prs_inline.
+// before "#10").
 func sortPRs(prs []string) {
 	sort.SliceStable(prs, func(i, j int) bool {
 		ni, oki := prLabelNumber(prs[i])
@@ -380,7 +373,6 @@ func sortPRs(prs []string) {
 	})
 }
 
-// prLabelNumber extracts the numeric part of a "#N repo" label.
 func prLabelNumber(label string) (int, bool) {
 	if len(label) == 0 || label[0] != '#' {
 		return 0, false
@@ -468,8 +460,6 @@ func prsInline(prs []string) string {
 // repository are the grouping identity; grouping never depends on free text.
 var draftPRTitleRE = regexp.MustCompile(`^Pull request #(\d+) \(([^)]+)\)$`)
 
-// draftPRTitle splits a mechanical per-PR topic title into repository and
-// number.
 func draftPRTitle(title string) (repo string, num int, ok bool) {
 	m := draftPRTitleRE.FindStringSubmatch(title)
 	if m == nil {
@@ -504,8 +494,6 @@ func draftPRRanges(nums []int) string {
 	return strings.Join(parts, ", ")
 }
 
-// compactTopics renders one block's AI-visible topic_candidates from bare
-// titles — the exact #148 grouping and cap behavior.
 func compactTopics(titles []string) []string {
 	return compactTopicsRender(titles, nil)
 }
@@ -596,8 +584,6 @@ func compactTopicsRender(titles []string, overflows []*topicOverflow) []string {
 		lineSums = append(lineSums, ov(i))
 	}
 	if len(out) > maxDraftTopicCandidates {
-		// The omitted rendered lines' overflow aggregates onto the "+N more"
-		// line: the loss signal survives the cap, never hidden behind it.
 		agg := &topicOverflow{kinds: map[string]int{}, minM: -1, maxM: -1}
 		for _, s := range lineSums[maxDraftTopicCandidates:] {
 			agg.merge(s)
@@ -703,8 +689,6 @@ func clockString(minutes int) string {
 	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
 }
 
-// --- reviewed-draft recording ------------------------------------------------
-
 // ReviewedBlock is a draft block after the skill's judgment step. Description
 // is the grouped topic summary; when PRs is non-empty, RecordEntries validates
 // only that the description carries a "PRs:" list — prs_inline is the exact
@@ -715,8 +699,6 @@ type ReviewedBlock struct {
 	Notes       string `json:"notes,omitempty"`
 }
 
-// ReviewedDraft is the judgment step's output: the draft with per-block
-// descriptions and optional day-level notes filled in.
 type ReviewedDraft struct {
 	Date     string          `json:"date"`
 	Timezone string          `json:"timezone"`
@@ -725,8 +707,6 @@ type ReviewedDraft struct {
 	Notes    string          `json:"notes,omitempty"`
 	Blocks   []ReviewedBlock `json:"blocks"`
 }
-
-// --- descriptions-only judgment step (issue #152) -----------------------------
 
 // DescriptionsFile is the descriptions-only judgment step's entire output: the
 // one small file the AI writes instead of a full reviewed draft. Notes is one
@@ -788,8 +768,6 @@ func ComposeReviewed(draft Draft, desc DescriptionsFile) (ReviewedDraft, error) 
 	}
 	if len(missing) > 0 {
 		if desc.Descriptions == nil {
-			// A wholly absent descriptions map would list every block id and
-			// misdirect the AI; name the real problem instead.
 			return ReviewedDraft{}, newError(CodeBadRequest,
 				"record: the descriptions file has no descriptions map")
 		}
@@ -863,7 +841,6 @@ type RecordReceipt struct {
 	Path         string `json:"path"`
 }
 
-// EntriesPath returns the per-day log path derived from the state path.
 func EntriesPath(statePath, date string) string {
 	return filepath.Join(filepath.Dir(filepath.Clean(statePath)), "entries", date+".json")
 }
@@ -907,23 +884,12 @@ func RecordEntries(statePath, appVersion string, reviewed ReviewedDraft, replace
 		}
 	}
 
-	// A reviewed file may still carry the overlapping blocks an older draft
-	// rendered. Merge first so the recorded entries are the blocks the current
-	// draft shows (issue #183 rule 5); a draft that already merged them is
-	// unchanged. seen is rebuilt because replace mode reports the entries a
-	// merge makes obsolete as removed.
 	reviewed.Blocks = MergeOverlappingBlocks(reviewed.Blocks)
 	seen = make(map[string]bool, len(reviewed.Blocks))
 	for _, b := range reviewed.Blocks {
 		seen[b.BlockID] = true
 	}
 
-	// Re-attach the audit-only source references from the day's durable
-	// evidence. The AI-visible draft no longer carries sources, so the
-	// reviewed file cannot echo them; the recorded entry must still keep the
-	// full source references the draft attached (orchestrator-authorized
-	// DRAFT-COMPACT-1 amendment). This only fills entry fields — no validation
-	// rule, schema, or draft shape changes.
 	if ev, segments, storedZone := readDayForRecord(statePath, reviewed.Date); ev != nil {
 		timezone := strings.TrimSpace(reviewed.Timezone)
 		if timezone == "" {
@@ -945,9 +911,6 @@ func RecordEntries(statePath, appVersion string, reviewed ReviewedDraft, replace
 	stamp := now.UTC().Format(time.RFC3339)
 	merged := EntriesFile{Date: reviewed.Date, AppVersion: appVersion, UpdatedAt: stamp}
 	kept := map[string]EntryRecord{}
-	// Merge mode preserves blocks the draft does not mention; replace mode
-	// (issue #162) starts empty, so blocks absent from the draft are removed
-	// and the draft is the day's complete content.
 	if !replace {
 		for _, e := range existing.Entries {
 			kept[e.BlockID] = e
@@ -1016,8 +979,6 @@ func ReadEntries(statePath, date string) (*EntriesFile, error) {
 	return &f, nil
 }
 
-// --- SUBMIT-1 stage-map sidecar -------------------------------------------------
-//
 // The stage command converts the day's recorded entries into staged intervals.
 // The sidecar maps each block_id to the staged interval_id it became, for
 // same-process restage (edit/remove in place instead of duplicating) and for
@@ -1423,8 +1384,6 @@ func WriteStageMap(statePath, appVersion, date string, mapping map[string][]stri
 	return nil
 }
 
-// --- SUBMIT-2 classification-choices sidecar ------------------------------------
-//
 // classify applies reviewed classification selections to the day's staged
 // intervals. Like the staged set itself, a selection made on a staged interval
 // is session-only: it lives on Day.Staged entries and becomes durable only
@@ -1578,8 +1537,6 @@ func WriteClassificationChoices(statePath, appVersion, date string, selections m
 	return nil
 }
 
-// --- SUBMIT-3 remote-identity decision file -------------------------------------
-//
 // resolve applies one explicit human identity/content decision against the
 // day's current remote observation. The decision replaces the interactive pi
 // picker: the human reads the reconcile (or plan) receipt, then authors one
@@ -1634,8 +1591,6 @@ func ParseResolutionDecision(data []byte) (ResolutionDecisionFile, error) {
 		RemoteID: raw.RemoteID, LocalID: raw.LocalID,
 	}, nil
 }
-
-// --- record-time block merge --------------------------------------------------
 
 // MergeOverlappingBlocks folds every connected component of strictly
 // overlapping reviewed blocks into one block over the union span, so a
@@ -1779,8 +1734,6 @@ func foldReviewedCluster(blocks []ReviewedBlock, members []int, startM, endM []i
 	out.PRsInline = prsInline(out.PRs)
 	return out
 }
-
-// --- record-time source re-attachment -----------------------------------------
 
 // stateEvidenceView is a minimal read-only projection of the durable state
 // file: record parses the evidence section and every day's timezone and

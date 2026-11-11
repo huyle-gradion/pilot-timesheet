@@ -1,19 +1,5 @@
 package timesheet
 
-// github_comment_window_test.go locks issue #193's comment-family window
-// contract against a loopback provider only:
-//
-//   - both comment families ask for the day's comments with an explicit
-//     created-ascending sort and a one-minute `since` overlap, so the day is
-//     reached without walking old history;
-//   - the shared comment walk stops only after a whole full page parses with
-//     its end at/after the exclusive window end (the declared sort is the
-//     premise), after the page's items are processed and before user filtering;
-//   - a malformed created_at never proves the window end;
-//   - strict local-timezone start boundaries keep the exact [start, end)
-//     window while the query overlaps it;
-//   - a genuine page ceiling stays incomplete and never claims more pages.
-
 import (
 	"encoding/json"
 	"fmt"

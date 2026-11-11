@@ -322,7 +322,6 @@ func parseDotenvValue(raw string) (string, error) {
 		}
 		return inner, nil
 	default:
-		// Unquoted: an inline comment starts at whitespace followed by '#'.
 		for i := 0; i < len(raw); i++ {
 			if raw[i] == '#' && i > 0 && (raw[i-1] == ' ' || raw[i-1] == '\t') {
 				raw = raw[:i]

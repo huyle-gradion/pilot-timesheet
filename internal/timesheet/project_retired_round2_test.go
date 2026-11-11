@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// PR #292 round 2: the token editor's edge cases, backups that must never be
-// trusted blindly, and a hard-linked configuration.
-
 func TestWithoutRetiredKeysTokenEditor(t *testing.T) {
 	cases := []struct {
 		name, in, want string

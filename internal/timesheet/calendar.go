@@ -1,32 +1,7 @@
 package timesheet
 
-// calendar.go implements the private ICS feed collector for an opened day.
-//
-// Verified coverage (hermetic local feed evidence plus the pinned libraries):
-//   - UID identity, single events, and full recurrence sets: RRULE ∪ RDATE −
-//     EXDATE with each property's own TZID/value form and de-duplication,
-//     for timed and all-day series both (F5). Expansion and date arithmetic
-//     use the pinned rrule-go and golang-ical libraries; unsupported value
-//     forms are reported as incomplete coverage, never silently dropped.
-//   - RECURRENCE-ID overridden instances replace their master occurrence,
-//     and cancelled overrides/events (STATUS:CANCELLED) appear only in days
-//     relevant to the replaced original or the override's own span (F4).
 //   - Original event timestamps are preserved with their original UTC offsets;
 //     UTC "Z" forms keep exact instants.
-//   - All-day events (DTSTART;VALUE=DATE) are civil-date spans whose DTEND is
-//     exclusive (RFC 5545 3.6.1): a one-day event with DTEND the next date
-//     covers exactly its DTSTART date, and with no DTEND it covers the
-//     single DTSTART date. Displayed all-day `start`/`end` keep the declared
-//     DATE values; instants are resolved from those dates with the same
-//     first-real-instant rule as the day window, so a skipped or repeated
-//     local midnight never moves an event to another date (F4). Date-only
-//     recurrence sets expand on civil dates, never through a zone's midnight,
-//     and the exclusive end is resolved from its own date instead of by
-//     adding days to a normalized start instant.
-//   - Recurrence candidate selection is span/duration-aware: the expansion
-//     look-back is derived from each series' occurrence span, then exact
-//     interval overlap decides membership, so a long occurrence that started
-//     before the day is not omitted (F5).
 //   - Invitation/attendance metadata (ATTENDEE PARTSTAT) is reported for the
 //     identity named in sources.calendar.user. A declined or cancelled event
 //     is still listed as a proposal with those statuses; attendance itself is
@@ -122,7 +97,6 @@ func collectCalendar(calUser string, env map[string]string, windowStart, windowE
 	return collectCalendarResult{Status: status, Detail: detail, Meetings: meetings}
 }
 
-// icsEvent is the parsed form of one VEVENT component.
 type icsEvent struct {
 	UID         string
 	StartValue  string
@@ -253,7 +227,6 @@ func icsParsesDate(v string) bool {
 	return err == nil
 }
 
-// calendarAttendeeEmail strips the mailto: scheme from an ATTENDEE value.
 func calendarAttendeeEmail(value string) string {
 	v := strings.TrimSpace(value)
 	v = strings.TrimPrefix(v, "mailto:")
@@ -376,10 +349,8 @@ func parseICSDuration(v string) (time.Duration, error) {
 }
 
 type icsGroup struct {
-	uid    string
-	master *icsEvent
-	// overrides carry one RECURRENCE-ID component each; their replaced
-	// instance instant is resolved once per series.
+	uid         string
+	master      *icsEvent
 	overrides   []*icsEvent
 	overrideIDs map[string]bool
 	order       int
@@ -910,7 +881,6 @@ func resolveEventEnd(master *icsEvent, start time.Time, dayLoc *time.Location) (
 	return start, false, nil
 }
 
-// buildMeeting constructs the proposal record and decides window overlap.
 func buildMeeting(master *icsEvent, uid string, start, end time.Time, allDay bool, displayStart, displayEnd, recKind string, calUser string, windowStart, windowEnd time.Time) (ProposedMeeting, bool, string) {
 	status := "scheduled"
 	if strings.EqualFold(master.Status, "CANCELLED") {

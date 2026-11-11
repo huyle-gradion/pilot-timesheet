@@ -1,16 +1,5 @@
 package timesheet
 
-// R3 read-only Gradion boundary.
-//
-// This wraps the existing generic MCP transport (internal/mcp). It verifies READ
-// capabilities only: it requires timesheet__get_my_week and
-// timesheet__get_classifications and has no method that can dispatch log_time,
-// edit_time, a delete tool, a REST call, or an arbitrary tool name. It exposes no
-// generic MCP call operation. The endpoint is operator-configured and the token
-// is resolved by the compiled binary through the documented dotenv/inherited
-// precedence; neither value is ever echoed into a response, receipt, error or
-// state document.
-
 import (
 	"bytes"
 	"context"
@@ -24,7 +13,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/mcp"
 )
 
-// The only two tools this boundary may call.
 const (
 	toolGetMyWeek          = "timesheet__get_my_week"
 	toolGetClassifications = "timesheet__get_classifications"
@@ -35,16 +23,18 @@ const (
 	maxGradionResponseBytes = 8 << 20
 )
 
-// GradionReader is a timesheet-domain read-only view over one MCP session.
+// GradionReader verifies READ capabilities only: it requires
+// timesheet__get_my_week and timesheet__get_classifications and has no method
+// that can dispatch log_time, edit_time, a delete tool, a REST call, or an
+// arbitrary tool name. It exposes no generic MCP call operation. The endpoint
+// is operator-configured and the token is resolved by the compiled binary
+// through the documented dotenv/inherited precedence; neither value is ever
+// echoed into a response, receipt, error or state document.
 type GradionReader struct {
 	session  *mcp.Session
 	verified bool
 }
 
-// missingCredentialError names the absent credential AND the two ways to supply
-// it. The bare "is missing" message sent an operator through the skill looking
-// for a problem in the config while the token sat in an env file that no
-// command in that run had been told to read.
 func missingCredentialError(name string) error {
 	return newError(CodeRemoteUnavailable,
 		"credential "+name+" is missing; export it in the process environment or pass --env-file with a file that defines it")
@@ -83,9 +73,6 @@ func (r *GradionReader) Close() error {
 	return r.session.Close()
 }
 
-// verifyReadCapabilities initializes the session and requires exactly the two
-// read tools. It deliberately does NOT require log_time or edit_time: requiring
-// write tools to plan a read-only reconciliation would be a false dependency.
 func (r *GradionReader) verifyReadCapabilities(ctx context.Context) error {
 	if r.verified {
 		return nil
@@ -110,9 +97,6 @@ func (r *GradionReader) verifyReadCapabilities(ctx context.Context) error {
 	return nil
 }
 
-// remoteError converts a transport/protocol failure into a protocol-safe error.
-// It carries the stable MCP code only: never a provider body, authenticated URL
-// or credential value.
 func remoteError(err error) error {
 	var mcpErr *mcp.Error
 	if errors.As(err, &mcpErr) && mcpErr.StableCode != "" {
@@ -120,8 +104,6 @@ func remoteError(err error) error {
 	}
 	return newError(CodeRemoteUnreadable, "the read-only remote endpoint could not be read")
 }
-
-// --- verified week shape -----------------------------------------------------
 
 type remoteWeek struct {
 	Days      []remoteWeekDay `json:"days"`
@@ -147,13 +129,6 @@ type remoteWeekEntry struct {
 	Task             string `json:"task"`
 }
 
-// parseWeekPayload decodes the verified structured week shape FAIL-CLOSED. A
-// resource-reference envelope, an empty payload, a bare array or a non-object is
-// a read error, never an empty timesheet. The required containers are validated
-// before any absence is claimed: `days` must be a list of day objects, and every
-// day object must carry a `date` string and an `entries` LIST. A day object
-// without `entries` is missing data, not an empty day; only an explicit
-// `entries: []` is a valid empty observation.
 func parseWeekPayload(res mcp.CallResult) (remoteWeek, error) {
 	payload := bytes.TrimSpace(res.Structured)
 	if len(payload) == 0 || bytes.Equal(payload, []byte("null")) {
@@ -180,8 +155,6 @@ func parseWeekPayload(res mcp.CallResult) (remoteWeek, error) {
 	return week, nil
 }
 
-// validateWeekDayContainers checks the required day/entries containers and their
-// JSON types. Missing or null containers are unreadable, never empty.
 func validateWeekDayContainers(rawDays json.RawMessage) error {
 	trimmed := bytes.TrimSpace(rawDays)
 	if len(trimmed) == 0 || trimmed[0] != '[' {
@@ -241,10 +214,6 @@ func (r *GradionReader) ObserveDate(ctx context.Context, date string) *RemoteObs
 	return dateObservationFromWeekCall(date, res, err)
 }
 
-// dateObservationFromWeekCall builds the durable observation record from one
-// week read result, or records a failed/incomplete read. It is shared by the
-// read boundary and the R4 writer read-back so both produce identical
-// observation records from identical transport behavior.
 func dateObservationFromWeekCall(date string, res mcp.CallResult, callErr error) *RemoteObservation {
 	obs := &RemoteObservation{Date: date, ObservedAt: time.Now().UTC().Format(time.RFC3339)}
 	fail := func(detail string) *RemoteObservation {
@@ -338,9 +307,6 @@ func dateObservationFromWeekCall(date string, res mcp.CallResult, callErr error)
 	return obs
 }
 
-// observationID is a content identity. It deliberately excludes the audit
-// timestamp so an identical fresh observation keeps a stable identity and a
-// changed/failed read gets a different one.
 func observationID(date string, entries []RemoteEntry, complete bool, detail string) string {
 	payload := struct {
 		Date     string        `json:"date"`
@@ -355,9 +321,6 @@ func observationID(date string, entries []RemoteEntry, complete bool, detail str
 	return sha256Hex(data)
 }
 
-// --- classification catalog --------------------------------------------------
-
-// ClassificationsReceipt is the bounded authoritative catalog response.
 type ClassificationsReceipt struct {
 	CatalogID  string                 `json:"catalog_id"`
 	Query      string                 `json:"query,omitempty"`
@@ -387,8 +350,6 @@ func (r *GradionReader) Classifications(ctx context.Context, query string) (*Cat
 	return classificationsCall(ctx, r.session, query)
 }
 
-// classificationsCall is the shared catalog call body used by both the read
-// boundary and the R4 write path's fresh classification proof.
 func classificationsCall(ctx context.Context, session *mcp.Session, query string) (*CatalogRecord, error) {
 	q := strings.TrimSpace(query)
 	args := map[string]any{}
@@ -476,23 +437,13 @@ func parseCatalog(res mcp.CallResult, query string, observed time.Time) (*Catalo
 			textByID[id] = textEntry{Name: strings.TrimSpace(m[1]), Code: strings.TrimSpace(m[2]), Activity: strings.TrimSpace(m[3])}
 		}
 		if parsed == 0 && len(structuredOrder) == 0 && !header {
-			// An honest zero-match result is a valid empty catalog, not an
-			// unreadable one: the provider renders it as a no/zero-match text
-			// line (observed live as "No active classifications found.").
-			// Recognize the phrasings; anything else still fails closed below.
 			if classificationEmptyRE.MatchString(text) {
 				cat.CatalogID = catalogID(query, cat.Options, cat.Complete)
 				return cat, nil
 			}
-			// The provider text is never echoed: it is arbitrary remote content
-			// and sanitizeProviderDetail does not redact bearer tokens or JSON
-			// fields, so a diagnostic here could leak a credential.
 			return nil, newError(CodeRemoteUnreadable, "the classification text could not be parsed")
 		}
 		if len(structuredOrder) > 0 && parsed == 0 {
-			// The text block is the only source of code/activity type. A
-			// structured envelope without it is usable for identity but is not a
-			// complete catalog.
 			cat.Complete = false
 		}
 	} else if len(structuredOrder) > 0 {
@@ -554,8 +505,6 @@ func dedupeStrings(in []string) []string {
 	return out
 }
 
-// contextWithTimeout is the single read boundary used by synchronous protocol
-// operations.
 func contextWithTimeout() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), gradionTimeout)
 }
