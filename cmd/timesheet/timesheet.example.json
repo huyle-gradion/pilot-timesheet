@@ -1,6 +1,6 @@
 {
   "timezone": "Europe/Amsterdam",
-  "state_path": "/Users/example/.timesheet/state.json",
+  "state_path": "/path/to/home/.timesheet/state.json",
   "projects": [
     {
       "id": "SYN-1",
@@ -34,7 +34,7 @@
   },
   "migration": {
     "enabled": false,
-    "legacy_root": "/Users/example/.timesheet/legacy-records",
+    "legacy_root": "/path/to/home/.timesheet/legacy-records",
     "legacy_timezone": "Europe/Amsterdam"
   },
   "gradion": {

@@ -2,6 +2,19 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- Point the missing-configuration error at `timesheet init` instead of the
+  retired `setup` command, and bring the configuration docs in line with the
+  current loader (#194): `docs/agents/collection-config.md` and the setup and
+  configuration sections of `docs/agents/product-usage.md` now document the
+  real `sources`/`gradion`/`judge`/`daily` keys, `init` and the env-file-only
+  credential policy instead of `evidence.sources`, `storage_dir` and
+  `keychain:<service>` references. `timesheet.example.json` uses neutral
+  `/path/to/home` paths, a test loads it and every JSON example in the
+  collection guide with the real loader, and ADR 0004 gains a dated amendment
+  retiring its Keychain storage note.
+
 ## 0.2.0-dev.10
 
 - Retire the optional pinned Pi launcher/TUI (`pi/`): its launcher, adapter,

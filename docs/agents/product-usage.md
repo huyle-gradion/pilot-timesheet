@@ -37,120 +37,87 @@ Two traps to keep straight:
 
 ## Build and setup
 
-Go `1.27.1` (the `go` directive in `go.mod`). The terminal UI uses the pinned
-Charm v2 modules already in `go.mod` (`charm.land/huh/v2 v2.0.3`, plus
-bubbletea/bubbles/lipgloss and their indirect pins). You do **not** need to
-install the latest Charm modules; the pinned versions build as-is.
-
-Build a local binary once and use it as `$TS`:
+Any Go toolchain matching the `go` directive in `go.mod` builds the binary; the
+terminal UI's Charm modules are pinned there and need no separate install.
+Build once from your checkout and reuse the binary:
 
 ```bash
-cd /Users/you/src/pilot-timesheet
-go build -o ./bin/timesheet ./cmd/timesheet      # build once
-TS="./bin/timesheet"
+cd /path/to/pilot-timesheet
+go build -trimpath -o bin/timesheet ./cmd/timesheet
+bin/timesheet version
 ```
 
-Use the compiled binary for interactive sessions (`run --interactive` and
-`run --plain`). `go run ./cmd/timesheet` still works — keep it for a one-off
-headless command — but it **recompiles and links the program on every
-invocation**, so a guided, multi-step session pays that build cost at each call.
-Build once and reuse `./bin/timesheet` instead.
+`go run ./cmd/timesheet` also works for a one-off command, but it recompiles on
+every invocation; a multi-step session should use the built binary.
 
-Use a **private** storage directory under your home for records and selection
-state — never a shared `/tmp` path. `--storage-dir` overrides the config's
-`storage_dir`; the default is `~/.timesheet/records`. Non-secret selection state
-(catalog cache, recent choices) lives under `~/.timesheet` (or `TIMESHEET_HOME`).
+Create the home store once with `init` (full walkthrough, modes and recovery
+rules: [first-run setup](../setup-linux.md)):
 
-Never commit, paste, or print real credential values or a configured secret feed
-URL. Configs hold `keychain:<service>` references only. Do not reuse the owner's
-private scratch config; start from a shipped template and use your own
-placeholders.
+```bash
+bin/timesheet init --project 'pilot=Pilot Timesheet'
+```
+
+`init` creates `~/.timesheet/` (`0700`), a valid `~/.timesheet/config.json`
+(`0600`) with your projects, host timezone and an absolute `state_path`, and
+`~/.timesheet/.env.local` (`0600`) listing credential **names** as comments and
+no values. It never overwrites an existing file. Every command then finds its
+configuration as `--config` > `./timesheet.json` in the cwd >
+`~/.timesheet/config.json`, and prints the chosen file on stderr. Records live
+in the single state file named by `state_path`; there is no separate records
+directory or `--storage-dir` flag.
+
+Credential values go only in the env file, which you edit yourself
+(`$EDITOR ~/.timesheet/.env.local`); only the compiled binary reads it. The
+configuration holds variable names, never a value, and there are no Keychain
+references. Never commit, paste or print a credential value or a private feed
+URL, and do not reuse the owner's private configuration. See
+[credentials](credentials.md).
 
 ## Configs and templates
 
-Start from a shipped, sanitized template and replace its placeholders with your
-own paths:
+| Starting point | Purpose |
+| --- | --- |
+| `timesheet init` | Writes a minimal valid configuration (projects, timezone, `state_path`) with no sources; add sections as needed. |
+| `cmd/timesheet/timesheet.example.json` | Synthetic template showing every section: GitHub and calendar sources, a disabled `migration` and a disabled `gradion` boundary. Replace every placeholder, including the `/path/to/home` paths. |
 
-| Config shape | Template | Purpose |
-| --- | --- | --- |
-| Local and remote evidence, with Gradion reads | `cmd/timesheet/timesheet.local-git.example.json` | Calendar + git `mode:"both"` (local checkouts + remote GitHub repos), plus a Gradion endpoint. Supports local review without submission or the separately gated full lifecycle. `--offline` skips its Gradion access only. |
-| Connected Gradion (optional) | `cmd/timesheet/timesheet.example.json` | Calendar + local git plus a `gradion` endpoint + credential ref → remote workflow (future gated submit) |
-| Personal (no remote, no credential) | `cmd/timesheet/timesheet.personal.example.json` | Journal + local-only git; no Gradion endpoint, no credential |
-| Journal + local git | `cmd/timesheet/timesheet.journal.example.json` | Journal source + local-only git |
-
-The `timesheet.personal.example.json` template ships **placeholder** values — the
-`vault` root (`/Users/you/vault`), the git `author` (`you@example.com`), and
-`local_repos`/`repos` — and every one **MUST be replaced** with your own local
-paths before use. The journal `vault` is a **read-only input**; the managed
-timesheet export writes a **separate** path (the same vault/`daily_dir`, but only
-the marker-delimited section — see [Export and persistence](#export-and-persistence)).
-
-Top-level config keys (all non-secret; validated by `preflight`):
+Top-level keys (all non-secret; the loader rejects any key not listed):
 
 | Key | Meaning |
 | --- | --- |
-| `evidence` | `{ id, timezone, sources[] }` — the timezone and the evidence sources |
-| `storage_dir` | Workflow record directory (default `~/.timesheet/records`) |
-| `vault` + `daily_dir` | Managed daily-note export root and its relative daily directory |
-| `gradion` | `{ endpoint, credential_ref }` — optional; `credential_ref` is `keychain:<service>` |
-| `editorial` | Optional editorial agent (`enabled`, `adapter`, `command`, ...) |
-| `classifications` | Optional project → classification-id map (a **suggestion** only) |
+| `timezone` | **Required** IANA timezone that defines the recorded day. |
+| `state_path` | **Required** state file. An absolute path is recommended; a relative one resolves against the process cwd. |
+| `projects` | **Required** non-empty list of `{ id, name, default_classification }`; `id` has no slash, `name` and `default_classification` are optional. |
+| `required_env` | Optional credential variable **names** to report when missing; never values. |
+| `sources` | Optional evidence collectors (GitHub, calendar); see below. |
+| `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification`. |
+| `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `project_map`, `classification_map`). |
+| `work_hours` | Optional presentation-only main-work-time policy (`days`, `windows`). |
+| `judge` | Optional binary-owned judge (ADR 0010): `backend`, `command`, `base_url`, `model`, `api_key_env`, `timeout_seconds`, `daily_token_cap`, `tokens_csv`. |
+| `daily` | Optional scheduled-run policy: `log_after`, `days`, `desktop`, `desktop_command`, `webhook_env`, `webhook_kind`, `notify_empty`. |
 
-Credential-**reference** fields must be `keychain:<service>` references, never a
-raw value: the calendar source's `url_ref`, `gradion.credential_ref`, and
-`editorial.credential_ref`. A raw value in one of those declared fields is
-rejected (preflight/`loadConfig`). This is a check on declared credential
-references, not a general scanner for arbitrary secret-looking text elsewhere in
-the config. Secrets live in the macOS Keychain and are referenced as
-`keychain:<service>`.
+Every credential is referenced by variable name (`gradion.token_env`,
+`judge.api_key_env`, `daily.webhook_env`) or is fixed by the collector
+(`GITHUB_TOKEN`, `GCAL_ICS_URL`); its value is resolved from the env file or the
+inherited environment at use time and is never persisted.
 
 ## Source configuration
 
-Each source is one entry in `evidence.sources` with `type` and a `config` string
-map. Full key semantics: [collection configuration](collection-config.md) and
-[journal source](journal-source.md).
-
-**Journal** (`"type": "journal"`) — the read-only Obsidian daily note:
+Evidence collection is the `sources` section. Full key semantics and examples:
+[collection configuration](collection-config.md).
 
 | Key | Meaning |
 | --- | --- |
-| `vault` | **Required** vault root (read-only input) |
-| `daily_dir` | **Required** relative daily-note directory, e.g. `02 - Daily & Logs` |
-| `fixture` / `fixture_date` | Test-only contract inputs; never required at runtime |
+| `sources.enabled` | Master switch for every collector. |
+| `sources.github` | `enabled`, `user` (GitHub login), `repositories` (1–50 host-less `owner/name`), optional `api_base`. Credential: `GITHUB_TOKEN`. |
+| `sources.calendar` | `enabled`, optional `user` (invitation identity). The feed URL is the credential `GCAL_ICS_URL`, never a config key. |
 
-**Git** (`"type": "git"`):
+A missing credential leaves that collector `missing_credentials` (naming the
+variable only) and does not stop the day. There is no local-checkout git
+collector, journal source or per-source timezone in the current build.
 
-| Key | Meaning |
-| --- | --- |
-| `mode` | `local` \| `remote` \| `both` (absent ⇒ `both`) |
-| `local_repos` | Comma-separated local checkout paths (absent ⇒ `["."]`) |
-| `repos` | Comma-separated host-less `owner/repo` slugs; required when `mode` includes `remote` |
-| `author` | Optional local-commit author filter (email or name) |
-| `project_map` | Optional JSON object `owner/repo` → project |
-| `fixture` | Test-only fixed input |
-
-A `mode:"local"` git source contacts no GitHub and needs **no** GitHub
-credential; `remote`/`both` need one (resolved from `GITHUB_TOKEN`, `GH_TOKEN`,
-Keychain, or a `gh` probe).
-
-**Calendar** (`"type": "calendar"`):
-
-| Key | Meaning |
-| --- | --- |
-| `url_ref` | **Required** `keychain:<service>` reference to the ICS feed URL (never a raw URL) |
-| `user_email` | Optional owner email for invitation matching |
-| `timezone` | Optional IANA timezone for date-window parsing |
-| `cache_path` / `no_cache` | Optional local ICS cache controls |
-
-The calendar `url_ref` is resolved in memory at collection time and never
-persisted.
-
-**Editorial** (`editorial`): `enabled`, `adapter` (`none`/`command`), `command`
-(the agent argv), optional `credential_ref`. With `enabled:false` or
-`adapter:"none"` the run uses deterministic text.
-
-**Gradion** (`gradion`): `endpoint` (MCP URL) and `credential_ref`
-(`keychain:<service>`). Present ⇒ connected (remote) mode.
+The remote boundary is the top-level `gradion` block: with `enabled: true` it
+reads `endpoint` and the credential named by `token_env`. Absent or disabled
+means a local-only workflow.
 
 ### Evidence count, no sources, and incomplete sources
 
@@ -515,7 +482,7 @@ Exit codes: `0` success, `1` error, `2` usage error, `3` blocked.
 
 - [Guided workflow](guided-workflow.md) — `run --interactive`/`--plain` modes and review contents
 - [Journal source](journal-source.md) — journal keys, identity, active/detached, privacy
-- [Collection configuration](collection-config.md) — git/calendar keys and preflight semantics
+- [Collection configuration](collection-config.md) — the `sources` section (GitHub and calendar keys)
 - [Classification selection](classification-selection.md) — catalog and explicit selection
 - [ADR 0007](../adr/0007-journal-evidence-source.md) — journal evidence decision
 
