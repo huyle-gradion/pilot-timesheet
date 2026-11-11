@@ -432,7 +432,7 @@ func TestNextContentProofMirrorsTheStageVerb(t *testing.T) {
 	if err != nil {
 		t.Fatalf("artifacts: %v", err)
 	}
-	units := ledgerUnits(artifacts.Entries.Entries, testDate)
+	units := ledgerUnits(artifacts.Entries.Entries, testDate, "UTC")
 	if len(units) != 2 {
 		t.Fatalf("units = %+v, want two stageable units (the anchorless entry is not one)", units)
 	}

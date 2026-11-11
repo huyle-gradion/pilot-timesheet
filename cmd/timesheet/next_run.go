@@ -202,7 +202,7 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 	}
 	obs.Artifacts = ledger
 	if ledger.Entries != nil {
-		obs.Units = ledgerUnits(ledger.Entries.Entries, day)
+		obs.Units = ledgerUnits(ledger.Entries.Entries, day, snapshot.Timezone)
 	}
 	if !snapshot.Finalized && snapshot.ConfiguredDefaultPresent && ledger.EntriesPresent && len(ledger.Entries.Entries) > 0 {
 		return obs, nil, nil

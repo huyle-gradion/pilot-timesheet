@@ -32,6 +32,22 @@ command that reads the store and returns.
 - The protocol sections of the interface doc are kept under a historical
   banner.
 - Docs: start the day with `timesheet log` in the Linux setup, rewrite the guided-workflow note around `tui` and terminal `submit`, retire the journal source note (ADR 0007 amended), and drop the vault-generator line from the lessons (#270).
+- Stage overnight entries like same-day ones (#176). An overnight span joins
+  the overlap projection, so a block inside it merges into its cluster at
+  `stage` instead of failing `save` with `overlap`. It is chunked to the
+  four-hour policy in real minutes in the day's timezone (DST-aware), with the
+  midnight-crossing chunk last because every interval starts on its staged
+  date. `next`/`log` derive the same units, so the day is not reported stale.
+  An entry whose RFC 3339 anchors are 24 hours or more apart is skipped with
+  its own reason instead of being truncated to its clocks, and so are
+  overlapping entries whose union with an overnight span runs 24 hours or more.
+  Same-day days stage byte for byte as before.
+- Upgrade note: a day already saved with an unsplit overnight interval stays
+  current for `next`/`log`, `submit --chat` and `eval`. A day staged but not
+  yet saved under the old rule re-stages with the new units at its next
+  `stage`/`save`, which can change its interval ids; if it was already
+  classified, the classification sidecar may then be stale and the day asks to
+  classify again.
 
 ## 0.2.0-dev.11
 

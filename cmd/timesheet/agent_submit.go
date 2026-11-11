@@ -64,8 +64,7 @@ func runAgentSubmit(args []string) error {
 	if !artifacts.EntriesPresent || !snapshot.Finalized {
 		return fmt.Errorf("submit --chat: no saved recorded day; finish logging before reviewing submission")
 	}
-	ledger := ledgerContentSpans(ledgerUnits(artifacts.Entries.Entries, day))
-	if !sameContent(ledger, confirmedContentSpans(snapshot.Confirmed)) {
+	if !ledgerDerivesSaved(ledgerUnits(artifacts.Entries.Entries, day, snapshot.Timezone), snapshot.Confirmed) {
 		return fmt.Errorf("submit --chat: recorded ledger differs from saved intervals; review stage --revise and classify before requesting fresh confirmation")
 	}
 	res, err := h.call("preview_plan", timesheet.Request{Day: day})

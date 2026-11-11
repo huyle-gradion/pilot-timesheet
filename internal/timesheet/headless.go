@@ -672,16 +672,32 @@ func draftClock(s string) (int, bool) {
 	if s == "" {
 		return 0, false
 	}
-	if len(s) >= 16 && (s[10] == 'T' || s[10] == ' ') {
-		if t, err := time.Parse(time.RFC3339, strings.Replace(s, " ", "T", 1)); err == nil {
-			return t.Hour()*60 + t.Minute(), true
-		}
+	if t, ok := draftStamp(s); ok {
+		return t.Hour()*60 + t.Minute(), true
 	}
 	if t, err := time.Parse("15:04", s); err == nil {
 		return t.Hour()*60 + t.Minute(), true
 	}
 	return 0, false
 }
+
+// draftStamp parses the RFC 3339 shape draftClock accepts, keeping the date
+// and offset the clock alone drops. An "HH:MM" anchor is not a stamp. It trims
+// surrounding space exactly as draftClock always has, so a padded stamp parses
+// here iff draftClock already read its clock; no anchor changes meaning.
+func draftStamp(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) >= 16 && (s[10] == 'T' || s[10] == ' ') {
+		if t, err := time.Parse(time.RFC3339, strings.Replace(s, " ", "T", 1)); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// minutesPerDay is one wall-clock day; the overlap projection adds it to an
+// overnight end so the span runs past midnight on one timeline.
+const minutesPerDay = 24 * 60
 
 func clockString(minutes int) string {
 	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
@@ -1065,6 +1081,88 @@ func SplitEntrySpans(start, end string) [][2]string {
 	return out
 }
 
+// EntrySpansADayOrMore reports whether a recorded entry's anchors are RFC 3339
+// stamps 24 hours or more apart. Such a span crosses more than one midnight (or
+// runs past its own clock span), which no interval can express: an interval
+// crosses at most one midnight, and the entry's clocks alone would read as a
+// shorter span. The caller skips it honestly instead of truncating it. "HH:MM"
+// anchors carry no date and never report true.
+func EntrySpansADayOrMore(start, end string) bool {
+	s, okS := draftStamp(start)
+	e, okE := draftStamp(end)
+	return okS && okE && e.Sub(s) >= 24*time.Hour
+}
+
+// StageSpans chunks one stage-time span recorded under date to the Gradion
+// four-hour policy (issue #167). A same-day span is exactly SplitEntrySpans.
+// An overnight span (end clock before its start clock; issue #176) is chunked
+// in real minutes in the day's timezone, because the local interval model
+// stages every interval under its starting date: no chunk may start after
+// midnight, so the chunk that crosses midnight is the last one. Chunks run
+// greedily left to right while the next chunk would still start before
+// midnight; the crossing chunk then covers the final 240 minutes, and the
+// pre-midnight chunk before it carries the remainder. Every chunk is then at
+// most 240 minutes and the chunks cover the recorded span exactly.
+//
+// When the span runs 240 minutes or more past midnight, no interval that
+// starts on date can reach its end within 240 minutes, so the crossing chunk
+// keeps the whole remainder (its pre-midnight allocation stays within the
+// policy; the plan's remote_entry_too_long guard still judges the next day's
+// allocation). A span whose timezone, anchors or chunk boundaries do not
+// resolve to unique local times returns the single original span, so the
+// interval op validates it honestly.
+func StageSpans(date, timezone, start, end string) [][2]string {
+	sm, okS := draftClock(start)
+	em, okE := draftClock(end)
+	if !okS || !okE || em >= sm {
+		return SplitEntrySpans(start, end)
+	}
+	single := [][2]string{{start, end}}
+	loc, err := dayLocation(timezone)
+	if err != nil {
+		return single
+	}
+	from, to, err := Interval{Date: date, Start: clockString(sm), End: clockString(em)}.resolveEndpoints(loc)
+	if err != nil {
+		return single
+	}
+	midnight, err := localDayStart(nextDate(date), loc)
+	if err != nil {
+		return single
+	}
+	limit := time.Duration(maxRemoteEntryMinutes) * time.Minute
+	cuts := []time.Time{from}
+	for b := from; to.Sub(b) > limit; {
+		if next := b.Add(limit); next.Before(midnight) {
+			cuts = append(cuts, next)
+			b = next
+			continue
+		}
+		if c := to.Add(-limit); c.Before(midnight) {
+			cuts = append(cuts, c)
+		}
+		break
+	}
+	if len(cuts) == 1 {
+		return single
+	}
+	clocks := make([]string, 0, len(cuts)+1)
+	clocks = append(clocks, clockString(sm))
+	for _, c := range cuts[1:] {
+		clock := c.In(loc).Format("15:04")
+		if at, err := resolveLocal(date, clock, loc, "start"); err != nil || !at.Equal(c) {
+			return single
+		}
+		clocks = append(clocks, clock)
+	}
+	clocks = append(clocks, clockString(em))
+	out := make([][2]string, 0, len(clocks)-1)
+	for i := 1; i < len(clocks); i++ {
+		out = append(out, [2]string{clocks[i-1], clocks[i]})
+	}
+	return out
+}
+
 // EntryCluster is one stage-time union of recorded entries that strictly
 // overlap: the contributors in cluster order (head first), the union span as
 // same-day clock strings, the kind the union renders, and the joined
@@ -1093,22 +1191,41 @@ type EntryCluster struct {
 //
 // Overlap is strict (end == start merely touches), chained overlaps form one
 // cluster, and a gap between clusters is never bridged, so the staged set adds
-// no uncovered minute. Entries whose times do not parse or whose end is not
-// after their start are absent from the result: the caller owns the skip
-// reasons for the former, and the overnight path passes its span through
-// unsplit. The entries ledger is never modified; this is the stage-time
-// projection only. The four-hour chunking (SplitEntrySpans) applies afterwards
-// per cluster span.
+// no uncovered minute. An overnight entry (end clock before its start clock)
+// takes part on a timeline that runs past midnight (issue #176), so a block
+// inside it joins its cluster instead of colliding at save, while an
+// early-morning block of the same date does not overlap it; an overnight
+// cluster's End is the next day's clock. Entries whose times do not parse,
+// whose end equals their start, or whose stamps are a day or more apart
+// (EntrySpansADayOrMore) are absent from the result: the caller owns their
+// skip reasons. The entries ledger is never modified; this is the stage-time
+// projection only. The four-hour chunking (StageSpans) applies afterwards per
+// cluster span. A cluster whose union spans 24 hours or more is absent too
+// (see ResolveEntrySpans).
 func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
+	clusters, _ := ResolveEntrySpans(entries)
+	return clusters
+}
+
+// ResolveEntrySpans is EffectiveEntrySpans plus the contributors it drops
+// because their overlapping union spans 24 hours or more (an overnight entry
+// chained with same-day blocks, e.g. 06:00→20:00 and 19:00→08:00). An interval
+// crosses at most one midnight, so such a union has no honest interval: its
+// clock span would wrap and silently lose the day. dayLong lists those block
+// ids in cluster order; the caller skips them with their own reason.
+func ResolveEntrySpans(entries []EntryRecord) (clusters []EntryCluster, dayLong []string) {
 	var spans []powSpan
 	var skipped []string
 	byID := map[string]EntryRecord{}
 	for _, e := range entries {
 		sm, okS := draftClock(e.Start)
 		em, okE := draftClock(e.End)
-		if !okS || !okE || em <= sm {
+		if !okS || !okE || em == sm || EntrySpansADayOrMore(e.Start, e.End) {
 			skipped = append(skipped, e.BlockID)
 			continue
+		}
+		if em < sm {
+			em += minutesPerDay // overnight: the end is on the next date
 		}
 		byID[e.BlockID] = e
 		spans = append(spans, powSpan{id: e.BlockID, kind: e.Kind, startM: sm, endM: em})
@@ -1116,6 +1233,17 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 	var out []EntryCluster
 	for _, cluster := range mergeSpans(spans) {
 		head := spans[cluster[0]]
+		unionEnd := head.endM
+		for _, i := range cluster {
+			unionEnd = max(unionEnd, spans[i].endM)
+		}
+		if unionEnd-head.startM >= minutesPerDay {
+			for _, i := range cluster {
+				dayLong = append(dayLong, spans[i].id)
+				skipped = append(skipped, spans[i].id)
+			}
+			continue
+		}
 		end := head.endM
 		kind := head.kind
 		c := EntryCluster{Start: clockString(head.startM), End: clockString(head.endM)}
@@ -1132,13 +1260,13 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 			texts = append(texts, byID[s.id].Description)
 		}
 		c.Kind = kind
-		c.End = clockString(end)
+		c.End = clockString(end % minutesPerDay)
 		c.Description = joinText(texts...)
 		out = append(out, c)
 	}
 	// Cluster ids are resolved against the ids of the entries the projection
-	// excludes, because the caller stages an overnight span under its entry id
-	// and the two may never claim one key.
+	// excludes, because the caller reports those under their entry ids and the
+	// two may never claim one key.
 	ids := make([]string, 0, len(out)+len(skipped))
 	fixed := make([]bool, 0, len(out)+len(skipped))
 	for i := range out {
@@ -1158,7 +1286,7 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 	for i := range out {
 		out[i].BlockID = ids[i]
 	}
-	return out
+	return out, dayLong
 }
 
 // StageMapFile is the durable block_id → interval-id sidecar for one day.

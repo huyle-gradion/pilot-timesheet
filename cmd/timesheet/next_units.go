@@ -19,9 +19,9 @@ import (
 
 // ledgerUnit is one stage-time unit: a recorded block's effective content and
 // the span(s) a fresh stage would turn into intervals. It mirrors applyStage's
-// unit selection (headless.go): an overnight span passes through unsplit under
-// its own block id, and each overlap-projection cluster becomes one unit under
-// its cluster id, split by the four-hour policy.
+// unit selection (headless.go): each overlap-projection cluster, same-day or
+// overnight, becomes one unit under its cluster id, split by the four-hour
+// policy (timesheet.StageSpans).
 type ledgerUnit struct {
 	BlockID     string
 	Date        string
@@ -31,32 +31,57 @@ type ledgerUnit struct {
 	Spans       [][2]string
 }
 
-// ledgerUnits derives the current ledger's stage-time units. It allocates no
-// interval ids: it is the content projection, enough to prove the stored stage
-// map and the saved content are current.
-func ledgerUnits(entries []timesheet.EntryRecord, date string) []ledgerUnit {
+// ledgerBlocks derives the current ledger's stage-time units without their
+// chunk spans: the content binding (stagedBlocksFrom) needs only each unit's
+// id and effective content, which do not depend on the day's timezone.
+func ledgerBlocks(entries []timesheet.EntryRecord, date string) []ledgerUnit {
 	var units []ledgerUnit
-	for _, e := range entries {
-		startMin, endMin, ok := timesheet.EntrySpanBounds(e.Start, e.End)
-		if !ok || endMin >= startMin {
-			// Only an overnight span (an end BEFORE its start) is a unit here:
-			// applyStage passes it through unsplit under its own block id.
-			// Same-day spans are covered by the overlap projection below; an
-			// unparsable or zero-duration entry is never staged at all.
-			continue
-		}
-		units = append(units, ledgerUnit{
-			BlockID: e.BlockID, Date: date, Start: e.Start, End: e.End,
-			Description: e.Description, Spans: [][2]string{{e.Start, e.End}},
-		})
-	}
 	for _, c := range timesheet.EffectiveEntrySpans(entries) {
 		units = append(units, ledgerUnit{
 			BlockID: c.BlockID, Date: date, Start: c.Start, End: c.End,
-			Description: c.Description, Spans: timesheet.SplitEntrySpans(c.Start, c.End),
+			Description: c.Description,
 		})
 	}
 	return units
+}
+
+// ledgerUnits derives the current ledger's stage-time units with the chunk
+// spans applyStage would stage. timezone is the day's recorded timezone (the
+// one open_day reports): an overnight span is chunked in real minutes. It
+// allocates no interval ids: it is the content projection, enough to prove the
+// stored stage map and the saved content are current.
+func ledgerUnits(entries []timesheet.EntryRecord, date, timezone string) []ledgerUnit {
+	units := ledgerBlocks(entries, date)
+	for i := range units {
+		units[i].Spans = timesheet.StageSpans(date, timezone, units[i].Start, units[i].End)
+	}
+	return units
+}
+
+// legacyUnits is the derivation before issue #176: every overnight unit staged
+// as ONE unsplit span. A day finalized under that rule (e.g. 21:00→03:00 saved
+// as one interval, a valid 180+180 remote plan) must still prove current, or
+// next/log and submit --chat would demand a `stage --revise` of work the remote
+// may already hold. It is consulted only for finalized content; a same-day unit
+// is unchanged. The units are copies; the input is not modified.
+func legacyUnits(units []ledgerUnit) []ledgerUnit {
+	out := make([]ledgerUnit, len(units))
+	for i, u := range units {
+		out[i] = u
+		if u.End <= u.Start { // HH:MM clocks: the end is on the next date
+			out[i].Spans = [][2]string{{u.Start, u.End}}
+		}
+	}
+	return out
+}
+
+// ledgerDerivesSaved is the finalized-day content proof: the ledger derives the
+// saved intervals under the current rule, or under the legacy unsplit
+// overnight rule the day may have been saved with (legacyUnits).
+func ledgerDerivesSaved(units []ledgerUnit, confirmed []timesheet.Interval) bool {
+	saved := confirmedContentSpans(confirmed)
+	return sameContent(ledgerContentSpans(units), saved) ||
+		sameContent(ledgerContentSpans(legacyUnits(units)), saved)
 }
 
 // stageMapMatchesUnits proves the stored stage map was derived from the current

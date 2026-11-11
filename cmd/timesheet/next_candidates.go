@@ -106,7 +106,7 @@ func stagedDayBlocks(statePath, day string) (map[string]timesheet.EntryRecord, s
 	if ledger.Entries == nil {
 		return nil, "", fmt.Errorf("candidates: the day %s has no entries ledger to classify", day)
 	}
-	blocks := stagedBlocksFrom(ledgerUnits(ledger.Entries.Entries, day), ledger.StageMap)
+	blocks := stagedBlocksFrom(ledgerBlocks(ledger.Entries.Entries, day), ledger.StageMap)
 	return blocks, timesheet.StagedLedgerDigest(day, blocks), nil
 }
 
