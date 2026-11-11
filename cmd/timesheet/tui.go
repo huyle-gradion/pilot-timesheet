@@ -2,7 +2,7 @@ package main
 
 // tui is the `tui` verb: the native terminal UI over the same store, config
 // and session surface every other command uses. It opens the store once and
-// holds the exclusive lock for the whole process, mirroring serve; every
+// holds the exclusive lock for the whole process; every
 // refusal (non-terminal stdio, store_locked) happens before the alt screen
 // starts.
 

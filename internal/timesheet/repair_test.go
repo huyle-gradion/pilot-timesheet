@@ -275,17 +275,6 @@ func TestFinalIntervalRemovalAndTimezoneReload(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "4", Op: "save", Day: "2026-10-30", Revision: revision(1)}))
 
 	removed := call(t, session, Request{
-		ID: "5", Op: "remove_interval", Day: "2026-10-30", Revision: revision(1),
-		IntervalID: "iv-20261030-1",
-	})
-	requireOK(t, removed)
-	cancelled := call(t, session, Request{ID: "6", Op: "cancel", Day: "2026-10-30", Revision: revision(1)})
-	requireOK(t, cancelled)
-	if got := cancelled.Result.(CancelResult).Confirmed.TotalMinutes; got != 60 {
-		t.Fatalf("cancel did not retain the interval: %d", got)
-	}
-
-	removed = call(t, session, Request{
 		ID: "7", Op: "remove_interval", Day: "2026-10-30", Revision: revision(1),
 		IntervalID: "iv-20261030-1",
 	})

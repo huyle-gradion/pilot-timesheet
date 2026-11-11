@@ -5,8 +5,7 @@ package main
 // ./timesheet.json when the current directory carries one (project-local), and
 // otherwise to $HOME/.timesheet/config.json; --env-file defaults to
 // $HOME/.timesheet/.env.local. An explicit flag always wins verbatim, so
-// tests, scripted callers and alternate setups keep working unchanged; serve
-// still requires both flags because it is the long-running protocol server.
+// tests, scripted callers and alternate setups keep working unchanged.
 //
 // The three tiers are never merged: exactly one configuration is loaded. The
 // selected path is reported once per invocation on stderr by the shared

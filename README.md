@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27.1-00ADD8?logo=go)](go.mod)
-[![Protocol/state schema](https://img.shields.io/badge/schema-1%2F3-informational)](docs/agents/timesheet-interface.md)
+[![State schema](https://img.shields.io/badge/state%20schema-3-informational)](docs/agents/timesheet-interface.md)
 [![Submission: human-gated](https://img.shields.io/badge/submission-human--gated-brightgreen)](#recovery-and-no-replay)
 
 Pilot Timesheet is a single Go binary for logging your own working days with
@@ -32,7 +32,7 @@ queues for a starting point.
 
 Application version: **`0.2.0-dev.11`** (published as the pre-release
 [`v0.2.0-dev.11`](https://github.com/huyle-gradion/pilot-timesheet/releases/tag/v0.2.0-dev.11);
-the previous stable line is `0.1.1`). Protocol schema `1`, state schema `3`.
+the previous stable line is `0.1.1`). State schema `3`.
 This is a SemVer pre-release of the upcoming `0.2.0`.
 
 ## Quickstart
@@ -44,7 +44,7 @@ go1.27.3 on Linux):
 git clone https://github.com/huyle-gradion/pilot-timesheet.git
 cd pilot-timesheet
 go build -trimpath -o bin/timesheet ./cmd/timesheet
-bin/timesheet version          # prints the version and protocol schema, exits 0
+bin/timesheet version          # prints the version, exits 0
 ```
 
 Create the `~/.timesheet` store once with `init`. Projects are never invented:
@@ -76,25 +76,24 @@ From the repository root, with any Go toolchain matching `go.mod`
 
 ```bash
 go build -trimpath -o bin/timesheet ./cmd/timesheet
-bin/timesheet version   # prints the application version and protocol schema, exits 0
+bin/timesheet version   # prints the application version, exits 0
 ```
 
 A mise-managed Go (`mise exec -- go build ...`) is environment troubleshooting
 on hosts where `go` is not on `PATH`; it is not a project dependency.
 
 `bin/timesheet` is the production-named executable. Its public commands are
-`init`, `log`, `next`, `status`, `submit` (with `submit status` and
-`submit resolve`), `tui`, `daily`, `judge`, `eval` and `version`;
-`timesheet help` lists them. The steps `next` derives (`run`, `record`,
-`stage`, `classifications`, `classify`, `save`, `plan`, `acknowledge`,
-`decide`, `reconcile`, `resolve`) and the `serve` protocol server stay callable
-but are internal. A removed command (`setup`, `approve`, `agent-submit`,
-`submit-status`, `resolve-write`, `collect`, `draft`, `confirm`) exits `2` with
-one line naming its replacement. A normal `version` run, a normal `serve`
-close/EOF and `serve` help exit `0`. No top-level command, an unknown top-level
-command, or extra `version` arguments exit `2`. `serve` argument validation (an unknown
-flag, an extra positional, a missing required flag), startup failure and stream
-failure exit `1`. Usage errors make no remote call.
+`init`, `log`, `next`, `status`, `submit` (with `submit status`,
+`submit resolve` and `submit revoke`), `migrate`, `tui`, `daily`, `judge`,
+`eval` and `version`; `timesheet help` lists them. Every command is one
+stateless process over the local store: it reads the store, acts, and returns.
+The steps `next` derives (`run`, `record`, `stage`, `classifications`,
+`classify`, `save`, `plan`, `acknowledge`, `decide`, `reconcile`, `resolve`)
+stay callable but are internal. A removed command (`setup`, `approve`,
+`agent-submit`, `submit-status`, `resolve-write`, `collect`, `draft`,
+`confirm`, `serve`) exits `2` with one line naming its replacement. A normal
+`version` run exits `0`. No top-level command, an unknown top-level command, or
+extra `version` arguments exit `2`. Usage errors make no remote call.
 
 ## What lives where
 
@@ -242,8 +241,8 @@ commands and store-wide unresolved-write counts. `enter` runs the act the
 derived step licenses, `s` opens the submit gate, `r` re-derives, and `q` sends
 `close` and exits, discarding unsaved session state.
 
-`--config` and `--env-file` are process inputs for `tui`, `serve` and the
-headless commands. They are never protocol request fields and never model
+`--config` and `--env-file` are process inputs for `tui` and the
+headless commands. They are never request fields and never model
 arguments: the compiled binary reads the files, and a caller receives the path,
 not the contents. Keep existing configured state and credential paths when
 updating; these example paths are not a migration instruction.
@@ -270,17 +269,22 @@ verbs. Interactive interval authoring/editing forms, the classification
 search/select picker, the migration preview/apply forms and the in-session usage
 counters retired with the launcher; the underlying capabilities remain as
 headless verbs (`stage`, `classifications --query`, `classify`, `reconcile`,
-`resolve`) and as `serve` ops (`migration_preview`, `migration_apply`). There is
-no CLI verb for migration (serve ops only).
+`resolve`) and as `migrate preview` / `migrate apply`.
 
 ## Migration and reconciliation before any write
 
 Switching from legacy records is explicit and read-only until it is applied:
 
-1. `migration_preview` over an explicit date list validates legacy records,
-   conflicts, source hashes and the durable target; `migration_apply` re-reads
-   and re-verifies exactly those inputs before one atomic activation, and a
-   repeat is `no_change` with the legacy bytes unchanged. Migrated legacy
+1. `timesheet migrate preview --date <day>` (repeatable, or `FROM..TO`)
+   validates legacy records, conflicts, source hashes and the durable target
+   and prints a `migration_id`. `timesheet migrate apply --date <same days>
+   --migration-id <id>` rebuilds the candidate from the store and the legacy
+   files and activates it atomically only if the rebuilt id matches. The id
+   hashes the sources, the durable target and the exact payload apply would
+   commit, so it binds the reviewed result rather than granting anything: a
+   change to the selection, the legacy files, the store or the migration
+   config since the preview is `migration_stale` with nothing written. A repeat is `no_change` with the
+   legacy bytes unchanged. Migrated legacy
    approvals are inert audit data and can never authorize a write.
 2. `reconcile_remote` makes one fresh read-only observation of the day and
    reports mapped, changed, missing and orphaned identities. A read never binds
@@ -310,6 +314,10 @@ Never write before the day is reconciled; never plan from an unsaved draft.
   submits or replays anything on its own.
 - A transport failure after dispatch is an unknown remote outcome, never proof
   of zero writes.
+- An approval kept after a stopped `submit` is withdrawn in the terminal with
+  `timesheet submit revoke --date <day> [--approval-id <id>]`, behind a typed
+  confirmation; it is never reachable through `--chat` or the skill.
+  Revocation is permanent audit and never undoes a remote effect.
 
 ## Readiness
 
@@ -342,7 +350,7 @@ go test -race -shuffle=on ./...
 ```
 
 The [architecture doc](docs/architecture/timesheet-daily-workflow.md) and the
-[serve protocol spec](docs/agents/timesheet-interface.md) are the reference for
+[interface spec](docs/agents/timesheet-interface.md) are the reference for
 how the planner and the binary are expected to behave; a small surface with
 strong conventions — safety invariants like human-gated submission, no replay
 and no unverified writes are enforced by the binary and the tests, not just
@@ -356,7 +364,7 @@ patch, are contributions too: open an issue with reproduction steps.
 
 ## Documentation
 
-- `docs/agents/timesheet-interface.md` — authoritative `serve` protocol, config,
+- `docs/agents/timesheet-interface.md` — authoritative command surface, config,
   environment precedence, error codes and the accepted stage history.
 - `docs/architecture/timesheet-daily-workflow.md` — the stateless `next`
   planner, digest-bound judgments, responsibility map and accepted deviations.

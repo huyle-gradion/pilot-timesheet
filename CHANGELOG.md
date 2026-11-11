@@ -4,6 +4,33 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+Retire `serve` (#272): every capability it alone reached is now a stateless
+command that reads the store and returns.
+
+- Add `timesheet migrate preview --date <day|FROM..TO>...` and
+  `timesheet migrate apply --date ... --migration-id <id>`. Apply keeps
+  nothing from the preview: it rebuilds the candidate from the store and the
+  legacy files and activates it only when the rebuilt `migration_id` matches.
+  The id hashes the dates, legacy timezone, source bytes, durable target and
+  the exact payload apply would commit, so an edited project or
+  classification map between preview and apply is also stale.
+  A mismatch is `migration_stale` with nothing written. The `migration_apply`
+  op now takes `dates` and no longer keeps in-process preview state.
+- Add `timesheet submit revoke --date <day> [--approval-id <id>]`, terminal-only
+  behind a typed confirmation and never reachable through `--chat`. The hint
+  after a stopped terminal `submit` names it.
+- `status` reports the required environment variable names under
+  `environment` (what `check_environment` reported, names only).
+- Drop the `cancel` op: staged edits never outlive the one process that made
+  them, so there is nothing to cancel.
+- **Breaking:** `serve` is removed; it is a retired command (exit `2`) naming
+  its replacements, and `Session.Serve` is gone.
+- **Breaking:** `status` output no longer carries `protocol_schema`; the
+  protocol schema constant is removed with `serve`.
+- **Breaking:** `version` prints only `timesheet <version>`, without the
+  `(protocol schema N)` suffix.
+- The protocol sections of the interface doc are kept under a historical
+  banner.
 - Docs: start the day with `timesheet log` in the Linux setup, rewrite the guided-workflow note around `tui` and terminal `submit`, retire the journal source note (ADR 0007 amended), and drop the vault-generator line from the lessons (#270).
 
 ## 0.2.0-dev.11

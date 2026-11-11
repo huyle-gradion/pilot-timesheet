@@ -11,8 +11,9 @@ package timesheet
 // identical plan content twice yields two distinct IDs, and a new approval can
 // never overwrite or reactivate a consumed or revoked one.
 //
-// This channel is the trusted local operator transport of the development
-// private stdio protocol. It is deliberately NOT authenticated presence: a
+// These ops run in-process for the local operator's commands (the private
+// stdio protocol that once carried them retired with serve, #272). They are
+// deliberately NOT authenticated presence: a
 // scripted request is not proof a human is physically present, so no security
 // flag such as human:true exists here. R5 removes these operations from model
 // capabilities and provides a local human UI. Nothing in this file performs AI

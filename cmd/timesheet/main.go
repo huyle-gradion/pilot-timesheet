@@ -1,4 +1,5 @@
-// Command timesheet runs the local timesheet server.
+// Command timesheet logs and submits a personal timesheet; every command is
+// one stateless process over the local store.
 package main
 
 import (
@@ -20,6 +21,9 @@ const commandSynopsis = `Usage:
   timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
   timesheet submit status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
   timesheet submit resolve [--config <path>] [--env-file <path>] --file <decision.json>
+  timesheet submit revoke [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
+  timesheet migrate preview [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>...
+  timesheet migrate apply [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>... --migration-id <id>
   timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
   timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
@@ -29,7 +33,7 @@ const commandSynopsis = `Usage:
 
 next prints the one action it derives; the steps it names (run, record, stage,
 classifications, classify, save, plan, acknowledge, decide, reconcile, resolve)
-and serve stay callable but are internal.
+stay callable but are internal.
 `
 
 // printSynopsis is the clean help surface: the command list, no prose.
@@ -61,7 +65,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "version takes no arguments")
 			os.Exit(2)
 		}
-		fmt.Printf("timesheet %s (protocol schema %d)\n", timesheet.AppVersion, timesheet.ProtocolSchema)
+		fmt.Printf("timesheet %s\n", timesheet.AppVersion)
 	case "init":
 		if err := runSetup(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -74,13 +78,11 @@ func main() {
 			}
 			os.Exit(1)
 		}
-	case "serve":
-		if err := runServe(os.Args[2:]); err != nil {
+	case "migrate":
+		if err := runMigrate(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return
 			}
-			// AppError carries a stable code and a safe message. Startup errors
-			// never echo configuration or credential values.
 			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
 			os.Exit(1)
 		}
@@ -240,38 +242,4 @@ func main() {
 		fmt.Fprintf(os.Stderr, "timesheet: unknown command %q; run `timesheet help`\n", os.Args[1])
 		os.Exit(2)
 	}
-}
-
-func runServe(args []string) error {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
-	configPath := flags.String("config", "", "fixed configuration path (required)")
-	envFile := flags.String("env-file", "", "fixed environment-file path (required)")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("serve does not accept positional arguments")
-	}
-	if *configPath == "" || *envFile == "" {
-		return fmt.Errorf("serve requires --config and --env-file")
-	}
-
-	cfg, err := timesheet.LoadConfig(*configPath)
-	if err != nil {
-		return err
-	}
-	fileEnv, err := timesheet.LoadEnvFile(*envFile)
-	if err != nil {
-		return err
-	}
-	env := timesheet.MergeEnv(fileEnv)
-	store, err := timesheet.OpenStore(cfg.StatePath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = store.Close() }()
-
-	session := timesheet.NewSession(cfg, env, store)
-	return session.Serve(os.Stdin, os.Stdout)
 }
