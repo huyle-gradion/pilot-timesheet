@@ -80,6 +80,16 @@ func runSubmitCommand(args []string) error {
 	return runSubmitTerminal(args)
 }
 
+// resumeSubmitArgv resumes a kept approval against the same store and
+// credential context: the resolved config and env-file paths (never values).
+func resumeSubmitArgv(f *headlessFlags, approvalID string) []string {
+	argv := []string{"timesheet", "submit", "--config", f.configPath}
+	if f.envFile != "" {
+		argv = append(argv, "--env-file", f.envFile)
+	}
+	return append(argv, "--date", f.date, "--approval-id", approvalID)
+}
+
 // runSubmitTerminal approves the day's current plan (type its plan_id) and
 // submits that approval (type its approval_id) in one terminal session.
 func runSubmitTerminal(args []string) error {
@@ -104,8 +114,8 @@ func runSubmitTerminal(args []string) error {
 		return err
 	}
 	if err := confirmSubmission(term, f.date, approval.ApprovalID); err != nil {
-		return fmt.Errorf("%w; the approval %s is kept: resume with `timesheet submit --date %s --approval-id %s`",
-			err, approval.ApprovalID, f.date, approval.ApprovalID)
+		return fmt.Errorf("%w; the approval %s is kept: resume with `%s`",
+			err, approval.ApprovalID, shellJoin(resumeSubmitArgv(f, approval.ApprovalID)))
 	}
 	receipt, err := submitApproved(h, term, f.date, approval.ApprovalID)
 	if err != nil {

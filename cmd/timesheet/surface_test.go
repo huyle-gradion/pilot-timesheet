@@ -83,6 +83,21 @@ func TestSubmitTerminalWrongPlanIDWritesNothing(t *testing.T) {
 	}
 }
 
+func TestSubmitTerminalStopKeepsTheApprovalWithAResumeCommand(t *testing.T) {
+	cfg, stub := savedDayForSubmit(t, "Build the bridge", nil, "")
+	preview := runPlanCapture(t, []string{"--config", cfg, "--date", testDate})
+	injectTTY(t, preview.PlanID, "not-the-approval")
+	err := runSubmitCommand([]string{"--config", cfg, "--date", testDate})
+	if err == nil || stub.writeCount() != 0 {
+		t.Fatalf("err = %v, writes %d; want a stop before any write", err, stub.writeCount())
+	}
+	for _, want := range []string{"is kept: resume with", "--config " + cfg, "--date " + testDate, "--approval-id "} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("resume guidance %q lacks %q", err, want)
+		}
+	}
+}
+
 func TestSubmitSubcommandsRouteToTheirCores(t *testing.T) {
 	cfg, _ := savedDayForSubmit(t, "Build the bridge", nil, "")
 	out, _, err := captureOutput(t, func() error {
