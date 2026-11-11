@@ -11,6 +11,12 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   clamp each exist once. The hostile-content test now covers the ask, gate
   kind, gate/bench error and caret branches it missed. Rendered frames are
   byte-identical.
+- Keep `serve` as an internal command (the only route to legacy migration,
+  `cancel`, `check_environment` and `revoke_approval`) and pin it with in-repo
+  end-to-end JSONL tests (the status handshake, `migration_preview` /
+  `migration_apply`, malformed lines, close and EOF, and the binary's own
+  stdin/stdout); the interface doc now lists the #262 public surface and marks
+  `serve` internal, matching the README (#230).
 
 ## 0.2.0-dev.10
 
