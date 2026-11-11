@@ -99,8 +99,8 @@ failure exit `1`. Usage errors make no remote call.
 
 This repository is one Pilot Timesheet product: a single compiled Go binary
 owns all accounting, validation and persistence. Two operator surfaces drive
-it. The **agent skill** (`.pi/prompts/timesheet.md` →
-`.agents/skills/timesheet/SKILL.md`) runs the `next` loop directly, and the
+it. The **agent skill** (`.agents/skills/timesheet/SKILL.md`) starts
+`next --do --auto` and relays its questions, and the
 native **`tui` verb** (`bin/timesheet tui`) renders the local operator workflow
 in the terminal. Both call the same binary and the same planner; neither is
 required by the other. The legacy CLI subcommands, the old product skill and
@@ -111,66 +111,45 @@ the vault sync/generator source remain retired and must not be reintroduced.
 | `cmd/timesheet/` | The single-binary entrypoint: every command listed above, plus the minimal valid example configuration. |
 | `internal/` | The Go engine: accounting, validation, persistence, the `next` planner. |
 | `.agents/skills/timesheet/` | The runner-agnostic agent skill (`SKILL.md`, `scripts/ts-env`) that drives the binary; linked from `.claude/skills/timesheet` for Claude Code. |
-| `.pi/prompts/timesheet.md` | The Pi prompt that expands into the same skill. |
 | `docs/` | The authoritative specs: protocol, architecture, setup, credentials. See [Documentation](#documentation). |
-| `scripts/` | Optional helper scripts, e.g. `tokens.py` benchmark collection (never blocks the day). |
+| `scripts/` | Optional helpers, e.g. `tokens.py`, which imports token usage from historical agent sessions. |
 
 ## Daily log: agent skill
 
-Daily driver, in a Pi session: type `/timesheet log today work`. Pi expands
-`.pi/prompts/timesheet.md` into the skill below, and the binary resolves
-"today" in the configured timezone. The native TUI below is the keyboard-first
-alternative over the same loop.
-
-The daily log is delivered by a runner-agnostic skill folder:
-`.agents/skills/timesheet/SKILL.md`, picked up by Claude Code through the
-`.claude/skills/timesheet` link and executable by any agent runtime with shell
-access. The skill locates the binary through its own
-`.agents/skills/timesheet/scripts/ts-env` helper, checks `next --help`, and
-builds once before the loop if the found binary predates the planner.
-
-Start the day with:
+In any agent session with shell access, ask it to log today's work (or a past
+day). The skill is one runner-agnostic folder, `.agents/skills/timesheet/`,
+picked up by Claude Code through the `.claude/skills/timesheet` link. It
+finds or rebuilds the binary with its `scripts/ts-env` helper, then runs one
+command and acts on its result:
 
 ```bash
-bin/timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+bin/timesheet next --do --auto [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
 ```
+
+The binary runs every deterministic step and answers its own judgments with
+the configured judge (ADR 0010), so the agent only relays and reports:
+
+- `human_gates`: the day is ready. The report carries `usage` and the
+  read-only submission status; approval and submission stay with you
+  (`approve` in a terminal, or `/submit` in chat).
+- `ask_human`: a decision only you can make (acknowledging an incomplete
+  source, choosing a project, a resolve decision). The agent relays the
+  question and writes only your answer.
+- `stopped`: a real blocker, reported verbatim.
+
+Without a `judge` section, `--auto` refuses and the skill falls back to
+`next --do`, where the agent answers the two judgments itself
+(`.agents/skills/timesheet/fallback.md`). `--auto` is not yet the recommended
+default: it waits until the judge meets the owner's golden-day eval threshold
+(`timesheet eval`, #242). The native TUI below is the keyboard-first
+alternative over the same loop.
 
 With no flags, config resolution is explicit `--config` → `./timesheet.json` in
 the current directory → `~/.timesheet/config.json`, and `--env-file` defaults
 to `~/.timesheet/.env.local` when it exists. Omitted `--date` means today in
 the configured timezone; a supplied date always wins. A setup-generated
 configuration stores an **absolute** `state_path`, so commands using that
-config do not resolve their store from cwd. A legacy configuration with a
-relative `state_path` keeps its existing cwd-relative meaning; do not claim
-cwd independence for it.
-
-`next` is read-only and stateless: no progress journal, no `--answer` flag and
-no `--do` dispatcher. It prints one typed JSON state per invocation, derived
-from the current ledger, stage map, answers and durable store:
-
-- `action` — the exact `action.cmd` argv. Run it verbatim, never through a
-  shell. It carries an absolute executable, config and day, plus the env-file
-  when one was resolved.
-- `judgment` — a model-owned answer file at `judgment.answer_file`, bound to
-  the exact content it judged:
-  - descriptions: `{"draft_digest":"<from the report>","notes":"…","descriptions":{"<block_id>":"<prose>"}}`
-  - classifications: `{"ledger_digest":"<from the report>","selections":{"<interval_id>":{"catalog_id":"…","classification_id":"…"}}}`
-  The classification judgment is self-contained in `judgment.blocks[]`
-  (`interval_id`, `block_id`, `start`, `end`, `description`); it needs no
-  draft or TMP artifact. Copy digest fields verbatim; a stale binding is
-  re-judged, never handed to `record`/`classify`.
-- `stopped` — an explicit blocker with its remedy (source gate, multiple
-  projects, a stale plan, a changed finalized ledger, or a missing remote
-  boundary). The skill reports the reason and stops; it never silently
-  acknowledges a source, guesses an attendance verdict, binds an identity or
-  reuses a stale plan. An explicitly user-authorized decision is performed
-  once where safe.
-- `human_gates` — the terminal state. Run the read-only `submit-status`
-  command, report the ready plan, capture metrics, and stop.
-
-A failed action is not retried as-is. The skill repairs only an answer-file
-validation error (unknown id, missing description, missing/stale digest) and
-runs once more; any other repeat stops with the binary error plus one line.
+config do not resolve their store from cwd.
 
 Underlying verbs remain invocable for recovery and are what `next` derives:
 
@@ -191,10 +170,7 @@ bin/timesheet submit-status   [--config <path>] [--env-file <path>] --date <date
 `approve`, `submit` and `resolve-write` are TTY-gated and human-only. Entries
 land in `<state dir>/entries/<date>.json`, merged idempotently per time block
 with full source references; `entries/` stays the human ledger and staging
-source. `save` is the existing confirm+save pair. `scripts/tokens.py`
-records observed model token usage into a local `benchmarks/tokens.csv`;
-token data is personal and stays out of the repository. Metric
-collection never blocks the day. `approve`/`submit` require a terminal on
+source. `save` is the existing confirm+save pair. `approve`/`submit` require a terminal on
 stdin and stdout plus the exact typed `plan_id`/`approval_id` (not proof of
 human presence — a pty wrapper defeats it), so the agent never attempts them;
 a submit is never auto-retried, and unknown outcomes stay unresolved until a
@@ -220,25 +196,15 @@ do not establish consent. Receipts retain partial and uncertain outcomes,
 which are never retried automatically or silently resolved. Existing terminal
 gates are unchanged. See [the approval policy](docs/adr/0009-chat-confirmed-submission.md).
 
-### Automatic local metrics
+### Token usage
 
-The timesheet skill must invoke `scripts/ts-metrics` on ready and blocked exits.
-Capture is non-blocking and reports unavailable data honestly. The helper
-refreshes `<repo>/benchmarks/tokens.csv` from any cwd, using ordinary Pi
-`~/.pi/agent/sessions` or `$PI_CODING_AGENT_DIR/sessions`, and Claude
-`~/.claude/projects`. Pig uses `$PIG_CODING_AGENT_DIR/sessions` when set.
-Otherwise its root is nonempty `$PIG_HOME`, then `$XDG_CONFIG_HOME/pig`, then
-`~/.pig`, with `agent/sessions` appended. Empty variables are ignored, and a
-leading `~` or `~/` expands to home. `PIG_USE_PI_DIRS=1` instead selects Pi's
-agent directory and ignores the pig agent override. The observed legacy
-`~/.config/pig/agent/sessions` is also scanned. Shared Pi/pig files are counted
-once as `pi+pig-shared:<session>` because their format cannot establish which
-runtime wrote them. `scripts/tokens.py` accepts explicit `--pi-dir`,
-`--pig-dir`, `--claude-dir` and `--out` overrides. `--pig-dir` replaces all pig
-environment/default locations, including the legacy fallback. Runtime-prefixed rows refresh
-growing session snapshots without duplicates. These are observed session
-tokens, not a timing benchmark or isolated judgment cost; transcript content
-is never copied to the output. Tests use synthetic records only.
+The binary reports its own usage: every `next --do --auto` report carries
+`usage` (calls, input and output tokens), each judge call is logged in the
+day folder, and `judge.tokens_csv` appends one row per run to a local
+`benchmarks/tokens.csv` (git-ignored; token data is personal). The skill no
+longer scrapes agent session stores. `scripts/tokens.py` stays only to import
+usage from historical agent sessions into the same file; it keeps the rows the
+binary wrote.
 
 To configure an authoritative default, enable Gradion, explicitly query
 `classifications --query <text>`, and review one returned option. Set

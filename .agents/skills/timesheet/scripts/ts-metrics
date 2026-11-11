@@ -1,9 +1,0 @@
-#!/bin/sh
-set -u
-script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P) || exit 0
-root=$("$script_dir/ts-env" --root) || {
-    echo "timesheet metrics: unavailable (repository not found)" >&2
-    exit 0
-}
-python3 "$root/scripts/tokens.py" || echo "timesheet metrics: unavailable (capture failed)" >&2
-exit 0

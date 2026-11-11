@@ -3,8 +3,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import re
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -181,51 +179,18 @@ class CaptureTests(CaptureFixture):
         self.capture("--pig-dir", str(store))
         self.assertEqual([r["total_tokens"] for r in self.rows()], ["3"])
 
-    def test_terminal_helper_runs_from_foreign_cwd_for_both_outcomes(self):
-        repo = self.home / "repo with spaces"
-        helper = repo / ".agents/skills/timesheet/scripts/ts-metrics"
-        helper.parent.mkdir(parents=True)
-        (repo / "scripts").mkdir()
-        for name in ["ts-env", "ts-metrics"]:
-            shutil.copy2(
-                ROOT / ".agents/skills/timesheet/scripts" / name, helper.parent / name
-            )
-        shutil.copy2(ROOT / "scripts/tokens.py", repo / "scripts/tokens.py")
+    def test_rows_the_binary_wrote_survive_a_refresh(self):
+        self.out.write_text(
+            "date,session_id,input_tokens,output_tokens,cache_tokens,total_tokens\n"
+            "2026-10-20,timesheet-auto:20261020T150000Z,400,40,0,440\n"
+        )
         self.transcript(
             self.home / ".pi/agent/sessions/pi.jsonl", {"input": 5, "output": 1}
         )
-        terminal_step = (
-            (ROOT / ".agents/skills/timesheet/SKILL.md")
-            .read_text()
-            .split("## Terminal capture", 1)[1]
-        )
-        command = re.search(r"```sh\n(.*?)\n```", terminal_step, re.S).group(1)
-        env = dict(self.env, SKILL_DIR=str(helper.parent.parent))
-        for outcome in ["ready", "blocked"]:
-            with self.subTest(outcome=outcome):
-                result = subprocess.run(
-                    ["sh", "-c", command],
-                    cwd=self.home,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("total=6", result.stdout)
-        with (repo / "benchmarks/tokens.csv").open() as stream:
-            self.assertEqual(len(list(csv.DictReader(stream))), 1)
-        self.assertFalse((self.home / "benchmarks").exists())
-        (repo / "scripts/tokens.py").unlink()
-        result = subprocess.run(
-            [str(helper), "blocked"],
-            cwd=self.home,
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("unavailable", result.stderr)
-
+        self.capture()
+        ids = [r["session_id"] for r in self.rows()]
+        self.assertIn("timesheet-auto:20261020T150000Z", ids)
+        self.assertEqual(len(ids), 2)
 
     def test_rows_defaults_to_the_newest_session_day(self):
         self.transcript(self.home / ".pi/agent/sessions/a.jsonl", {"input": 1})
