@@ -9,6 +9,12 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
+// sanitizeContent strips every control rune except '\n' from one recorded
+// string at its last hop into a frame. Recorded content — evidence,
+// descriptions, protocol strings, plan bodies, errors — passes through here
+// exactly once; the UI's own styling never does, so every control rune in a
+// finished frame came from the style layer, never from content.
+//
 // Renderers do not call it by hand: recorded content enters a frame only as a
 // value of recorded (or labelRow, built on it), so the writer, not each call
 // site, owns the sanitization. The adjacency rule stays the fallback for what

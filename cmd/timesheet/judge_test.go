@@ -286,9 +286,18 @@ func TestAskCachedSkipsTheStoredReplyAfterARejection(t *testing.T) {
 }
 
 func TestNewJudgeBackendCommandEnvIsNeverNil(t *testing.T) {
-	t.Setenv("GITHUB_TOKEN", "synthetic-secret")
+	secrets := []string{"GITHUB_TOKEN", "GCAL_ICS_URL", timesheet.DefaultGradionTokenEnv,
+		"SYNTHETIC_GRADION_CRED", "SYNTHETIC_JUDGE_CRED", "SYNTHETIC_REQUIRED_CRED"}
+	for _, name := range secrets {
+		t.Setenv(name, "synthetic-secret")
+	}
 	for _, backend := range []string{timesheet.JudgeBackendCommand, ""} {
-		c := &timesheet.Config{Judge: &timesheet.JudgeConfig{Backend: backend, Command: []string{"sh", "-c", "true"}, TimeoutSeconds: 1}}
+		c := &timesheet.Config{
+			Gradion:     &timesheet.GradionConfig{TokenEnv: "SYNTHETIC_GRADION_CRED"},
+			RequiredEnv: []string{"SYNTHETIC_REQUIRED_CRED"},
+			Judge: &timesheet.JudgeConfig{Backend: backend, Command: []string{"sh", "-c", "true"}, TimeoutSeconds: 1,
+				APIKeyEnv: "SYNTHETIC_JUDGE_CRED"},
+		}
 		b, err := newJudgeBackend(c, "")
 		if err != nil {
 			t.Fatal(err)
@@ -301,8 +310,10 @@ func TestNewJudgeBackendCommandEnvIsNeverNil(t *testing.T) {
 			t.Fatalf("backend %q has a nil Env and would inherit the parent environment", backend)
 		}
 		for _, kv := range cb.Env {
-			if strings.HasPrefix(kv, "GITHUB_TOKEN=") {
-				t.Fatalf("backend %q environment carries %q", backend, kv)
+			for _, name := range secrets {
+				if strings.HasPrefix(kv, name+"=") {
+					t.Fatalf("backend %q environment carries %q", backend, kv)
+				}
 			}
 		}
 	}

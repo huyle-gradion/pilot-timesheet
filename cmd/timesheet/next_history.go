@@ -12,10 +12,10 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Priority, highest first: an explicit selection already in the sidecar; the
-// configured default (gradion.default_classification), which fills every
-// unselected interval, so history runs only when no default is configured;
-// history; the judgment.
+// Classification sources for a staged interval, highest priority first: an
+// explicit selection already in the sidecar; the configured default
+// (gradion.default_classification), which fills every unselected interval, so
+// history runs only when no default is configured; history; the judgment.
 const (
 	historyFileName      = "history.json"
 	maxHistoryCatalogIDs = 12
