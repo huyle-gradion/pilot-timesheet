@@ -292,8 +292,6 @@ func TestFinalIntervalRemovalAndTimezoneReload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Restart with a different configured timezone. The recorded day must keep
-	// its own timezone and its work must not be reinterpreted.
 	store, err = OpenStore(path)
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +325,6 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 	session := NewSession(testConfig(path), map[string]string{}, store)
 	defer store.Close()
 
-	// Saved origin day with a cross-midnight interval.
 	requireOK(t, call(t, session, Request{ID: "1", Op: "open_day", Day: "2026-11-02"}))
 	requireOK(t, call(t, session, Request{
 		ID: "2", Op: "add_interval", Day: "2026-11-02", Revision: revision(0),
@@ -336,8 +333,6 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "3", Op: "confirm", Day: "2026-11-02", Revision: revision(0)}))
 	requireOK(t, call(t, session, Request{ID: "4", Op: "save", Day: "2026-11-02", Revision: revision(1)}))
 
-	// Unsaved edit shortens the persisted interval. The session view is valid,
-	// but the durable candidate still contains the longer interval.
 	requireOK(t, call(t, session, Request{
 		ID: "5", Op: "edit_interval", Day: "2026-11-02", Revision: revision(1),
 		IntervalID: "iv-20261102-1", Text: "2026-11-02 23:00-01:00 work",
@@ -357,7 +352,6 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 		t.Fatal("blocked save leaked a day into the durable snapshot")
 	}
 
-	// Resolve the dependency by saving the edited origin day first.
 	requireOK(t, call(t, session, Request{ID: "11", Op: "save", Day: "2026-11-02", Revision: revision(2)}))
 	saved := call(t, session, Request{ID: "12", Op: "save", Day: "2026-11-03", Revision: revision(1)})
 	requireOK(t, saved)
@@ -379,8 +373,6 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 		t.Fatalf("restart day-3 total = %d, want 120", got)
 	}
 
-	// Opposite order with an unsaved, never-saved origin day: saving the
-	// dependent day must use the durable snapshot, not the new origin draft.
 	requireOK(t, call(t, session, Request{ID: "20", Op: "open_day", Day: "2026-11-04"}))
 	requireOK(t, call(t, session, Request{
 		ID: "21", Op: "add_interval", Day: "2026-11-04", Revision: revision(0),
@@ -478,7 +470,6 @@ func TestPreRenameFailurePreservesOldStateAndAllowsRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Stage a second confirmed revision, then fail before rename.
 	requireOK(t, call(t, session, Request{
 		ID: "5", Op: "edit_interval", Day: "2026-12-01", Revision: revision(1),
 		IntervalID: "iv-20261201-1", Text: "2026-12-01 09:00-11:00 work",
@@ -507,7 +498,6 @@ func TestPreRenameFailurePreservesOldStateAndAllowsRetry(t *testing.T) {
 	}
 	t.Logf("on-disk bytes unchanged; in-memory revision rolled back to 1")
 
-	// Clearing the fault and retrying the same revision must succeed.
 	storeFaultHook = nil
 	retry := call(t, session, Request{ID: "8", Op: "save", Day: "2026-12-01", Revision: revision(2)})
 	requireOK(t, retry)
@@ -555,8 +545,6 @@ func TestPostRenameUncertaintyBlocksBlindRetryAndRecovers(t *testing.T) {
 	if !status.Result.(StatusResult).DurabilityUncertain {
 		t.Fatal("status did not report uncertain durability")
 	}
-	// The visible file is the activated revision, but the session must not claim
-	// a durable receipt or retry the rename blindly.
 	if got := store.State().Days["2026-12-02"].Revision; got != 2 {
 		t.Fatalf("in-memory activated revision = %d, want 2", got)
 	}
@@ -586,8 +574,6 @@ func TestPostRenameUncertaintyBlocksBlindRetryAndRecovers(t *testing.T) {
 }
 
 func TestStateWithAmbiguousSavedTimeIsRejected(t *testing.T) {
-	// This documents the upgrade behavior for an unreleased dev.1 state that
-	// contains wall times this build refuses to guess about.
 	state := `{"schema":1,"days":{"2026-10-25":{"date":"2026-10-25","timezone":"Europe/Amsterdam","revision":1,"next_interval":2,"confirmed":[{"id":"iv-20261025-1","date":"2026-10-25","start":"02:15","end":"02:45","project":"acme","description":"ambiguous"}]}}}`
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte(state), 0o600); err != nil {

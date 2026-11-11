@@ -483,7 +483,6 @@ func validateIntents(rows []WriteIntent) error {
 	return nil
 }
 
-// validateExecutions validates native submission audit rows.
 func validateExecutions(rows []ExecutionRecord) error {
 	if len(rows) > maxStoredExecutions {
 		return newError(CodeStateInvalid, "local state contains too many native submission records")
@@ -963,7 +962,6 @@ func (s *Store) Close() error {
 
 var _ io.Closer = (*Store)(nil)
 
-// Evidence exposes one day's persisted collection results.
 func (s *Store) Evidence(date string) *DayEvidence {
 	if s.state.Evidence == nil {
 		return nil

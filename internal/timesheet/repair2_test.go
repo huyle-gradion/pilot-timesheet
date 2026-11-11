@@ -1,12 +1,5 @@
 package timesheet
 
-// repair2_test.go is optional deterministic evidence for the R2 fix packet's
-// store-level requirements that a CLI-driven probe cannot exercise in-process:
-// the sticky post-rename uncertainty behavior of evidence writes, and the
-// exact rollback of absence versus presence (no persisted null evidence
-// record after a failed first collection followed by a later successful
-// write). The runtime acceptance probes cover the end-to-end CLI surface;
-// these tests pin the fault-hook boundaries directly.
 import (
 	"errors"
 	"path/filepath"
@@ -24,11 +17,6 @@ func testEvidenceRecord() *DayEvidence {
 	}
 }
 
-// TestCommitEvidenceRollbackOfAbsence proves a failed first collection for a
-// date with no prior evidence record rolls back to absence (no explicit null
-// entry), and that a later successful write leaves a state file the loader
-// accepts — the pre-fix behavior persisted `"date": null` and failed state
-// validation on reload.
 func TestCommitEvidenceRollbackOfAbsence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := OpenStore(path)
@@ -53,8 +41,6 @@ func TestCommitEvidenceRollbackOfAbsence(t *testing.T) {
 		t.Fatalf("failed first collect left evidence state behind: %+v", ev)
 	}
 
-	// A later successful commit for another date persists the whole map; the
-	// absent date must stay absent, not persisted as null.
 	if err := store.CommitEvidence("2026-10-24", testEvidenceRecord()); err != nil {
 		t.Fatalf("CommitEvidence after restore: %v", err)
 	}
@@ -80,10 +66,6 @@ func TestCommitEvidenceRollbackOfAbsence(t *testing.T) {
 	}
 }
 
-// TestCommitEvidenceStickyPostRenameUncertainty pins the already accepted
-// post-rename semantics for evidence writes: the file may be active, the
-// session must report uncertainty, further evidence writes and saves must
-// keep failing closed, and the activated file must load cleanly on restart.
 func TestCommitEvidenceStickyPostRenameUncertainty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := OpenStore(path)

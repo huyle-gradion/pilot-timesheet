@@ -1,12 +1,5 @@
 package timesheet
 
-// R3 read-only reconciliation and exact plan previews.
-//
-// Nothing here writes to a remote service. A plan is a content-addressed preview
-// of what R4 would have to do; it can distinguish ready from approved but has no
-// way to become approved. Reconciliation surfaces identity facts and ambiguity;
-// it never binds an unmapped entry by itself.
-
 import (
 	"context"
 	"encoding/json"
@@ -16,7 +9,6 @@ import (
 	"time"
 )
 
-// ReconcileMatch is one local interval's relation to the observed remote state.
 type ReconcileMatch struct {
 	LocalID         string `json:"local_id"`
 	RemoteID        string `json:"remote_id,omitempty"`
@@ -36,7 +28,6 @@ type ReconcileCandidate struct {
 	Reason   string `json:"reason"`
 }
 
-// ReconcileReceipt is the read-only reconciliation surface for one date.
 type ReconcileReceipt struct {
 	Date               string               `json:"date"`
 	Revision           int                  `json:"revision"`
@@ -57,7 +48,6 @@ type ReconcileReceipt struct {
 	Ready              bool                 `json:"ready"`
 }
 
-// ResolutionReceipt is the durable human identity/content decision.
 type ResolutionReceipt struct {
 	Date          string `json:"date"`
 	Revision      int    `json:"revision"`
@@ -319,8 +309,6 @@ func localIntentEqual(iv Interval, allocation Allocation, entry RemoteEntry) boo
 		entry.ClassificationID == iv.RemoteClassificationID && entry.Description == iv.Description
 }
 
-// hasResolution reports whether the exact observation already carries the
-// decision for this remote identity.
 func hasResolution(r *RemoteState, observationID, decision, remoteID string) bool {
 	if r == nil {
 		return false
@@ -369,8 +357,6 @@ func unresolvedOutcomesFor(st *State, dates map[string]bool) []Blocker {
 	return out
 }
 
-// intentTouchesDates reports whether an unresolved intent's original
-// contribution origins intersect the given date set.
 func intentTouchesDates(it WriteIntent, dates map[string]bool) bool {
 	for _, d := range it.Operation.OriginDates {
 		if dates[d] {
@@ -514,8 +500,6 @@ func normalizeText(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
-// --- reconciliation ----------------------------------------------------------
-
 // reconcileDate performs one fresh read-only observation, persists it, and
 // surfaces mapped/changed/missing/orphaned state, unbound remotes and
 // unresolved-write history. It never binds an unmapped entry.
@@ -600,7 +584,6 @@ func (s *Session) reconcileDate(date string) (ReconcileReceipt, error) {
 		}
 	}
 
-	// Unbound observed entries and overlap/text candidates.
 	for _, e := range obs.Entries {
 		if _, b := bindingByRemote(st.Remote, e.RemoteID); b != nil {
 			continue
@@ -655,7 +638,6 @@ func (s *Session) reconcileDate(date string) (ReconcileReceipt, error) {
 			Detail: "an unbound remote entry overlaps or repeats local work; a fresh read never binds it, choose an explicit resolution"})
 	}
 
-	// Orphaned mappings: the bound local allocation no longer exists.
 	if st.Remote != nil {
 		for _, b := range st.Remote.Bindings {
 			if bindingAllocationExists(st, b) {
@@ -674,8 +656,6 @@ func (s *Session) reconcileDate(date string) (ReconcileReceipt, error) {
 	receipt.Ready = len(receipt.Blockers) == 0
 	return receipt, nil
 }
-
-// --- explicit resolution -----------------------------------------------------
 
 // resolveRemote records one explicit human identity/content decision against the
 // CURRENT observation. It rejects a stale revision or observation id, never
@@ -804,8 +784,6 @@ func (s *Session) resolveRemote(day *Day, date string, revision int, observation
 	}
 	return receipt, nil
 }
-
-// --- exact plan previews -----------------------------------------------------
 
 // previewPlan reads the saved durable work that renders on day, performs a fresh
 // read-only observation of every allocation date it plans against, and renders
@@ -978,7 +956,6 @@ func (s *Session) previewPlan(date string) (PlanPreview, error) {
 			boundIDs[b.RemoteID] = true
 		}
 	}
-	// Surface unbound remotes (never deletion operations).
 	for _, d := range relevantDates {
 		for _, e := range observations[d].Entries {
 			if boundIDs[e.RemoteID] {
@@ -1186,14 +1163,11 @@ func (s *Session) previewPlan(date string) (PlanPreview, error) {
 	if err := s.store.CommitState(st); err != nil {
 		return PlanPreview{}, err
 	}
-	// Derived ledger facts, not durable flags: whether this exact plan already
-	// has a live native approval, and whether it may be approved now.
 	preview.ApprovalAvailable = preview.State == PlanReady
 	preview.Approved = s.approvalBoundFor(preview.PlanID)
 	return preview, nil
 }
 
-// sortedKeys returns the map keys in deterministic sorted order.
 func sortedKeys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

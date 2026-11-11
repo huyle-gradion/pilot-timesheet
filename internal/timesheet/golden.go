@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// Golden-day evaluation (issue #236): the owner's own past days as judgment
-// inputs paired with the answers that were finally accepted, plus a pure
-// scorer that rates any candidate answer against them. It is the regression
-// gate for prompt and model changes; the binary's own LLM judgments (#241)
-// call ScoreGolden directly.
-
 // GoldenSchema 2 (#279) records the catalog candidates each classifications
 // input was judged against, so eval run can replay it offline.
 const GoldenSchema = 2

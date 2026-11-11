@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// Issue #185 / ADR 0012: the local project is retired. These tests pin the
-// behavior a user sees: a configuration needs no project, a new interval
-// carries none, and a real schema-3 store written by the previous build keeps
-// every interval, identity and classification binding through the upgrade.
-
 // copyFixtureStore copies the schema-3 fixture (captured from the previous
 // build after a full stage, classify, save and submit) into a temporary store.
 func copyFixtureStore(t *testing.T) string {
@@ -63,7 +58,6 @@ func TestPriorSchemaStateUpgradesWithLegacyProjectsIntact(t *testing.T) {
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
 		t.Fatal("opening the store rewrote the schema-3 file")
 	}
-	// The first durable write activates schema 4 and the receipt together.
 	if err := store.CommitState(st); err != nil {
 		t.Fatalf("activate schema 4: %v", err)
 	}
@@ -108,7 +102,6 @@ func TestPriorSchemaStateUpgradesWithLegacyProjectsIntact(t *testing.T) {
 			t.Fatalf("binding %d changed: %+v", i, got.Remote.Bindings[i])
 		}
 	}
-	// A later write must not add a second receipt.
 	if err := reopened.CommitState(reopened.State()); err != nil {
 		t.Fatal(err)
 	}

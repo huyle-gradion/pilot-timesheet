@@ -14,9 +14,8 @@ type JudgeConfig struct {
 	Backend string `json:"backend,omitempty"`
 	// Command is the headless harness argv; the prompt goes to its stdin.
 	Command []string `json:"command,omitempty"`
-	// BaseURL and Model address the OpenAI-compatible endpoint.
-	BaseURL string `json:"base_url,omitempty"`
-	Model   string `json:"model,omitempty"`
+	BaseURL string   `json:"base_url,omitempty"`
+	Model   string   `json:"model,omitempty"`
 	// APIKeyEnv names the key variable in the env file; empty means no key
 	// (a local endpoint).
 	APIKeyEnv string `json:"api_key_env,omitempty"`

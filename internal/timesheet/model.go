@@ -1,11 +1,3 @@
-// Package timesheet implements the local, review-first timesheet workflow for the
-// timesheet line. R1 covers manual intervals, review, confirmation, local save,
-// revision, cancellation, status, and restart-safe state. R2 adds the binary's
-// own GitHub and calendar evidence collection for an opened day: strict
-// protocol operations, hermetic-covered GitHub activity families, provenance-
-// preserving topic candidates and proposed meetings, honest per-source
-// completeness, and persisted human-only acknowledgment/attendance decisions.
-// It still has no migration and no remote submission.
 package timesheet
 
 import (
@@ -65,16 +57,12 @@ const (
 	CodeUnknownMeeting   = "unknown_meeting"
 	CodeStaleCollection  = "stale_collection"
 
-	// R3 migration codes. Source-level problems are reported as bounded
-	// conflicts inside a preview; these codes cover request-level rejection.
 	CodeMigrationDisabled = "migration_disabled"
 	CodeMigrationInvalid  = "migration_invalid"
 	CodeMigrationStale    = "migration_stale"
 	CodeMigrationConflict = "migration_conflict"
 	CodeSessionOpen       = "session_open"
 
-	// R3 read-only remote boundary codes. They carry names and stable codes
-	// only, never credential values, authenticated URLs or provider bodies.
 	CodeRemoteDisabled    = "remote_disabled"
 	CodeRemoteUnavailable = "remote_unavailable"
 	CodeRemoteIncomplete  = "remote_incomplete"
@@ -88,9 +76,6 @@ const (
 	CodeNoConfirmedWork   = "no_confirmed_work"
 	CodeDirtySession      = "dirty_session"
 
-	// R4 native approval and verified-submission codes. They carry names and
-	// stable codes only, never credential values, authenticated URLs or
-	// provider bodies.
 	CodeStalePlan                = "stale_plan"
 	CodePlanNotReady             = "plan_not_ready"
 	CodeUnknownApproval          = "unknown_approval"
@@ -131,16 +116,11 @@ type Config struct {
 	StatePath string `json:"state_path"`
 	// RetiredProjects is the retired `projects` list (ADR 0012). It is
 	// accepted so an existing configuration keeps loading, and never read.
-	RetiredProjects json.RawMessage `json:"projects,omitempty"`
-	RequiredEnv     []string        `json:"required_env,omitempty"`
-	Sources         *SourcesConfig  `json:"sources,omitempty"`
-	// Migration is the disabled-by-default explicit legacy import provision.
-	// It names the authoritative legacy records root and the timezone that
-	// governed those records; old records do not carry their own timezone.
-	Migration *MigrationConfig `json:"migration,omitempty"`
-	// Gradion is the disabled-by-default read-only remote boundary. It carries
-	// an operator-configured endpoint and a credential variable NAME only.
-	Gradion *GradionConfig `json:"gradion,omitempty"`
+	RetiredProjects json.RawMessage  `json:"projects,omitempty"`
+	RequiredEnv     []string         `json:"required_env,omitempty"`
+	Sources         *SourcesConfig   `json:"sources,omitempty"`
+	Migration       *MigrationConfig `json:"migration,omitempty"`
+	Gradion         *GradionConfig   `json:"gradion,omitempty"`
 	// WorkHours is the optional main-work-time policy used only to annotate
 	// the one-day draft. It never rejects, warns, or changes a recorded block.
 	// The four-hour per-entry bound is the remote's fixed policy, not a
@@ -148,7 +128,6 @@ type Config struct {
 	WorkHours *WorkHoursConfig `json:"work_hours,omitempty"`
 	// Judge is the optional binary-owned judge (ADR 0010); absent means off.
 	Judge *JudgeConfig `json:"judge,omitempty"`
-	// Daily is the optional scheduled-run policy (issue #243).
 	Daily *DailyConfig `json:"daily,omitempty"`
 }
 
@@ -204,7 +183,6 @@ type GradionConfig struct {
 	TokenEnv              string                           `json:"token_env,omitempty"`
 }
 
-// TokenVariable returns the configured credential variable name.
 func (g *GradionConfig) TokenVariable() string {
 	if g == nil || strings.TrimSpace(g.TokenEnv) == "" {
 		return DefaultGradionTokenEnv
@@ -240,7 +218,6 @@ type CalendarSourceConfig struct {
 	User    string `json:"user,omitempty"`
 }
 
-// EnabledSources returns which collectors will run, and whether any is on.
 func (c *Config) EnabledSources() (github bool, calendar bool) {
 	if c.Sources == nil || !c.Sources.Enabled {
 		return false, false
@@ -306,7 +283,6 @@ type Day struct {
 	Confirmed    []Interval     `json:"confirmed"`
 	History      []HistoryEntry `json:"history,omitempty"`
 
-	// Session-only review state. Neither field is persisted or exposed in state.
 	Staged        []Interval `json:"-"`
 	SavedRevision int        `json:"-"`
 }
@@ -344,8 +320,7 @@ type Interval struct {
 	// a previewed remote classification; a migrated hint is never selected
 	// silently.
 	RemoteClassificationID string `json:"remote_classification_id,omitempty"`
-	// RemoteCatalogID is the catalog identity of that reviewed choice (audit).
-	RemoteCatalogID string `json:"remote_catalog_id,omitempty"`
+	RemoteCatalogID        string `json:"remote_catalog_id,omitempty"`
 	// MigratedClassificationID preserves the legacy explicit classification
 	// value verbatim as an UNVERIFIED hint. It never becomes a remote selection
 	// by itself: it must be revalidated against a fresh catalog and chosen with
@@ -379,7 +354,6 @@ type Segment struct {
 	Allocations     []Allocation `json:"allocations,omitempty"`
 }
 
-// View is a day's rendered segments and their accurate total.
 type View struct {
 	Segments     []Segment `json:"segments"`
 	TotalMinutes int       `json:"total_minutes"`
@@ -620,8 +594,6 @@ func localDayStart(date string, loc *time.Location) (time.Time, error) {
 		return time.Time{}, newError(CodeInvalidInterval, "local day does not exist in the recorded day's timezone")
 	}
 	t := time.Date(y, month, day, 0, 0, 0, 0, loc)
-	// If the date exists but its midnight is skipped, walk forward to the
-	// date's first real instant.
 	for i := 0; i < 1440; i++ {
 		if t.In(loc).Format("2006-01-02") == date {
 			break
@@ -631,8 +603,6 @@ func localDayStart(date string, loc *time.Location) (time.Time, error) {
 	if t.In(loc).Format("2006-01-02") != date {
 		return time.Time{}, newError(CodeInvalidInterval, "local day does not exist in the recorded day's timezone")
 	}
-	// If local midnight is repeated or normalization landed inside the date
-	// after its first real instant, walk back to the earliest occurrence.
 	for i := 0; i < 180; i++ {
 		previous := t.Add(-time.Minute)
 		if previous.In(loc).Format("2006-01-02") != date {
@@ -704,7 +674,6 @@ func (iv Interval) ResolvedAllocations(loc *time.Location) ([]Allocation, error)
 	return out, nil
 }
 
-// CrossesMidnight reports whether the interval continues into the next day.
 func (iv Interval) CrossesMidnight() bool {
 	start, err1 := parseClock(iv.Start)
 	end, err2 := parseClock(iv.End)
@@ -766,8 +735,6 @@ func intervalsEqual(a, b []Interval) bool {
 	return true
 }
 
-// normalizeEvidenceRefs validates and de-duplicates evidence references. The
-// count of references never changes duration.
 func normalizeEvidenceRefs(refs []string) ([]string, error) {
 	if len(refs) > maxEvidenceRefs {
 		return nil, newError(CodeInvalidInterval, "too many evidence references")
@@ -851,13 +818,6 @@ func overlapError(date, first, second string) *AppError {
 		date, fmtID(first), fmtID(second)))
 }
 
-// ---------------------------------------------------------------------------
-// R2 evidence model. Evidence is provider-sourced review material for one
-// opened day. It never contains worked durations: Topic Candidates and
-// Proposed Meetings always have unknown worked duration, and attendance is a
-// separate explicit local decision, never a classifier or collection result.
-// ---------------------------------------------------------------------------
-
 // Bounded evidence caps. They are deliberately fixed, documented constants, not
 // configuration, so collection output cannot grow without bound.
 const (
@@ -926,7 +886,6 @@ const (
 	maxTotalOverflowItems = 600
 )
 
-// Evidence source identifiers, attempt states, and decision words.
 const (
 	SourceGithub   = "github"
 	SourceCalendar = "calendar"
@@ -1005,19 +964,14 @@ type EvidenceItem struct {
 // the current reading is the same count (nothing beyond the cap was
 // retained).
 type TopicCandidate struct {
-	Ref       string         `json:"ref"`
-	Title     string         `json:"title"`
-	Provider  string         `json:"provider"`
-	Items     []EvidenceItem `json:"items"`
-	FirstAt   string         `json:"first_at,omitempty"`
-	LastAt    string         `json:"last_at,omitempty"`
-	Truncated bool           `json:"truncated,omitempty"`
-	// DroppedItems counts items retained in neither Items nor OverflowItems —
-	// the honest per-topic loss beyond the fixed overflow ceilings. For state
-	// written before overflow retention it kept its original
-	// beyond-the-Items-cap meaning, which under the current reading is the
-	// same count (nothing beyond the cap was retained then).
-	DroppedItems int `json:"dropped_items,omitempty"`
+	Ref          string         `json:"ref"`
+	Title        string         `json:"title"`
+	Provider     string         `json:"provider"`
+	Items        []EvidenceItem `json:"items"`
+	FirstAt      string         `json:"first_at,omitempty"`
+	LastAt       string         `json:"last_at,omitempty"`
+	Truncated    bool           `json:"truncated,omitempty"`
+	DroppedItems int            `json:"dropped_items,omitempty"`
 	// OverflowItems holds attributable items beyond the maxTopicItems
 	// retained Items cap, retained durably up to maxTopicOverflowItems per
 	// topic and maxTotalOverflowItems per collection attempt. They never
@@ -1051,8 +1005,6 @@ type DayEvidence struct {
 	Meetings []ProposedMeeting `json:"meetings,omitempty"`
 }
 
-// composedSourceStatus is the review-visible status of one source, combining
-// the last attempt (if any) with configuration-disabled state.
 type ComposedSourceStatus struct {
 	Source       string `json:"source"`
 	Enabled      bool   `json:"enabled"`
@@ -1097,12 +1049,6 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-// ---------------------------------------------------------------------------
-// R3 durable schema 2: explicit legacy migration, read-only remote
-// reconciliation, and immutable plan previews. Nothing in this section grants
-// remote write authority, and no migrated approval can become usable.
-// ---------------------------------------------------------------------------
-
 // R3 fixed bounds. They are documented constants, not configuration, so a
 // preview, receipt or rendered plan cannot grow without bound.
 const (
@@ -1136,7 +1082,6 @@ const (
 	maxMigrationApprovalRows = 500
 )
 
-// Migration decision words for one legacy source file.
 const (
 	MigrationNoChange = "no_change"
 	MigrationApplied  = "applied"
@@ -1152,7 +1097,6 @@ const (
 	DecisionForeign        = "foreign"
 )
 
-// Plan states. There is deliberately no approved state in R3.
 const (
 	PlanReady   = "ready"
 	PlanBlocked = "blocked"
@@ -1263,14 +1207,12 @@ type LegacyReviewAudit struct {
 	Acknowledged   []string                `json:"acknowledged_sources,omitempty"`
 }
 
-// LegacyExcludedAudit preserves one authored review exclusion.
 type LegacyExcludedAudit struct {
 	EvidenceID string `json:"evidence_id"`
 	Reason     string `json:"reason,omitempty"`
 	ExcludedAt string `json:"excluded_at,omitempty"`
 }
 
-// LegacyAttendanceAudit preserves one attendance decision and when it was made.
 type LegacyAttendanceAudit struct {
 	EvidenceID string `json:"evidence_id"`
 	Attended   bool   `json:"attended"`
@@ -1315,7 +1257,6 @@ type LegacyPlanAudit struct {
 	Inert            bool                   `json:"inert"`
 }
 
-// LegacyOperationAudit preserves one historical plan operation as inert text.
 type LegacyOperationAudit struct {
 	LocalID          string             `json:"local_id,omitempty"`
 	Kind             string             `json:"kind,omitempty"`
@@ -1452,8 +1393,6 @@ type RemoteObservation struct {
 	Entries       []RemoteEntry `json:"entries,omitempty"`
 }
 
-// RemoteResolution records how the human appears to have described it: an
-// explicit identity/content decision bound to one observation.
 type RemoteResolution struct {
 	Date                string `json:"date"`
 	Revision            int    `json:"revision"`
@@ -1595,7 +1534,6 @@ type ClassificationChoice struct {
 	ActivityType string `json:"activity_type,omitempty"`
 }
 
-// choiceFromOption trims a catalog option into its bound semantic identity.
 func choiceFromOption(o ClassificationOption) ClassificationChoice {
 	return ClassificationChoice{
 		ID:           strings.TrimSpace(o.ID),

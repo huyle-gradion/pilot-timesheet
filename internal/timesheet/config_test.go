@@ -28,8 +28,6 @@ func writeWorkHoursConfig(t *testing.T, workHours string) string {
 	return path
 }
 
-// TestLoadConfigWorkHoursValid proves the documented Monday-Friday split-day
-// policy loads and keeps its exact values; no normalization happens.
 func TestLoadConfigWorkHoursValid(t *testing.T) {
 	path := writeWorkHoursConfig(t, `{"days": ["mon", "tue", "wed", "thu", "fri"], "windows": [{"start": "09:00", "end": "12:00"}, {"start": "13:00", "end": "18:00"}]}`)
 	cfg, err := LoadConfig(path)
@@ -44,9 +42,6 @@ func TestLoadConfigWorkHoursValid(t *testing.T) {
 	}
 }
 
-// TestLoadConfigWorkHoursRejected locks the offline validation matrix: every
-// invalid shape fails closed with config_invalid and a message naming the
-// offending value.
 func TestLoadConfigWorkHoursRejected(t *testing.T) {
 	valid := `{"start": "09:00", "end": "12:00"}`
 	cases := []struct {

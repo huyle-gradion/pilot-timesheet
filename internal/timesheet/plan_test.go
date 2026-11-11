@@ -47,8 +47,6 @@ type fakeMCP struct {
 	nextCreate  int
 }
 
-// setWriteMultiDays enables the two write tools and serves a mutable multi-day
-// week document.
 func (f *fakeMCP) setWriteMultiDays(days map[string][]map[string]any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -67,8 +65,6 @@ func (f *fakeMCP) setWeek(entries []map[string]any) {
 	f.weekError = false
 }
 
-// setMultiDays serves a week document with several explicit dates. An empty
-// entry list is a valid empty day.
 func (f *fakeMCP) setMultiDays(days map[string][]map[string]any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -78,8 +74,6 @@ func (f *fakeMCP) setMultiDays(days map[string][]map[string]any) {
 	f.weekError = false
 }
 
-// setMissingEntriesContainer serves the target day WITHOUT the required entries
-// list, which is missing data, never an empty day.
 func (f *fakeMCP) setMissingEntriesContainer() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -89,7 +83,6 @@ func (f *fakeMCP) setMissingEntriesContainer() {
 	f.weekError = false
 }
 
-// nonNullEntries serves the required entries container as null.
 func (f *fakeMCP) setNullEntries() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,7 +147,6 @@ func (f *fakeMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			days := []any{}
 			switch {
 			case f.gap:
-				// no days at all
 			case f.nullEntries:
 				days = append(days, map[string]any{"date": f.day, "entries": nil})
 			case f.omitEntries:
@@ -234,8 +226,6 @@ func (f *fakeMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *req.ID, "result": result})
 }
 
-// applyWrite performs the synthetic mutation for one write call and returns a
-// full structured acknowledgment ({"entry": {...}}).
 func (f *fakeMCP) applyWrite(name string, body map[string]any) map[string]any {
 	date, _ := body["date"].(string)
 	start, _ := body["startTime"].(string)
@@ -288,8 +278,6 @@ func (f *fakeMCP) applyWrite(name string, body map[string]any) map[string]any {
 	}
 }
 
-// mutateEntry applies approved-field edits to one synthetic entry and returns
-// the structured full acknowledgment.
 func mutateEntry(e map[string]any, start, end, desc, class string) map[string]any {
 	if start != "" {
 		e["startTime"] = start
@@ -355,8 +343,6 @@ func planFixture(t *testing.T) (*Session, *fakeMCP, *Store, string) {
 	return intervalFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 }
 
-// classifiedFixture stages, verifies the catalog, selects the catalog option and
-// saves, so preview_plan can render a classed operation.
 func classifiedFixture(t *testing.T, text string) (*Session, *fakeMCP, *Store, string) {
 	t.Helper()
 	s, fake, store, day := intervalFixture(t, text)
@@ -378,7 +364,6 @@ func classifiedFixture(t *testing.T, text string) (*Session, *fakeMCP, *Store, s
 	return s, fake, store, day
 }
 
-// remoteEntry builds one synthetic observed remote entry.
 func remoteEntry(id, start, end, description string) map[string]any {
 	return map[string]any{
 		"id": id, "startTime": start, "endTime": end,
@@ -391,7 +376,6 @@ func intPtr(v int) *int { return &v }
 func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 	s, fake, store, date := planFixture(t)
 
-	// A fresh read alone never binds an unmapped entry.
 	rec, err := s.reconcileDate(date)
 	if err != nil {
 		t.Fatal(err)
@@ -409,8 +393,6 @@ func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 		t.Fatal("a read must never create a binding")
 	}
 
-	// A partial catalog cannot prove an option absent; a returned option is
-	// selectable.
 	cat, err := s.classifications(Request{ID: "5", Op: "classifications"})
 	if err != nil {
 		t.Fatal(err)
@@ -433,7 +415,6 @@ func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Explicit adoption binds the exact observed entry.
 	rec, err = s.reconcileDate(date)
 	if err != nil {
 		t.Fatal(err)
@@ -450,8 +431,6 @@ func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 		t.Fatal("adoption did not create the durable binding")
 	}
 
-	// Identical work and identical remote content yield no write operation, and
-	// an identical fresh observation yields a stable plan identity.
 	first, err := s.previewPlan(date)
 	if err != nil {
 		t.Fatal(err)
@@ -467,7 +446,6 @@ func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 		t.Fatalf("identical observation changed the plan id: %s vs %s", first.PlanID, second.PlanID)
 	}
 
-	// A changed mapped remote cannot become ready silently.
 	fake.setWeek([]map[string]any{{
 		"id": "r-1", "startTime": "09:00", "endTime": "10:00",
 		"classificationId": "cat-1", "description": "Changed remotely", "status": "logged",
@@ -487,7 +465,6 @@ func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 		t.Fatalf("changed remote must block readiness: %+v", blocked)
 	}
 
-	// Explicit acceptance of the same mapped identity produces one exact edit.
 	if _, err := s.resolveRemoteRequest(Request{ID: "11", Op: "resolve_remote", Day: date, Revision: intPtr(2),
 		ObservationID: rec.ObservationID, RemoteID: "r-1", LocalID: "iv-20261020-1", Decision: DecisionAcceptObserved}); err != nil {
 		t.Fatal(err)
@@ -510,7 +487,6 @@ func TestReconcileAdoptSelectAndExactPlan(t *testing.T) {
 		t.Fatal("a ready plan reports approval_available as a derived ledger fact") // R4
 	}
 
-	// A stale observation id is rejected without mutation.
 	if _, err := s.resolveRemoteRequest(Request{ID: "12", Op: "resolve_remote", Day: date, Revision: intPtr(2),
 		ObservationID: "stale", RemoteID: "r-1", LocalID: "iv-20261020-1", Decision: DecisionAcceptObserved}); err == nil {
 		t.Fatal("stale observation must be rejected")
@@ -574,8 +550,6 @@ func hasBlocker(blockers []Blocker, code string) bool {
 	return false
 }
 
-// F1: a 23:00-01:00 interval renders as one 60-minute allocation per date. The
-// later date's preview observes the later date's remote entries.
 func TestCrossMidnightAllocationsSpanAndMinutes(t *testing.T) {
 	s, fake, store, day := classifiedFixture(t, "2026-10-20 23:00-01:00 Overnight work")
 	if day != "2026-10-20" {
@@ -619,9 +593,6 @@ func TestCrossMidnightAllocationsSpanAndMinutes(t *testing.T) {
 	}
 }
 
-// F1: the two allocations of ONE interval are independent identities. Each can
-// be bound to a different remote ID without stealing the other mapping, and both
-// bindings survive restart.
 func TestCrossMidnightBindsBothAllocationsIndependently(t *testing.T) {
 	s, fake, store, day := classifiedFixture(t, "2026-10-20 23:00-01:00 Overnight work")
 	early := remoteEntry("r-night1", "23:00", "00:00", "Overnight work")
@@ -674,8 +645,6 @@ func TestCrossMidnightBindsBothAllocationsIndependently(t *testing.T) {
 		t.Fatalf("bindings must be per allocation: %+v", seen)
 	}
 
-	// Identical fresh observations leave each date's work unchanged: ready, no
-	// write, no re-binding.
 	for _, d := range []string{day, "2026-10-21"} {
 		plan, err := s.previewPlan(d)
 		if err != nil {
@@ -686,8 +655,6 @@ func TestCrossMidnightBindsBothAllocationsIndependently(t *testing.T) {
 		}
 	}
 
-	// Both bindings survive a restart and the store accepts the per-allocation
-	// state.
 	path := s.cfg.StatePath
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -702,9 +669,6 @@ func TestCrossMidnightBindsBothAllocationsIndependently(t *testing.T) {
 	}
 }
 
-// F7: after the local identity is removed, its observed remote entry is a
-// bound-but-orphaned slot. It stays surfaced as an orphan and still blocks an
-// overlapping create across restart.
 func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
 	s, _, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	rec, err := s.reconcileDate(day)
@@ -717,8 +681,6 @@ func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Remove the local identity; the mapping must survive it (never erased) and
-	// the observed entry stays an occupied slot.
 	if _, err := s.openDay(Request{ID: "2", Op: "open_day", Day: day}); err != nil {
 		t.Fatal(err)
 	}
@@ -743,8 +705,6 @@ func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
 		t.Fatalf("orphaned mapping not surfaced: %+v", rec.Orphaned)
 	}
 
-	// A replacement local allocation overlapping the occupied slot must stay
-	// blocked with an explicit orphan identity blocker.
 	if _, err := s.addInterval(Request{ID: "6", Op: "add_interval", Day: day, Revision: intPtr(3),
 		Text: "2026-10-20 09:30-10:30 Replacement work"}); err != nil {
 		t.Fatal(err)
@@ -780,13 +740,8 @@ func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
 	}
 }
 
-// F4: an exact current-observation foreign decision stops an equal-text hint
-// from blocking, without granting permission to overlap occupied time, and it
-// goes stale when the observation changes.
 func TestForeignDecisionResolvesEqualTextNotOverlap(t *testing.T) {
 	s, fake, _, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
-	// r-late is a DIFFERENT remote entry that repeats the local text but does
-	// not touch the local time.
 	fake.setWeek([]map[string]any{remoteEntry("r-late", "11:00", "12:00", "Synthetic work")})
 	rec, err := s.reconcileDate(day)
 	if err != nil {
@@ -816,8 +771,6 @@ func TestForeignDecisionResolvesEqualTextNotOverlap(t *testing.T) {
 		t.Fatalf("a non-overlapping foreign-marked remote must not block the create: %+v", plan)
 	}
 
-	// An identical fresh observation keeps the decision; a CHANGED relevant
-	// observation makes it stale and the hint returns.
 	rec2, err := s.reconcileDate(day)
 	if err != nil {
 		t.Fatal(err)
@@ -834,7 +787,6 @@ func TestForeignDecisionResolvesEqualTextNotOverlap(t *testing.T) {
 		t.Fatalf("a changed observation must make the foreign decision stale: %+v", rec3)
 	}
 
-	// Foreign never authorizes a physical overlap.
 	fake.setWeek([]map[string]any{remoteEntry("r-late", "09:30", "10:30", "Synthetic work")})
 	rec4, err := s.reconcileDate(day)
 	if err != nil {
@@ -845,9 +797,6 @@ func TestForeignDecisionResolvesEqualTextNotOverlap(t *testing.T) {
 	}
 }
 
-// F6: a blocked preview and the ready preview that follows an explicit decision
-// are DIFFERENT identities, even with identical work and remote bytes. The ready
-// record is durably persisted and the blocked record stays as history.
 func TestPlanIdentitySeparatesReadyFromBlocked(t *testing.T) {
 	s, fake, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	fake.setWeek([]map[string]any{remoteEntry("r-hint", "11:00", "12:00", "Synthetic work")})
@@ -907,9 +856,6 @@ func TestPlanIdentitySeparatesReadyFromBlocked(t *testing.T) {
 	}
 }
 
-// F5: a target-day response WITHOUT the required entries container is missing
-// data, never an empty day. It replaces any previously complete observation and
-// cannot yield a ready create.
 func TestMissingEntriesContainerBlocks(t *testing.T) {
 	s, fake, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	rec, err := s.reconcileDate(day)
@@ -940,7 +886,6 @@ func TestMissingEntriesContainerBlocks(t *testing.T) {
 		t.Fatalf("no ready create may be produced here: %+v", plan)
 	}
 
-	// entries:null and a malformed days shape also fail closed.
 	fake.setNullEntries()
 	rec, err = s.reconcileDate(day)
 	if err != nil {

@@ -9,12 +9,6 @@ import (
 	"testing"
 )
 
-// PR #292 review: the schema-4 upgrade is one-way, so the activating write
-// first keeps a one-time backup of the older file and says so on one line;
-// the retired config keys are removed from the file when that is safe; and
-// the inert legacy labels never reach review output.
-
-// captureUpgradeNotices collects every UpgradeNotice line for the test.
 func captureUpgradeNotices(t *testing.T) *[]string {
 	t.Helper()
 	var lines []string
@@ -62,7 +56,6 @@ func TestSchemaUpgradeKeepsAOneTimeBackupAndSaysSo(t *testing.T) {
 		strings.Contains((*notices)[0], "\n") {
 		t.Fatalf("notices = %q, want one line naming the backup and the one-way upgrade", *notices)
 	}
-	// Later writes, in this process or the next, are plain schema-4 writes.
 	if err := store.CommitState(store.State()); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +174,6 @@ func TestReviewOmitsLegacyLabels(t *testing.T) {
 			}
 		}
 	}
-	// The labels stay in state, inert.
 	if iv := store.State().Days["2026-10-26"].Confirmed[0]; iv.Project != "WORK" || iv.Classification != "DEV" {
 		t.Fatalf("state lost its legacy labels: %+v", iv)
 	}
@@ -236,7 +228,6 @@ func TestRemoveRetiredConfigKeysKeepsEverythingElse(t *testing.T) {
 	if _, err := LoadConfig(path); err != nil {
 		t.Fatalf("rewritten config does not load: %v", err)
 	}
-	// A second run finds nothing to remove and leaves both files alone.
 	removed, _, err = RemoveRetiredConfigKeys(path)
 	if err != nil || len(removed) != 0 {
 		t.Fatalf("second run = %v, %v, want nothing removed", removed, err)

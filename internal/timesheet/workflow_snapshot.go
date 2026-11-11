@@ -43,7 +43,6 @@ type PlanSnapshot struct {
 	Blockers  []Blocker
 }
 
-// ObservationSnapshot is the date's persisted latest remote observation.
 type ObservationSnapshot struct {
 	ObservationID string
 	ObservedAt    string
@@ -58,7 +57,6 @@ type ResolutionSnapshot struct {
 	At            string
 }
 
-// WorkflowSnapshot is every durable fact the planner derives from.
 type WorkflowSnapshot struct {
 	ConfiguredDefaultPresent bool
 	ConfiguredDefaultError   string
