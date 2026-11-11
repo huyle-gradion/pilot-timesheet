@@ -14,8 +14,13 @@ type JudgeConfig struct {
 	Backend string `json:"backend,omitempty"`
 	// Command is the headless harness argv; the prompt goes to its stdin.
 	Command []string `json:"command,omitempty"`
-	BaseURL string   `json:"base_url,omitempty"`
-	Model   string   `json:"model,omitempty"`
+	// UsageFormat names the harness's output envelope for the command
+	// backend. Empty (the default) reads stdout as the reply and estimates
+	// usage; "claude-json" reads the `--output-format json` result object and
+	// records the token counts it reports.
+	UsageFormat string `json:"usage_format,omitempty"`
+	BaseURL     string `json:"base_url,omitempty"`
+	Model       string `json:"model,omitempty"`
 	// APIKeyEnv names the key variable in the env file; empty means no key
 	// (a local endpoint).
 	APIKeyEnv string `json:"api_key_env,omitempty"`
@@ -32,6 +37,8 @@ type JudgeConfig struct {
 const (
 	JudgeBackendCommand = "command"
 	JudgeBackendOpenAI  = "openai"
+
+	JudgeUsageFormatClaudeJSON = "claude-json"
 
 	DefaultJudgeTimeoutSeconds = 120
 	DefaultJudgeDailyTokenCap  = 10000
@@ -52,7 +59,13 @@ func (c *Config) validateJudge() error {
 		if len(j.Command) == 0 || strings.TrimSpace(j.Command[0]) == "" {
 			return newError(CodeConfigInvalid, "config: judge.command must name the harness executable")
 		}
+		if j.UsageFormat != "" && j.UsageFormat != JudgeUsageFormatClaudeJSON {
+			return newError(CodeConfigInvalid, `config: judge.usage_format must be empty or "claude-json"`)
+		}
 	case JudgeBackendOpenAI:
+		if j.UsageFormat != "" {
+			return newError(CodeConfigInvalid, "config: judge.usage_format applies only to the command backend; the openai backend always reads the endpoint's usage")
+		}
 		u, err := url.Parse(strings.TrimSpace(j.BaseURL))
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			return newError(CodeConfigInvalid, "config: judge.base_url must be an http(s) URL")

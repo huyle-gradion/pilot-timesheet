@@ -351,3 +351,23 @@ func TestNewJudgeBackendCommandEnvIsNeverNil(t *testing.T) {
 		}
 	}
 }
+
+func TestJudgeUsageFormatReachesTheCommandBackend(t *testing.T) {
+	cfg := writeTestConfig(t)
+	addJudge(t, cfg, map[string]any{"command": []string{"harness", "-p", "--output-format", "json"}, "usage_format": "claude-json"})
+	c, err := timesheet.LoadConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := newJudgeBackend(c, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb, ok := b.(llm.CommandBackend); !ok || cb.UsageFormat != llm.UsageFormatClaudeJSON {
+		t.Fatalf("backend = %#v, want the command backend reading the claude-json envelope", b)
+	}
+	addJudge(t, cfg, map[string]any{"command": []string{"harness"}, "usage_format": "stream-json"})
+	if _, err := timesheet.LoadConfig(cfg); err == nil || !strings.Contains(err.Error(), "judge.usage_format") {
+		t.Fatalf("unknown usage_format: err = %v, want a config error at load", err)
+	}
+}

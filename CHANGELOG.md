@@ -4,6 +4,17 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- The `command` judge backend can record the harness's own token counts
+  (#286). Opt in with `judge.usage_format: "claude-json"` for a harness run as
+  `claude -p --output-format json`: the reply is read from the envelope's
+  `result` and validated as before, and usage comes from its `usage`
+  (`input_tokens` plus the two cache counts, and `output_tokens`) with
+  `exact: true`. A missing count falls back to the estimate and marks the
+  usage inexact. Output that is not that envelope is a permanent backend
+  failure; an `is_error` envelope is transient. The default (no
+  `usage_format`) is unchanged: stdout is the reply and usage is estimated.
+  Any other value, or the field on the `openai` backend, is a configuration
+  error.
 - `timesheet answer --date <day> [--kind <kind>] <answer>` and a TUI answer
   form let you answer an `ask_human` question without an agent (#288). Both
   write the same digest-bound answer file the agent path writes, checked

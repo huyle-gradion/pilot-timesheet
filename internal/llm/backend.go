@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
 const (
@@ -78,13 +80,20 @@ func transient(format string, args ...any) error {
 	return &BackendError{Reason: fmt.Sprintf(format, args...), Transient: true}
 }
 
+// UsageFormatClaudeJSON names the output envelope that
+// `claude -p --output-format json` prints: one JSON object of type "result"
+// whose "result" is the reply text and whose "usage" carries token counts.
+const UsageFormatClaudeJSON = timesheet.JudgeUsageFormatClaudeJSON
+
 // CommandBackend runs a headless agent CLI with the prompt on stdin and reads
 // the reply from stdout. Stderr is discarded: a third-party harness may print
-// anything there.
+// anything there. UsageFormat is empty (stdout is the reply, usage estimated)
+// or UsageFormatClaudeJSON (stdout is that envelope, usage as reported).
 type CommandBackend struct {
-	Argv    []string
-	Env     []string
-	Timeout time.Duration
+	Argv        []string
+	Env         []string
+	Timeout     time.Duration
+	UsageFormat string
 }
 
 func (b CommandBackend) Identity() string { return "command:" + strings.Join(b.Argv, "\x1f") }
@@ -92,6 +101,9 @@ func (b CommandBackend) Identity() string { return "command:" + strings.Join(b.A
 func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Usage, error) {
 	if b.Env == nil {
 		return "", Usage{}, permanent("the harness command has no filtered environment; build it with CommandEnv so pipeline credentials are never inherited")
+	}
+	if b.UsageFormat != "" && b.UsageFormat != UsageFormatClaudeJSON {
+		return "", Usage{}, permanent("the harness usage format %q is not supported", b.UsageFormat)
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.Timeout)
 	defer cancel()
@@ -119,8 +131,69 @@ func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Us
 	case out.over:
 		return "", sent, transient("the harness reply exceeds %d bytes", MaxReplyBytes)
 	}
+	if b.UsageFormat == UsageFormatClaudeJSON {
+		return claudeJSONReply(out.buf.Bytes(), prompt)
+	}
 	reply := out.buf.String()
 	return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
+}
+
+// claudeJSONReply unwraps one `claude -p --output-format json` result object.
+// Its "result" string is the reply, which the caller validates exactly as a
+// plain reply. Input tokens are usage.input_tokens plus the cache creation and
+// cache read counts (the harness's cached setup is still sent to the model).
+// A count the envelope lacks is estimated and marks the usage inexact, so
+// missing usage never fails a call. Output that is not one result object
+// carrying a reply is a permanent failure: the configured format does not
+// match the harness, and sending the prompt again would not change that. An
+// object with is_error set is transient, like a harness that exits non-zero.
+// No reason echoes the harness output.
+func claudeJSONReply(stdout []byte, prompt string) (string, Usage, error) {
+	var env struct {
+		Type    string          `json:"type"`
+		IsError bool            `json:"is_error"`
+		Result  json.RawMessage `json:"result"`
+		Usage   *struct {
+			InputTokens   *int `json:"input_tokens"`
+			OutputTokens  *int `json:"output_tokens"`
+			CacheCreation *int `json:"cache_creation_input_tokens"`
+			CacheRead     *int `json:"cache_read_input_tokens"`
+		} `json:"usage"`
+	}
+	sent := Usage{Calls: 1, InputTokens: EstimateTokens(prompt)}
+	dec := json.NewDecoder(bytes.NewReader(stdout))
+	if dec.Decode(&env) != nil || dec.Decode(&struct{}{}) != io.EOF || env.Type != "result" {
+		return "", sent, permanent("the harness output is not one %s result object", UsageFormatClaudeJSON)
+	}
+	var reply string
+	if !env.IsError && json.Unmarshal(env.Result, &reply) != nil {
+		return "", sent, permanent("the harness result object carries no reply text")
+	}
+	usage := Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}
+	if u := env.Usage; u != nil {
+		in, inOK := tokenCount(u.InputTokens)
+		out, outOK := tokenCount(u.OutputTokens)
+		if inOK {
+			cacheCreation, _ := tokenCount(u.CacheCreation)
+			cacheRead, _ := tokenCount(u.CacheRead)
+			usage.InputTokens = in + cacheCreation + cacheRead
+		}
+		if outOK {
+			usage.OutputTokens = out
+		}
+		usage.Exact = inOK && outOK
+	}
+	if env.IsError {
+		return "", usage, transient("the harness reported an error result")
+	}
+	return reply, usage, nil
+}
+
+func tokenCount(n *int) (int, bool) {
+	if n == nil || *n < 0 {
+		return 0, false
+	}
+	return *n, true
 }
 
 // limitedBuffer keeps its bytes.Buffer unexported so io.Copy cannot reach

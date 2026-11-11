@@ -74,7 +74,7 @@ Top-level keys (all non-secret; the loader rejects any key not listed):
 | `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification` object (`catalog_id`, `classification_id`, `code`, `name`, `activity_type`). |
 | `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `classification_map`; a retired `project_map` is ignored). |
 | `work_hours` | Optional presentation-only main-work-time policy (`days`, `windows`). |
-| `judge` | Optional binary-owned judge (ADR 0010): `backend`, `command`, `base_url`, `model`, `api_key_env`, `timeout_seconds`, `daily_token_cap`, `tokens_csv`. |
+| `judge` | Optional binary-owned judge (ADR 0010): `backend`, `command`, `usage_format` (command backend only: empty, the default, estimates tokens; `claude-json` reads exact counts from the harness's JSON envelope), `base_url`, `model`, `api_key_env`, `timeout_seconds`, `daily_token_cap`, `tokens_csv`. |
 | `daily` | Optional scheduled-run policy: `log_after`, `days`, `desktop`, `desktop_command`, `webhook_env`, `webhook_kind`, `notify_empty`. |
 
 Every credential is referenced by variable name (`gradion.token_env`,

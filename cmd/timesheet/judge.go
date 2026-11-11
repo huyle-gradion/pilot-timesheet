@@ -130,7 +130,7 @@ func newJudgeBackend(cfg *timesheet.Config, envFile string) (llm.Backend, error)
 		}
 		return llm.OpenAIBackend{BaseURL: j.BaseURL, Model: j.Model, APIKey: key, Timeout: timeout}, nil
 	default:
-		return llm.CommandBackend{Argv: j.Command, Env: llm.CommandEnv(timesheet.ReservedCredentialNames(cfg)), Timeout: timeout}, nil
+		return llm.CommandBackend{Argv: j.Command, Env: llm.CommandEnv(timesheet.ReservedCredentialNames(cfg)), Timeout: timeout, UsageFormat: j.UsageFormat}, nil
 	}
 }
 
