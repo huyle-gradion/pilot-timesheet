@@ -682,7 +682,9 @@ func draftClock(s string) (int, bool) {
 }
 
 // draftStamp parses the RFC 3339 shape draftClock accepts, keeping the date
-// and offset the clock alone drops. An "HH:MM" anchor is not a stamp.
+// and offset the clock alone drops. An "HH:MM" anchor is not a stamp. It trims
+// surrounding space exactly as draftClock always has, so a padded stamp parses
+// here iff draftClock already read its clock; no anchor changes meaning.
 func draftStamp(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if len(s) >= 16 && (s[10] == 'T' || s[10] == ' ') {
@@ -1198,8 +1200,20 @@ type EntryCluster struct {
 // (EntrySpansADayOrMore) are absent from the result: the caller owns their
 // skip reasons. The entries ledger is never modified; this is the stage-time
 // projection only. The four-hour chunking (StageSpans) applies afterwards per
-// cluster span.
+// cluster span. A cluster whose union spans 24 hours or more is absent too
+// (see ResolveEntrySpans).
 func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
+	clusters, _ := ResolveEntrySpans(entries)
+	return clusters
+}
+
+// ResolveEntrySpans is EffectiveEntrySpans plus the contributors it drops
+// because their overlapping union spans 24 hours or more (an overnight entry
+// chained with same-day blocks, e.g. 06:00→20:00 and 19:00→08:00). An interval
+// crosses at most one midnight, so such a union has no honest interval: its
+// clock span would wrap and silently lose the day. dayLong lists those block
+// ids in cluster order; the caller skips them with their own reason.
+func ResolveEntrySpans(entries []EntryRecord) (clusters []EntryCluster, dayLong []string) {
 	var spans []powSpan
 	var skipped []string
 	byID := map[string]EntryRecord{}
@@ -1219,6 +1233,17 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 	var out []EntryCluster
 	for _, cluster := range mergeSpans(spans) {
 		head := spans[cluster[0]]
+		unionEnd := head.endM
+		for _, i := range cluster {
+			unionEnd = max(unionEnd, spans[i].endM)
+		}
+		if unionEnd-head.startM >= minutesPerDay {
+			for _, i := range cluster {
+				dayLong = append(dayLong, spans[i].id)
+				skipped = append(skipped, spans[i].id)
+			}
+			continue
+		}
 		end := head.endM
 		kind := head.kind
 		c := EntryCluster{Start: clockString(head.startM), End: clockString(head.endM)}
@@ -1261,7 +1286,7 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 	for i := range out {
 		out[i].BlockID = ids[i]
 	}
-	return out
+	return out, dayLong
 }
 
 // StageMapFile is the durable block_id → interval-id sidecar for one day.

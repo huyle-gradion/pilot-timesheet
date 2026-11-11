@@ -139,7 +139,9 @@ func exportGolden(cfg *timesheet.Config, state *timesheet.State, now time.Time) 
 		day := timesheet.GoldenDay{Date: date}
 		units := ledgerUnits(artifacts.Entries.Entries, date, state.Days[date].Timezone)
 		var staged map[string]timesheet.EntryRecord
-		if stageMapMatchesUnits(artifacts.StageMap, units) {
+		// Finalized days only: a stage map written under the legacy unsplit
+		// overnight rule is as current as one written under today's (#176).
+		if stageMapMatchesUnits(artifacts.StageMap, units) || stageMapMatchesUnits(artifacts.StageMap, legacyUnits(units)) {
 			staged = stagedBlocksFrom(units, artifacts.StageMap)
 		}
 

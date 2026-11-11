@@ -474,3 +474,107 @@ func TestStageControlDayByteIdentical(t *testing.T) {
 		t.Fatalf("control day changed:\n--- got\n%s\n--- want\n%s", got, want)
 	}
 }
+
+// TestStageOvernightUnionOverADaySkipped: an overnight entry chained with a
+// same-day block can form a union of 24 hours or more. An interval crosses at
+// most one midnight, so the union's wrapped clock span (26h → 2h, or a bare
+// 24h start == end) would silently lose the day or abort stage. Both
+// contributors keep their own skip; the day's other entries stage and save.
+func TestStageOvernightUnionOverADaySkipped(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b timesheet.EntryRecord
+	}{
+		{"26 hours", overnightEntry("work-06:00-20:00", "work", "06:00", "20:00", "Long day"),
+			overnightEntry("work-19:00-08:00", "work", "19:00", "08:00", "Long night")},
+		{"exactly 24 hours", overnightEntry("work-06:00-20:00", "work", "06:00", "20:00", "Long day"),
+			overnightEntry("work-19:00-06:00", "work", "19:00", "06:00", "Long night")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			entries := []timesheet.EntryRecord{
+				c.a, c.b,
+				overnightEntry("work-01:00-02:00", "work", "01:00", "02:00", "Early block"),
+			}
+			clusters, dayLong := timesheet.ResolveEntrySpans(entries)
+			if len(clusters) != 1 || clusters[0].BlockID != "work-01:00-02:00" || len(dayLong) != 2 {
+				t.Fatalf("clusters = %+v, dayLong = %v; want only the early block and both long contributors", clusters, dayLong)
+			}
+			cfg := writeTestConfigTZ(t, overnightTZ)
+			receipt, day := stageAndSave(t, cfg, testDate, entries)
+			skipped := map[string]bool{}
+			for _, s := range receipt.Skipped {
+				if !strings.Contains(s.Reason, "24 hours or more") || strings.Contains(s.Reason, "covered by the union span") {
+					t.Fatalf("skip %+v, want the day-long union reason", s)
+				}
+				skipped[s.BlockID] = true
+			}
+			if len(skipped) != 2 || !skipped[c.a.BlockID] || !skipped[c.b.BlockID] {
+				t.Fatalf("skipped = %+v, want both day-long contributors", receipt.Skipped)
+			}
+			if len(day.Confirmed) != 1 || day.Confirmed[0].Start != "01:00" || day.Confirmed[0].End != "02:00" {
+				t.Fatalf("confirmed = %+v, want only the early block (nothing wrapped)", day.Confirmed)
+			}
+			stageMap, err := timesheet.ReadStageMap(statePathFor(cfg), testDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			units := ledgerUnits(entries, testDate, overnightTZ)
+			if !stageMapMatchesUnits(stageMap, units) || !ledgerDerivesSaved(units, day.Confirmed) {
+				t.Fatalf("next units %+v do not match the staged/saved day", units)
+			}
+		})
+	}
+}
+
+// legacySavedOvernightDay writes the state main saved for a 21:00→03:00 entry
+// before #176: one unsplit 360-minute interval (a valid 180+180 remote plan).
+func legacySavedOvernightDay(t *testing.T, cfg string, entries []timesheet.EntryRecord) {
+	t.Helper()
+	writeLedger(t, cfg, testDate, entries)
+	store, err := timesheet.OpenStore(statePathFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	st := store.State()
+	st.Days[testDate] = &timesheet.Day{
+		Date: testDate, Timezone: overnightTZ, Revision: 1, NextInterval: 2,
+		Confirmed: []timesheet.Interval{{
+			ID: "iv-20261026-1", Date: testDate, Start: "21:00", End: "03:00",
+			Project: "WORK", Classification: "DEV", Description: "Release night",
+		}},
+	}
+	if err := store.CommitState(st); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestFinalizedLegacyOvernightDayStaysCurrent: a day saved by the old unsplit
+// overnight rule still proves current for next/log and submit --chat; it is
+// never sent to `stage --revise`. A real ledger change still stops.
+func TestFinalizedLegacyOvernightDayStaysCurrent(t *testing.T) {
+	entries := []timesheet.EntryRecord{overnightEntry("night-1", "work", "21:00", "03:00", "Release night")}
+	cfg := writeTestConfigTZ(t, overnightTZ)
+	legacySavedOvernightDay(t, cfg, entries)
+	confirmed := readDayConfirmed(t, cfg, testDate)
+
+	o := finalizedDay()
+	o.Artifacts.Entries = &timesheet.EntriesFile{Date: testDate, Entries: entries}
+	o.Units = ledgerUnits(entries, testDate, overnightTZ)
+	o.Workflow.Confirmed = confirmed
+	if n := deriveDayNext(o); n.State == stateStopped && strings.Contains(n.Reason, "no longer derives") {
+		t.Fatalf("legacy finalized day stopped: %s", n.Reason)
+	}
+	changed := []timesheet.EntryRecord{overnightEntry("night-1", "work", "21:00", "02:00", "Release night")}
+	o.Units = ledgerUnits(changed, testDate, overnightTZ)
+	if n := deriveDayNext(o); n.State != stateStopped || !strings.Contains(n.Reason, "no longer derives") {
+		t.Fatalf("changed ledger = %q/%q, want the no-longer-derives stop", n.State, n.Reason)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	err := runAgentSubmit([]string{"--config", cfg, "--date", testDate})
+	if err != nil && strings.Contains(err.Error(), "differs from saved intervals") {
+		t.Fatalf("submit --chat refused the legacy saved day: %v", err)
+	}
+}

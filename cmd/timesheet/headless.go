@@ -823,7 +823,11 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 	// instead of staged. The entries ledger keeps the human's overlapping
 	// truth untouched. An overnight entry takes part like any other (issue
 	// #176). Each union span is then chunked to the four-hour policy below.
-	clusters := timesheet.EffectiveEntrySpans(entries.Entries)
+	clusters, dayLongIDs := timesheet.ResolveEntrySpans(entries.Entries)
+	dayLong := make(map[string]bool, len(dayLongIDs))
+	for _, id := range dayLongIDs {
+		dayLong[id] = true
+	}
 
 	receipt := &StageReceipt{
 		Date:        date,
@@ -886,6 +890,15 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 				Reason:  fmt.Sprintf("entry has zero duration (start %q, end %q); times are never invented", e.Start, e.End),
 			})
 			continue
+		}
+		if dayLong[id] {
+			// It overlaps other entries whose union, with an overnight span,
+			// runs 24 hours or more: no interval can hold it, and its wrapped
+			// clock span would silently lose the day (issue #176).
+			receipt.Skipped = append(receipt.Skipped, StageSkip{
+				BlockID: id,
+				Reason:  fmt.Sprintf("overlapping entries span 24 hours or more (this entry: start %q, end %q); an interval crosses at most one midnight, so they are never merged or truncated; times are never invented", e.Start, e.End),
+			})
 		}
 	}
 	// Head block_id order keeps the receipt in the documented order for a day

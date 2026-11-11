@@ -58,6 +58,32 @@ func ledgerUnits(entries []timesheet.EntryRecord, date, timezone string) []ledge
 	return units
 }
 
+// legacyUnits is the derivation before issue #176: every overnight unit staged
+// as ONE unsplit span. A day finalized under that rule (e.g. 21:00→03:00 saved
+// as one interval, a valid 180+180 remote plan) must still prove current, or
+// next/log and submit --chat would demand a `stage --revise` of work the remote
+// may already hold. It is consulted only for finalized content; a same-day unit
+// is unchanged. The units are copies; the input is not modified.
+func legacyUnits(units []ledgerUnit) []ledgerUnit {
+	out := make([]ledgerUnit, len(units))
+	for i, u := range units {
+		out[i] = u
+		if u.End <= u.Start { // HH:MM clocks: the end is on the next date
+			out[i].Spans = [][2]string{{u.Start, u.End}}
+		}
+	}
+	return out
+}
+
+// ledgerDerivesSaved is the finalized-day content proof: the ledger derives the
+// saved intervals under the current rule, or under the legacy unsplit
+// overnight rule the day may have been saved with (legacyUnits).
+func ledgerDerivesSaved(units []ledgerUnit, confirmed []timesheet.Interval) bool {
+	saved := confirmedContentSpans(confirmed)
+	return sameContent(ledgerContentSpans(units), saved) ||
+		sameContent(ledgerContentSpans(legacyUnits(units)), saved)
+}
+
 // stageMapMatchesUnits proves the stored stage map was derived from the current
 // ledger content. A fresh stage allocates one interval per span, in an order
 // that is a function of the unit ids, so equality of the unit-id set and each

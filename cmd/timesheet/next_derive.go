@@ -84,9 +84,9 @@ func deriveFinalizedDay(o nextObservation, n nextAction) nextAction {
 	if !o.Artifacts.EntriesPresent {
 		return n.withStop("the day is finalized, but its entries ledger is missing; restore the reviewed ledger before next can prove the saved content is current")
 	}
-	ledger := ledgerContentSpans(o.Units)
-	confirmed := confirmedContentSpans(o.Workflow.Confirmed)
-	if !sameContent(ledger, confirmed) {
+	if !ledgerDerivesSaved(o.Units, o.Workflow.Confirmed) {
+		ledger := ledgerContentSpans(o.Units)
+		confirmed := confirmedContentSpans(o.Workflow.Confirmed)
 		return n.withStop("the day is finalized, but the entries ledger no longer derives the saved intervals (" +
 			strconv.Itoa(len(ledger)) + " ledger span(s) vs " + strconv.Itoa(len(confirmed)) + " saved). If that change is intentional, " +
 			"the human decides and runs `stage --revise --date " + o.Day + "`; next will not execute it")
