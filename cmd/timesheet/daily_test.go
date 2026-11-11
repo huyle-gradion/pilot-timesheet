@@ -27,11 +27,11 @@ func TestDailyTargetsCatchUpAndNeverLogAHalfDay(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
 	policy := (&timesheet.Config{}).EffectiveDaily()
 	cases := map[string]string{
-		"2026-10-26 09:00": "2026-10-23",            // Monday morning: Friday only
-		"2026-10-26 21:59": "2026-10-23",            // Monday before 22:00: still Friday only
-		"2026-10-26 22:30": "2026-10-23,2026-10-26", // Monday night: Friday and today
-		"2026-10-27 22:00": "2026-10-26,2026-10-27", // exactly log_after counts
-		"2026-10-31 23:00": "2026-10-30",            // Saturday: Friday only
+		"2026-10-26 09:00": "2026-10-23",
+		"2026-10-26 21:59": "2026-10-23",
+		"2026-10-26 22:30": "2026-10-23,2026-10-26",
+		"2026-10-27 22:00": "2026-10-26,2026-10-27",
+		"2026-10-31 23:00": "2026-10-30",
 	}
 	for at, want := range cases {
 		now, _ := time.ParseInLocation("2006-01-02 15:04", at, loc)
@@ -129,7 +129,6 @@ func TestPrintUnitsCarryTheScheduleAndAbsolutePaths(t *testing.T) {
 	}
 }
 
-// recordingNotifier is a desktop_command that appends each message to a file.
 func recordingNotifier(t *testing.T) ([]string, string) {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "notifications.log")
@@ -145,7 +144,7 @@ func TestDailyLogsThePreviousDayToTheGatesAndNotifiesOnce(t *testing.T) {
 	notifier, log := recordingNotifier(t)
 	addSection(t, cfg, "daily", map[string]any{"desktop_command": notifier})
 	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
-	setClock(t, time.Date(2026, 10, 27, 9, 0, 0, 0, loc)) // Tuesday morning: log Monday (testDate) only
+	setClock(t, time.Date(2026, 10, 27, 9, 0, 0, 0, loc))
 
 	run := func() dailyReceipt {
 		out, _, err := captureOutput(t, func() error { return runDaily([]string{"--config", cfg}) })
@@ -199,7 +198,6 @@ func TestDailyNeverRunsTwiceAtOnceAndSurvivesANotifierFailure(t *testing.T) {
 	}
 }
 
-// addSection writes one top-level section into a test configuration.
 func addSection(t *testing.T, cfg, key string, value any) {
 	t.Helper()
 	data, err := os.ReadFile(cfg)

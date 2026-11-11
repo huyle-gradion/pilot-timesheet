@@ -11,14 +11,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- N1 verb boundary: the loop progresses on real artifacts ------------------
-//
-// These tests drive the real derived argv list through the existing cmd flows
-// (the same functions the binary's dispatch calls) and assert the typed state
-// advances: run -> descriptions -> record -> stage -> classify -> save -> plan
-// -> the human gates. Hermetic: a loopback calendar feed, TempDir stores, a
-// seeded catalog, no live service.
-
 func nextDoc(t *testing.T, args ...string) nextAction {
 	t.Helper()
 	out, _, err := captureOutput(t, func() error { return runNext(args) })
@@ -35,8 +27,6 @@ func nextDoc(t *testing.T, args ...string) nextAction {
 	return n
 }
 
-// executable runs one derived action through the same cmd function the binary
-// would call, with the argv's exact flags. It refuses the human-gated verbs.
 func executable(t *testing.T, n nextAction) {
 	t.Helper()
 	if n.State != stateAction || n.Action == nil {
@@ -68,9 +58,6 @@ func writeAnswerFile(t *testing.T, path, body string) {
 	}
 }
 
-// writeNextDescriptions authors the descriptions judgment exactly as the
-// protocol says: the reported draft_digest copied verbatim, plus one entry per
-// draft block.
 func writeNextDescriptions(t *testing.T, draftPath, answerFile, draftDigest string) {
 	t.Helper()
 	data, err := os.ReadFile(draftPath)
@@ -97,9 +84,6 @@ func writeNextDescriptions(t *testing.T, draftPath, answerFile, draftDigest stri
 	writeAnswerFile(t, answerFile, string(body))
 }
 
-// TestNextProgressesToSaveAndHumanGates is the issue's acceptance shape: one
-// typed action per invocation and the real verbs carry the day from an empty
-// state to the human gates, with no step order held in prose.
 func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeRunConfig(t)
@@ -108,7 +92,6 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	day := "2026-10-20"
 	args := []string{"--config", cfg, "--env-file", envFile, "--date", day}
 
-	// 1. no draft -> run, with the day pinned and the store paths propagated.
 	step := nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "run" {
 		t.Fatalf("initial state/step = %q/%q, want action/run", step.State, step.Step)
@@ -118,7 +101,6 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	}
 	executable(t, step)
 
-	// 2. draft present -> the descriptions judgment, bound to the draft bytes.
 	step = nextDoc(t, args...)
 	if step.State != stateJudgment || step.Judgment == nil || step.Judgment.Kind != judgmentBlockDescriptions {
 		t.Fatalf("state = %+v, want the block-descriptions judgment", step)
@@ -132,7 +114,6 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	}
 	writeNextDescriptions(t, filepath.Join(testArtifactDir(t, cfg, day), "draft.json"), answerFile, step.Judgment.DraftDigest)
 
-	// 3. a bound descriptions answer -> record.
 	step = nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "record" {
 		t.Fatalf("state/step = %q/%q, want action/record", step.State, step.Step)
@@ -144,7 +125,6 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	}
 	executable(t, step)
 
-	// 4. recorded -> stage, with no project (ADR 0012).
 	step = nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "stage" {
 		t.Fatalf("state/step = %q/%q, want action/stage", step.State, step.Step)
@@ -154,17 +134,12 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	}
 	executable(t, step)
 
-	// 5. staged, gate satisfied, no catalog boundary -> save. This runs in the
-	// same wall-clock second as stage: a timestamp-based freshness check would
-	// re-derive stage here forever, while the content proof is exact.
 	step = nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "save" {
 		t.Fatalf("state/step = %q/%q, want action/save", step.State, step.Step)
 	}
 	executable(t, step)
 
-	// 6. finalized: planning needs the remote boundary; without it the loop
-	// stops naming the exact fix instead of re-deriving a failing action.
 	step = nextDoc(t, args...)
 	if step.State != stateStopped || !strings.Contains(step.Reason, "gradion") {
 		t.Fatalf("state/reason = %q/%q, want stopped naming gradion", step.State, step.Reason)
@@ -173,7 +148,6 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 		t.Fatalf("stopped state carries an action: %+v", step.Action)
 	}
 
-	// 7. with a persisted ready plan the tail is the terminal human gates.
 	store, err := timesheet.OpenStore(statePathFor(cfg))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -208,11 +182,6 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	}
 }
 
-// TestNextClassificationContentBinding is the stale-choices regression: an
-// answer without the current ledger binding is re-judged, never handed to
-// classify; an edited description with a STABLE interval id is re-judged too,
-// so an old classification is never silently re-bound to changed content; and
-// a newly authored bound answer then classifies and saves cleanly.
 func TestNextClassificationContentBinding(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeTestConfigWithGradion(t, "http://127.0.0.1:1/mcp")
@@ -226,14 +195,12 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	)
 	args := []string{"--config", cfg, "--date", testDate}
 
-	// 1. the recorded day needs staging.
 	step := nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "stage" {
 		t.Fatalf("state/step = %q/%q, want action/stage", step.State, step.Step)
 	}
 	executable(t, step)
 
-	// 2. the classification judgment carries the current content and binding.
 	step = nextJudgmentDoc(t, cfg, "cat-1", args...)
 	if step.State != stateJudgment || step.Judgment == nil || step.Judgment.Kind != judgmentClassifications {
 		t.Fatalf("state = %+v, want the classification judgment", step)
@@ -251,7 +218,6 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	oldDigest := step.Judgment.LedgerDigest
 	answerFile := step.Judgment.AnswerFile
 
-	// 3. an OLD-SHAPE choices file (no ledger binding) is never applied.
 	writeAnswerFile(t, answerFile, `{"selections": {"`+ids["work-1"]+`": {"catalog_id": "cat-1", "classification_id": "cls-dev"}}}`)
 	step = nextDoc(t, args...)
 	if step.State != stateJudgment {
@@ -261,7 +227,6 @@ func TestNextClassificationContentBinding(t *testing.T) {
 		t.Fatalf("a stale choices file derived the action %#v", step.Action.Cmd)
 	}
 
-	// 4. a bound answer classifies.
 	writeAnswerFile(t, answerFile, `{"ledger_digest": "`+oldDigest+`", "selections": {`+
 		`"`+ids["work-1"]+`": {"catalog_id": "cat-1", "classification_id": "cls-dev"},`+
 		`"`+ids["work-2"]+`": {"catalog_id": "cat-1", "classification_id": "cls-ops"}}}`)
@@ -271,14 +236,10 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	}
 	executable(t, step)
 
-	// 5. the sidecar is now content-current -> save.
 	if step = nextDoc(t, args...); step.Step != "save" {
 		t.Fatalf("step = %q, want save once the sidecar binds", step.Step)
 	}
 
-	// 6. REGRESSION: edit a description, keep the same block (and therefore the
-	// same staged interval id). The old classification must not be re-applied:
-	// no save, no classify with the stale file — a fresh judgment instead.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-1", Date: testDate, Start: "09:00", End: "10:00", Description: "Build the bridge, edited", Kind: "work"},
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Review the deck", Kind: "work"},
@@ -293,12 +254,10 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	if got := step.Judgment.Blocks[0].Description; got != "Build the bridge, edited" {
 		t.Fatalf("block description = %q, want the edited content reported", got)
 	}
-	// The still-present old choices file must not be classified.
 	if step.Action != nil {
 		t.Fatalf("the stale choices file derived the action %#v", step.Action.Cmd)
 	}
 
-	// 7. the newly authored, bound answer classifies and then saves.
 	newIDs := map[string]string{}
 	for _, b := range step.Judgment.Blocks {
 		newIDs[b.BlockID] = b.IntervalID
@@ -317,7 +276,6 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	}
 	executable(t, step)
 
-	// 8. the classifications are durable on the saved intervals.
 	confirmed := readDayConfirmed(t, cfg, testDate)
 	got := map[string]string{}
 	for _, iv := range confirmed {
@@ -327,14 +285,11 @@ func TestNextClassificationContentBinding(t *testing.T) {
 		t.Fatalf("durable classifications = %+v, want the newly authored selections", got)
 	}
 
-	// 9. finalized and unchanged -> the plan tail, never the prefix again.
 	step = nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "plan" {
 		t.Fatalf("state/step = %q/%q, want action/plan after save", step.State, step.Step)
 	}
 
-	// 10. REGRESSION: changed ledger content on a finalized day is never
-	// presented as the human gates; it is a human stage --revise decision.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-1", Date: testDate, Start: "09:00", End: "10:00", Description: "Changed after save", Kind: "work"},
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Review the deck", Kind: "work"},
@@ -348,8 +303,6 @@ func TestNextClassificationContentBinding(t *testing.T) {
 	}
 }
 
-// TestNextWithoutDateResolvesTodayInConfiguredTimezone pins the omitted-date
-// path to the binary's existing resolution, not the host clock.
 func TestNextWithoutDateResolvesTodayInConfiguredTimezone(t *testing.T) {
 	pinClock(t)
 	t.Setenv("TMPDIR", t.TempDir())
@@ -368,9 +321,6 @@ func TestNextWithoutDateResolvesTodayInConfiguredTimezone(t *testing.T) {
 	}
 }
 
-// TestNextDerivedArgvIsAbsoluteFromAnyCwd pins that the derived argv does not
-// depend on the caller's cwd: a relative --config is made absolute, and the
-// derived run executes from an unrelated directory.
 func TestNextDerivedArgvIsAbsoluteFromAnyCwd(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeTestConfig(t)
@@ -394,13 +344,9 @@ func TestNextDerivedArgvIsAbsoluteFromAnyCwd(t *testing.T) {
 	if step.Action.Cmd[1] != "run" {
 		t.Fatalf("derived verb = %q, want run", step.Action.Cmd[1])
 	}
-	// The derived argv works from this unrelated cwd: the config carries an
-	// absolute state_path, so no step depends on where it is invoked.
 	executable(t, step)
 }
 
-// TestNextReadOnlyDerivationsAreRepeatable pins the read-only boundary: without
-// --do an unchanged day derives the same document twice and executes nothing.
 func TestNextReadOnlyDerivationsAreRepeatable(t *testing.T) {
 	cfg := writeTestConfig(t)
 	first := nextDoc(t, "--config", cfg, "--date", nextDay)
@@ -411,11 +357,6 @@ func TestNextReadOnlyDerivationsAreRepeatable(t *testing.T) {
 	}
 }
 
-// TestNextContentProofMirrorsTheStageVerb pins the planner's read-only
-// projection against the real verbs: the units, the stage map match and the
-// saved content must be exactly what stage/confirm produce, including the
-// four-hour chunking. If applyStage's unit selection ever changes, this test
-// fails instead of the planner silently mis-proving freshness.
 func TestNextContentProofMirrorsTheStageVerb(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -454,16 +395,12 @@ func TestNextContentProofMirrorsTheStageVerb(t *testing.T) {
 		}
 	}
 
-	// A stale span count (the 3h -> 5h case) must be visible to the proof.
 	stale := append([]ledgerUnit(nil), units...)
 	stale[1].Spans = stale[1].Spans[:1]
 	if stageMapMatchesUnits(artifacts.StageMap, stale) {
 		t.Fatal("the proof accepted a stale span count")
 	}
 
-	// Save the day, then check the finalized content proof accepts the REAL
-	// confirmed intervals: chunked blocks must project identically, or the
-	// planner would falsely demand stage --revise after every save.
 	if _, _, err := captureOutput(t, func() error {
 		return runSave([]string{"--config", cfg, "--date", testDate})
 	}); err != nil {
@@ -483,13 +420,9 @@ func TestNextContentProofMirrorsTheStageVerb(t *testing.T) {
 	}
 }
 
-// TestNextStaleClassificationWithoutCatalog pins the offline boundary end to
-// end: a stale persisted sidecar with the remote catalog disabled stops with
-// the two supported remedies, next never derives the failing save, and the
-// named explicit empty-selections clear actually works without any remote.
 func TestNextStaleClassificationWithoutCatalog(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	cfg := writeTestConfig(t) // no gradion: the catalog boundary is disabled
+	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
 		timedBlock("work-1", "09:00", "10:00", "Build the bridge"),
 	})
@@ -501,8 +434,6 @@ func TestNextStaleClassificationWithoutCatalog(t *testing.T) {
 	}
 	executable(t, step)
 
-	// A persisted selection that no longer binds to the staged content, as a
-	// classify against an earlier ledger would leave behind.
 	if err := timesheet.WriteClassificationChoices(statePathFor(cfg), timesheet.AppVersion, testDate,
 		map[string]timesheet.ClassificationChoiceEntry{
 			"iv-1": {CatalogID: "cat-1", ClassificationID: "cls-1", ContentDigest: "digest-of-earlier-content"},
@@ -520,8 +451,6 @@ func TestNextStaleClassificationWithoutCatalog(t *testing.T) {
 		}
 	}
 
-	// The named remedy works offline: author the explicit empty selections and
-	// run the supported classify form.
 	clearFile := filepath.Join(testArtifactDir(t, cfg, testDate), "clear-classifications.json")
 	if !strings.Contains(step.Reason, clearFile) {
 		t.Fatalf("reason = %q, want the exact clear file %q", step.Reason, clearFile)
@@ -539,9 +468,6 @@ func TestNextStaleClassificationWithoutCatalog(t *testing.T) {
 	}
 }
 
-// TestNextCorruptDraftIsRecollected pins the corrupt-draft recovery: bytes that
-// do not parse as the draft type record consumes derive a re-collect, never a
-// judgment or a record that could only fail forever.
 func TestNextCorruptDraftIsRecollected(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
@@ -569,15 +495,13 @@ func TestNextCorruptDraftIsRecollected(t *testing.T) {
 		t.Fatal("a corrupt draft produced a judgment")
 	}
 
-	executable(t, step) // run re-collects and rewrites the artifact
+	executable(t, step)
 	step = nextDoc(t, args...)
 	if step.State != stateJudgment || step.Judgment == nil {
 		t.Fatalf("state = %+v, want the descriptions judgment for the rewritten draft", step)
 	}
 }
 
-// TestNextUnderivableStateIsTypedStopped pins the reporting boundary: an
-// unreadable durable fact is one typed stopped document, not a process error.
 func TestNextUnderivableStateIsTypedStopped(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeTestConfig(t)
@@ -609,8 +533,6 @@ func TestNextUnderivableStateIsTypedStopped(t *testing.T) {
 	}
 }
 
-// TestNextStoreLockedStaysAnError pins the documented exception: the store's own
-// lock refusal stays a nonzero process error, never a JSON document.
 func TestNextStoreLockedStaysAnError(t *testing.T) {
 	cfg := writeTestConfig(t)
 	store, err := timesheet.OpenStore(statePathFor(cfg))

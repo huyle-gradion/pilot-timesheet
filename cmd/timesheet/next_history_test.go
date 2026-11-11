@@ -18,8 +18,6 @@ type pastBlock struct {
 	recorded string
 }
 
-// seedSubmitted records and stages a past day, then commits one confirmed
-// write intent per block, as a verified submission would leave them.
 func seedSubmitted(t *testing.T, cfg, day string, blocks ...pastBlock) {
 	t.Helper()
 	reviewed := make([]timesheet.ReviewedBlock, 0, len(blocks))

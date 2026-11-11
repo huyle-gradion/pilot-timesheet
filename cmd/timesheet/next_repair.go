@@ -26,9 +26,6 @@ const (
 	maxAnswerRepairs     = 1
 )
 
-// answerValidationCodes are the AppError codes the consuming acts return for
-// a malformed or wrong answer. Every other failure (unreadable draft, store,
-// network) keeps today's action_failed behavior.
 var answerValidationCodes = []string{
 	timesheet.CodeBadRequest,
 	timesheet.CodeUnknownInterval,
@@ -36,9 +33,6 @@ var answerValidationCodes = []string{
 	timesheet.CodeStaleCatalog,
 }
 
-// judgmentFailure is judgment-failures.json. Digest is the judged content's
-// binding (draft_digest or ledger_digest); AnswerSHA identifies the exact
-// rejected answer bytes, so a rewritten answer is tried again.
 type judgmentFailure struct {
 	Kind      string `json:"kind"`
 	Digest    string `json:"digest"`
@@ -68,8 +62,6 @@ func answerSHA(data []byte) string {
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
-// judgedAnswer names the judgment a derived act consumes and the answer it
-// would hand over; ok is false for every other act.
 func judgedAnswer(o nextObservation, a nextAction) (kind, digest, sha string, ok bool) {
 	switch stepAct(a) {
 	case "record":
@@ -80,8 +72,6 @@ func judgedAnswer(o nextObservation, a nextAction) (kind, digest, sha string, ok
 	return "", "", "", false
 }
 
-// applyRepairPolicy rewrites a derived act whose answer has already been
-// rejected: the same bytes are re-asked once with last_error, then stopped.
 func applyRepairPolicy(o nextObservation, n nextAction) nextAction {
 	f := o.JudgmentFailure
 	if f == nil || n.State != stateAction {
@@ -95,7 +85,6 @@ func applyRepairPolicy(o nextObservation, n nextAction) nextAction {
 		return n.withStop("judgment_failed: " + kind + ": " + f.LastError +
 			"; the answer was repaired once and still fails, so next will not ask again; fix the answer and run timesheet log again")
 	}
-	// Re-derive as if no answer were bound: the same judgment, same digest.
 	re := o
 	re.JudgmentFailure = nil
 	switch kind {
@@ -127,14 +116,11 @@ func readJudgmentFailure(path string) (*judgmentFailure, error) {
 	}
 	var f judgmentFailure
 	if err := json.Unmarshal(data, &f); err != nil {
-		// An unreadable record carries no failures; the policy restarts.
 		return nil, nil
 	}
 	return &f, nil
 }
 
-// recordJudgmentFailure saves one rejected answer. A different kind or judged
-// content starts the count again.
 func recordJudgmentFailure(cfg *timesheet.Config, day string, o nextObservation, a nextAction, actErr error) error {
 	kind, digest, _, ok := judgedAnswer(o, a)
 	if !ok {
@@ -173,7 +159,6 @@ func recordJudgmentFailure(cfg *timesheet.Config, day string, o nextObservation,
 	return nil
 }
 
-// clearJudgmentFailure drops the record once an answer is accepted.
 func clearJudgmentFailure(cfg *timesheet.Config, day string) error {
 	path, err := judgmentFailuresPath(cfg, day)
 	if err != nil {

@@ -17,10 +17,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- RUN-SURFACE-1: run composes collect+draft (issue #155) ------------------
-
-// captureOutput redirects the process stdout and stderr around fn and returns
-// what the run wrote to each stream.
 func captureOutput(t *testing.T, fn func() error) (stdout, stderr []byte, err error) {
 	t.Helper()
 	outR, outW, err := os.Pipe()
@@ -54,7 +50,6 @@ func captureOutput(t *testing.T, fn func() error) (stdout, stderr []byte, err er
 	return <-outDone, <-errDone, runErr
 }
 
-// writeRunConfig writes a synthetic config with the calendar collector enabled.
 func writeRunConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -70,9 +65,6 @@ func writeRunConfig(t *testing.T) string {
 	return cfg
 }
 
-// startFeed starts a loopback iCalendar feed that serves one deterministic
-// timed event on 2026-10-20 (03:00Z-04:00Z = 10:00-11:00 in the recorded
-// timezone) and counts the fetches. No external network is touched.
 func startFeed(t *testing.T) (*httptest.Server, *int64) {
 	t.Helper()
 	var fetches int64
@@ -100,12 +92,8 @@ func writeRunEnvFile(t *testing.T, feedURL string) string {
 	return path
 }
 
-// TestRunMatchesDraftByteForByte is the core acceptance proof: for the same
-// synthetic evidence and state, run's stdout is byte-identical to draft's
-// stdout, the artifacts file equals stdout byte-for-byte, and stderr names
-// the deterministic artifacts directory.
 func TestRunMatchesDraftByteForByte(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir()) // hermetic artifacts directory
+	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeRunConfig(t)
 	srv, fetches := startFeed(t)
 	envFile := writeRunEnvFile(t, srv.URL)
@@ -136,16 +124,13 @@ func TestRunMatchesDraftByteForByte(t *testing.T) {
 		t.Fatalf("run stdout differs from draft stdout:\nrun:   %q\ndraft: %q", runOut, draftOut)
 	}
 
-	// stderr names the deterministic artifacts directory.
 	artifacts := filepath.Join(testArtifactDir(t, cfg, day), "draft.json")
 	if !strings.Contains(string(runErrOut), artifacts) {
 		t.Fatalf("stderr %q does not name the artifacts path %q", runErrOut, artifacts)
 	}
-	// stdout is pure draft JSON: no source report, no artifacts line.
 	if strings.Contains(string(runOut), "sources") || strings.Contains(string(runOut), "artifacts") {
 		t.Fatalf("stdout is not pure draft JSON: %q", runOut)
 	}
-	// The stored artifact is byte-identical to stdout.
 	stored, err := os.ReadFile(artifacts)
 	if err != nil {
 		t.Fatalf("read artifacts file: %v", err)
@@ -153,15 +138,11 @@ func TestRunMatchesDraftByteForByte(t *testing.T) {
 	if !bytes.Equal(stored, runOut) {
 		t.Fatalf("artifacts file differs from run stdout:\nfile:  %q\nstdout: %q", stored, runOut)
 	}
-	// The draft carries the synthetic meeting and no source-report fields.
 	if !strings.Contains(string(runOut), `"kind": "meeting"`) {
 		t.Fatalf("draft does not contain the synthetic meeting block: %s", runOut)
 	}
 }
 
-// TestRunCollectsExactlyOncePerInvocation asserts the one-attempt semantics:
-// a second run invocation performs exactly one more collection attempt, never
-// two (the fused command must not double-collect).
 func TestRunCollectsExactlyOncePerInvocation(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeRunConfig(t)
@@ -180,8 +161,6 @@ func TestRunCollectsExactlyOncePerInvocation(t *testing.T) {
 	}
 }
 
-// TestRunFlagErrors pins run's flag surface to the same error style as
-// collect/draft.
 func TestRunFlagErrors(t *testing.T) {
 	pinClock(t)
 	t.Setenv("TMPDIR", t.TempDir())
@@ -210,9 +189,6 @@ func TestRunFlagErrors(t *testing.T) {
 	if !errors.Is(runRun([]string{"--help"}), flag.ErrHelp) {
 		t.Fatalf("--help should surface flag.ErrHelp, got %v", runRun([]string{"--help"}))
 	}
-	// Issue #179: an omitted --date is accepted. Because the clock is pinned,
-	// the resolved day is deterministic here; the UTC versus Asia/Ho_Chi_Minh
-	// difference is pinned by TestRunWithoutDateResolvesTodayInConfiguredTimezone.
 	out, _, err := captureOutput(t, func() error {
 		return runRun([]string{"--config", cfg})
 	})
@@ -228,12 +204,6 @@ func TestRunFlagErrors(t *testing.T) {
 	}
 }
 
-// --- FLOW-GAP-1: surfaced collection_id (issue #162) -------------------------
-
-// TestCollectRunStderrCarriesCollectionID pins the stderr id line: collect and
-// run each print the fresh collection_id as one stderr line, while stdout
-// stays byte-identical to the pre-change surface — run's stdout remains pure
-// draft JSON (never carrying the id), so redirecting stdout is unchanged.
 func TestCollectRunStderrCarriesCollectionID(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeRunConfig(t)
@@ -241,7 +211,6 @@ func TestCollectRunStderrCarriesCollectionID(t *testing.T) {
 	envFile := writeRunEnvFile(t, srv.URL)
 	day := "2026-10-20"
 
-	// run: the id line on stderr, pure draft JSON on stdout.
 	runOut, runErrOut, err := captureOutput(t, func() error {
 		return runRun([]string{"--config", cfg, "--env-file", envFile, "--date", day})
 	})
@@ -253,7 +222,6 @@ func TestCollectRunStderrCarriesCollectionID(t *testing.T) {
 		t.Fatalf("run stdout is not pure draft JSON: %q", runOut)
 	}
 
-	// The run's minted id matches the store's SourceAttempt record for the day.
 	statePath := filepath.Join(filepath.Dir(cfg), "state.json")
 	store, err := timesheet.OpenStore(statePath)
 	if err != nil {
@@ -279,7 +247,6 @@ func TestCollectRunStderrCarriesCollectionID(t *testing.T) {
 		t.Fatalf("close store: %v", err)
 	}
 
-	// collect: the same shape, its own stderr prefix; it mints a fresh id.
 	collectOut, collectErrOut, err := captureOutput(t, func() error {
 		return runCollect([]string{"--config", cfg, "--env-file", envFile, "--date", day})
 	})
@@ -294,7 +261,6 @@ func TestCollectRunStderrCarriesCollectionID(t *testing.T) {
 		t.Fatalf("collect id %q is empty or reused", collectID)
 	}
 
-	// draft: unchanged surface — no id line (contract: collect and run only).
 	_, draftErrOut, err := captureOutput(t, func() error {
 		return runDraft([]string{"--config", cfg, "--env-file", envFile, "--date", day})
 	})
@@ -306,7 +272,6 @@ func TestCollectRunStderrCarriesCollectionID(t *testing.T) {
 	}
 }
 
-// stderrCollectionID extracts the id from the "<cmd>: collection_id <id>" stderr line.
 func stderrCollectionID(t *testing.T, stderr, cmd string) string {
 	t.Helper()
 	want := cmd + ": collection_id "
@@ -319,10 +284,6 @@ func stderrCollectionID(t *testing.T, stderr, cmd string) string {
 	return ""
 }
 
-// TestStatusDateSurfacesCollectionAttempt pins the status --date surface: the
-// day's status carries each enabled source's latest attempt with the
-// collection_id from the store's SourceAttempt, matching what collect/run
-// printed, so acknowledge/decide can copy the id without reading state.json.
 func TestStatusDateSurfacesCollectionAttempt(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeRunConfig(t)
@@ -373,7 +334,6 @@ func TestStatusDateSurfacesCollectionAttempt(t *testing.T) {
 	if cal.Status == "" || cal.Status == "unattempted" {
 		t.Fatalf("calendar attempt status = %q, want the recorded attempt's status", cal.Status)
 	}
-	// GitHub is disabled in this config: it must not appear as enabled surface.
 	if gh, ok := bySource["github"]; ok && gh.Status != "unattempted" {
 		t.Fatalf("disabled github source surfaced with status %q", gh.Status)
 	}

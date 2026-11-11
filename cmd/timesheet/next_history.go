@@ -12,13 +12,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Classification from approved history (issue #235). Before the
-// classifications judgment, the deterministic history step fills each staged
-// interval whose repository or title has ONE consistent classification across
-// the owner's provider-confirmed submissions on other days, after proving
-// that classification is still in the live catalog. Only the remaining
-// intervals go to the judgment.
-//
 // Priority, highest first: an explicit selection already in the sidecar; the
 // configured default (gradion.default_classification), which fills every
 // unselected interval, so history runs only when no default is configured;
@@ -88,7 +81,6 @@ func readHistoryFile(path string) (*historyFile, error) {
 	return &f, nil
 }
 
-// boundHistory returns the day's history picks when they bind to digest.
 func boundHistory(statePath, day, digest string) map[string]historyPick {
 	dir, err := dayArtifactsDir(statePath, day)
 	if err != nil {
@@ -183,7 +175,6 @@ func buildHistory(h *headlessSession, cfg *timesheet.Config, day string) (histor
 		return historyFile{}, err
 	}
 	if len(blocks) > 0 && len(out.Selections) == len(blocks) {
-		// Nothing is left to judge: the bound answer is the history itself.
 		if err := writeJSONFile(filepath.Join(dir, "choices.json"), historyAnswer(out)); err != nil {
 			return historyFile{}, err
 		}
@@ -242,10 +233,6 @@ func writeJSONFile(path string, v any) error {
 	return nil
 }
 
-// mergeHistorySelections adds the day's bound history picks for intervals
-// the answer does not name, so a judgment over the remaining intervals never
-// drops what history already decided. Answer selections are judgments unless
-// they already carry a source.
 func mergeHistorySelections(statePath, day string, answer []byte, selections map[string]timesheet.ClassificationChoiceEntry) {
 	for id, sel := range selections {
 		if sel.Source == "" {
@@ -268,8 +255,6 @@ func mergeHistorySelections(statePath, day string, answer []byte, selections map
 	}
 }
 
-// statusClassification is one sidecar selection as status shows it before
-// approval, with where it came from.
 type statusClassification struct {
 	IntervalID       string `json:"interval_id"`
 	ClassificationID string `json:"classification_id"`
@@ -301,7 +286,6 @@ func (d actDispatcher) classifyHistoryStep(h *headlessSession) (string, error) {
 	return historyNotice(f), nil
 }
 
-// historyReceipt is classify --from-history's stdout.
 type historyReceipt struct {
 	Date       string                 `json:"date"`
 	File       string                 `json:"file"`

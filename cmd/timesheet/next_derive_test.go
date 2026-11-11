@@ -9,15 +9,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- N1 derivation core: pure predicate-order and content-proof tests --------
-//
-// deriveDayNext is a pure function over observations that already exist, so
-// every predicate is pinned here without a store, a filesystem or a network.
-// Freshness is proven from CONTENT (the ledger projection, the stage map's
-// unit/span counts, the sidecar's per-block digests, and the judgment answer's
-// binding), never from second-resolution timestamps. The end-to-end progression
-// lives in next_command_test.go.
-
 const nextDay = "2026-10-27"
 
 const (
@@ -39,17 +30,12 @@ func nextEntry(blockID, start, end, description string) timesheet.EntryRecord {
 	}
 }
 
-// proofOf is the same content proof the planner uses: the current ledger's
-// units, their stage-map binding and the resulting ledger digest.
 func proofOf(entries []timesheet.EntryRecord, stageMap map[string][]string) ([]ledgerUnit, map[string]timesheet.EntryRecord, string) {
 	units := ledgerUnits(entries, nextDay, "UTC")
 	blocks := stagedBlocksFrom(units, stageMap)
 	return units, blocks, timesheet.StagedLedgerDigest(nextDay, blocks)
 }
 
-// unclassifiedDay is the observation of a day that has been recorded and
-// staged, whose source gate is open, and whose classifications are still
-// outstanding: exactly the state that must ask for the classification judgment.
 func unclassifiedDay() nextObservation {
 	entries := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "10:00", "Synthetic work")}
 	stageMap := map[string][]string{"work-1": {"iv-1"}}
@@ -88,8 +74,6 @@ func unclassifiedDay() nextObservation {
 	}
 }
 
-// recordedDay is unclassifiedDay with a current classification sidecar: exactly
-// the state that must derive `save`.
 func recordedDay() nextObservation {
 	o := unclassifiedDay()
 	_, blocks, _ := proofOf(o.Artifacts.Entries.Entries, o.Artifacts.StageMap)
@@ -103,9 +87,6 @@ func recordedDay() nextObservation {
 	return o
 }
 
-// finalizedDay is the observation of a saved day whose newest plan record is
-// ready: the terminal state before the human gates. Its ledger still derives
-// exactly the saved intervals.
 func finalizedDay() nextObservation {
 	o := recordedDay()
 	o.Artifacts.ChoicesPresent, o.Artifacts.Choices = false, nil
@@ -147,9 +128,6 @@ func assertCmd(t *testing.T, n nextAction, want []string) {
 	}
 }
 
-// TestDeriveDayNextPipelineOrder pins the fixed predicate order: the switch
-// order IS the pipeline, and each step is provable from the observations the
-// binary already owns.
 func TestDeriveDayNextPipelineOrder(t *testing.T) {
 	fresh := func() nextObservation {
 		o := unclassifiedDay()
@@ -226,7 +204,6 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		if !strings.Contains(n.Judgment.Protocol, "stale") {
 			t.Fatalf("protocol = %q, want the stale-answer repair instruction", n.Judgment.Protocol)
 		}
-		// It must never hand record an answer bound to different blocks.
 		if n.Action != nil {
 			t.Fatalf("stale descriptions derived an action: %#v", n.Action.Cmd)
 		}
@@ -254,9 +231,6 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 	})
 
 	t.Run("a stage map with a stale span count re-derives stage", func(t *testing.T) {
-		// A 09:00-14:00 block splits into two four-hour chunks; a map carrying
-		// one id for it is from an earlier, shorter span. Timestamps cannot see
-		// this at all, so the count is compared instead.
 		o := unclassifiedDay()
 		entries := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "14:00", "Long work")}
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: entries}
@@ -302,8 +276,6 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 	})
 
 	t.Run("a stale choices file is never handed to classify", func(t *testing.T) {
-		// The skill's historical answer file carries no ledger binding. It must
-		// be re-judged, never auto-applied to the current intervals.
 		o := unclassifiedDay()
 		o.ChoicesPresent, o.ChoicesBinding = true, ""
 		n := deriveDayNext(o)
@@ -324,9 +296,6 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 	})
 
 	t.Run("an edited description with the same interval id is re-judged, never saved", func(t *testing.T) {
-		// The blocker regression: the interval id is stable, so an id-only
-		// check would silently re-bind the old selection through classify/save.
-		// The content digest is what must refuse it.
 		o := recordedDay()
 		changed := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "10:00", "Edited after classification")}
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: changed}
@@ -355,9 +324,6 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 	})
 }
 
-// TestDeriveDayNextSourceGate pins the gate ordering: collection is never
-// preempted, an unattempted source derives run, and an incomplete attempt
-// stops with the verbatim acknowledge argv from the observed ids.
 func TestDeriveDayNextSourceGate(t *testing.T) {
 	t.Run("unattempted source derives run", func(t *testing.T) {
 		o := recordedDay()
@@ -419,9 +385,6 @@ func TestDeriveDayNextSourceGate(t *testing.T) {
 	})
 }
 
-// TestDeriveDayNextFinalizedTail pins the plan tail: one plan, then the human
-// gates or a precise resumable blocker; a resolve/new observation is the only
-// way back to a fresh plan, and changed content is never auto-revised.
 func TestDeriveDayNextFinalizedTail(t *testing.T) {
 	blocked := func() nextObservation {
 		o := finalizedDay()
@@ -521,9 +484,6 @@ func TestDeriveDayNextFinalizedTail(t *testing.T) {
 	})
 }
 
-// TestDeriveDayNextEnvironmentAndProject pins the two derivable environment
-// facts: classification needs the live catalog, planning needs the remote
-// boundary, and no configuration makes the day ask for a project.
 func TestDeriveDayNextEnvironmentAndProject(t *testing.T) {
 	t.Run("classification is skipped without the catalog boundary", func(t *testing.T) {
 		o := unclassifiedDay()
@@ -546,7 +506,6 @@ func TestDeriveDayNextEnvironmentAndProject(t *testing.T) {
 	t.Run("an unstaged day stages without asking for a project (ADR 0012)", func(t *testing.T) {
 		o := unclassifiedDay()
 		o.Artifacts.StageMap = nil
-		// A project answer left from an earlier build is inert.
 		o.Asks = map[string]askAnswer{"ask-project.json": {Present: true, Answer: "WORK", Surface: "chat"}}
 		n := deriveDayNext(o)
 		if n.State != stateAction || n.Step != "stage" || n.Ask != nil {
@@ -556,8 +515,6 @@ func TestDeriveDayNextEnvironmentAndProject(t *testing.T) {
 	})
 }
 
-// TestDeriveDayNextHumanGates pins the terminal report: the exact approve and
-// submit forms, the read-only status command, and the unresolved counts.
 func TestDeriveDayNextHumanGates(t *testing.T) {
 	o := finalizedDay()
 	o.Workflow.UnresolvedWrites = 2
@@ -584,9 +541,6 @@ func TestDeriveDayNextHumanGates(t *testing.T) {
 	}
 }
 
-// TestDeriveDayNextNeverEmitsHumanVerbs is the aging boundary as a test: the
-// derived verb set is closed, and no generation emits a human-gated or
-// revision/replace verb under any observation shape.
 func TestDeriveDayNextNeverEmitsHumanVerbs(t *testing.T) {
 	derivable := map[string]bool{"run": true, "record": true, "stage": true, "classify": true, "save": true, "plan": true, "classifications": true}
 	observations := []nextObservation{unclassifiedDay(), recordedDay(), finalizedDay()}
@@ -637,10 +591,6 @@ func TestDeriveDayNextNeverEmitsHumanVerbs(t *testing.T) {
 	}
 }
 
-// TestDeriveDayNextStaleSidecarWithoutCatalog pins the offline boundary: with
-// the remote catalog disabled a stale persisted sidecar cannot be repaired by
-// next, so it must stop naming the supported remedies instead of deriving a
-// save that the replay would reject.
 func TestDeriveDayNextStaleSidecarWithoutCatalog(t *testing.T) {
 	stale := func() nextObservation {
 		o := unclassifiedDay()
@@ -696,8 +646,6 @@ func TestDeriveDayNextStaleSidecarWithoutCatalog(t *testing.T) {
 	})
 }
 
-// TestDeriveDayNextIsDeterministic pins that two derivations from an identical
-// observation are deep-equal — the planner carries no hidden state.
 func TestDeriveDayNextIsDeterministic(t *testing.T) {
 	for _, o := range []nextObservation{unclassifiedDay(), recordedDay(), finalizedDay()} {
 		if first, second := deriveDayNext(o), deriveDayNext(o); !reflect.DeepEqual(first, second) {

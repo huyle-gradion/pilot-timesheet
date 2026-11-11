@@ -1,8 +1,5 @@
 package main
 
-// The act bodies behind actDispatcher.exec. Both `next --do` and the tui call
-// them through the dispatcher, so each verb's core lives here once.
-
 import (
 	"fmt"
 	"os"
@@ -17,8 +14,6 @@ func (d actDispatcher) artifactPath(name string) (string, error) {
 	return filepath.Join(dir, name), err
 }
 
-// runStep is the run verb's core minus its stdout: collect, build the draft and
-// write the artifacts file the judgment and record consume.
 func (d actDispatcher) runStep(h *headlessSession) (string, error) {
 	draft, _, err := collectDraft(h, d.day)
 	if err != nil {
@@ -41,8 +36,6 @@ func (d actDispatcher) runStep(h *headlessSession) (string, error) {
 	return draftNotice(draft), nil
 }
 
-// recordStep composes the descriptions-only reviewed draft and merges it into
-// the day's entries, exactly as the record verb does.
 func (d actDispatcher) recordStep(h *headlessSession) (string, error) {
 	draftPath, err := d.artifactPath("draft.json")
 	if err != nil {

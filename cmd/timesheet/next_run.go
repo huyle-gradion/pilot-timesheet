@@ -1,11 +1,5 @@
 package main
 
-// runNext is the `next` verb boundary: flag parsing, the observation pass, the
-// optional --do loop, and the typed JSON print. The read-only path closes the
-// store before deriving or printing; --do never holds a store across an act
-// (store.go's flock is per open file descriptor, so a handle held across an act
-// would self-lock).
-
 import (
 	"encoding/json"
 	"errors"
@@ -18,10 +12,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// nextFlags is the surface shared by the next and tui verbs: both take the
-// store-path flags and --date, and both resolve an omitted --date
-// through the binary's existing helper. --do and --max-actions are next's
-// flags; tui refuses both in its own runner.
 type nextFlags struct {
 	configPath    string
 	envFile       string
@@ -92,7 +82,6 @@ func runNext(args []string) error {
 	return runNextFlags(f)
 }
 
-// runNextFlags is next over already-parsed flags; log shares it.
 func runNextFlags(f *nextFlags) error {
 	configPath, err := filepath.Abs(f.configPath)
 	if err != nil {
@@ -164,7 +153,6 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day string
 		return obs, stoppedAction(day, "cannot read the human answers in "+dir+": "+err.Error()), nil
 	}
 
-	// A day left in the pre-#233 temp location is reported, never restarted.
 	legacy, err := legacyDayArtifactsStop(cfg.StatePath, day, dir)
 	if err != nil {
 		return nextObservation{}, nil, err
@@ -173,10 +161,6 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day string
 		return obs, stoppedAction(day, legacy), nil
 	}
 
-	// Durable facts are read under the store's exclusive lock, which the caller
-	// holds. An unreadable durable fact is an underivable state and returns a
-	// typed stop document; only CLI/flag errors and the store's own lock
-	// refusal (store_locked) stay nonzero process errors.
 	snapshot, snapErr := timesheet.ReadWorkflowSnapshot(cfg, store, day)
 	if snapErr != nil {
 		return obs, stoppedAction(day, "cannot read the day's durable workflow facts: "+snapErr.Error()), nil
@@ -193,13 +177,9 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day string
 		return obs, stoppedAction(day, "cannot read the day's recorded artifacts: "+err.Error()), nil
 	}
 	obs.Artifacts = ledger
-	// A carry computed in another timezone is never read in this day's: the
-	// stage verb refuses it, so next stops with the same reason (ADR 0011).
 	if err := timesheet.CheckCarryTimezone(ledger.CarryIn, snapshot.Timezone); err != nil {
 		return obs, stoppedAction(day, err.Error()), nil
 	}
-	// A carry is consumed only while its source ledger still derives it: a
-	// stale or orphaned carry record stops every day that would take it in.
 	if err := checkCarryIn(cfg.StatePath, day, ledger.CarryIn); err != nil {
 		return obs, stoppedAction(day, err.Error()), nil
 	}
@@ -224,8 +204,6 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day string
 	default:
 		obs.DraftPresent = true
 		obs.DraftDigest = draftDigest(draft)
-		// Parse the SAME type record unmarshals: an unreadable draft is not
-		// judged or recorded against, it is re-collected.
 		var parsed timesheet.Draft
 		if err := json.Unmarshal(draft, &parsed); err == nil {
 			obs.DraftValid, obs.DraftBlocks, obs.Draft = true, len(parsed.Blocks), &parsed
@@ -256,15 +234,11 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day string
 	return obs, nil, nil
 }
 
-// stoppedAction is withStop in the pointer form buildNextObservation returns;
-// nil stays the derived case.
 func stoppedAction(day, reason string) *nextAction {
 	n := nextAction{Day: day}.withStop(reason)
 	return &n
 }
 
-// absoluteExecutable is the running binary's absolute path, so a derived argv
-// stays executable after the caller changes directory.
 func absoluteExecutable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {

@@ -36,8 +36,6 @@ func writeSyntheticDraft(t *testing.T, cfg string) {
 		`{"date":"`+testDate+`","blocks":[{"block_id":"work-1","kind":"work","start":"09:00","end":"10:00"}]}`)
 }
 
-// writeBoundCandidates writes the day's candidates.json bound to its staged
-// ledger, as the candidates step does when next judges the day.
 func writeBoundCandidates(t *testing.T, cfg string) string {
 	t.Helper()
 	blocks, digest, err := stagedDayBlocks(statePathFor(cfg), testDate)
@@ -152,7 +150,6 @@ func TestEvalExportSkipsClassificationsWithoutBoundCandidates(t *testing.T) {
 		t.Fatalf("skipped = %+v, want the missing candidates named", r.Skipped)
 	}
 
-	// Candidates bound to other content are stale, not replayable.
 	path := writeBoundCandidates(t, cfg)
 	writeAnswerFile(t, path, `{"ledger_digest":"sha256:other","sets":[],"intervals":{}}`)
 	if r, _ = evalExport(t, cfg, filepath.Join(t.TempDir(), "golden.json")); len(r.Skipped) != 1 || !strings.Contains(r.Skipped[0].Reason, "stale") {
@@ -225,7 +222,7 @@ func TestEvalScoreRefusesADatasetWithNothingToScore(t *testing.T) {
 }
 
 func TestEvalExportOfNoUsableDaysWarnsButKeepsTheFile(t *testing.T) {
-	cfg, _ := savedReadyPlan(t) // a saved day, but no draft and no candidates
+	cfg, _ := savedReadyPlan(t)
 	out := filepath.Join(t.TempDir(), "golden.json")
 	_, stderr, err := captureOutput(t, func() error {
 		return runEval([]string{"export", "--config", cfg, "--out", out})
