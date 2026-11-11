@@ -283,8 +283,10 @@ never blocks the day, and copies no transcript content.
   or `incomplete_results`, the submitted-review candidate ceiling, the
   issue-target lookup bound, the events bound (a 422 past the retained window
   or the collector's event page ceiling), an HTTP failure such as a 403 on one
-  repository, an omitted unverifiable commit ownership, or topic item-cap
-  truncation), or `missing_credentials`. Attribution is strictly by
+  repository, an omitted unverifiable commit ownership, or topic items lost
+  beyond the overflow ceilings), or `missing_credentials`. A topic with more
+  items than the draft lists is not by itself incomplete: retained overflow
+  is summarized in the draft (below) and the detail notes it. Attribution is strictly by
   provider-named actor,
   verified in the provider's own response bodies (`author` filter pulses
   verified against the commit's GitHub user document, `login` qualifier plus
@@ -324,8 +326,19 @@ never blocks the day, and copies no transcript content.
   lookups per repository per attempt; an unknown answer or the ceiling leaves
   the item an issue comment and reports the family `incomplete` with the
   count, never a guess. Topics group by retained provider resource identity
-  (`resource` field), and a topic with more items than the 50-item cap records
-  `truncated` with the dropped count. Item `kind`s: `commit`,
+  (`resource` field). A topic lists at most 50 items; items beyond that are
+  retained durably as topic overflow (up to 150 per topic and 600 per
+  collection attempt), and items beyond those ceilings are counted as lost.
+  Such a topic records `truncated`, and its draft `topic_candidates` line
+  carries one deterministic summary, for example
+  `Other attributable activity (o/r) — overflow: +6 more items not listed
+  (event 6), 02:07–09:40`: the count of retained items not listed with
+  per-kind counts in alphabetical order, `N lost` when items fell beyond the
+  ceilings, and the first–last overflow time in the day's timezone. A grouped
+  or collapsed line sums its topics' summaries, and the `+N more` line sums
+  the lines it omits. Retained overflow alone leaves the source `complete`;
+  any lost item makes it `incomplete`, which asks for acknowledgment as
+  usual. Item `kind`s: `commit`,
   `authored_pull_request`, `merged_pull_request`, `submitted_pr_review`,
   `pr_review_comment`, `pr_conversation_comment`, `issue_comment`,
   `discussion`, `discussion_comment`, `event`.

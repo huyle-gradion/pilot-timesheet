@@ -346,7 +346,7 @@ func TestBuildDraftTruncatedTopicOverflowSummary(t *testing.T) {
 		t.Fatalf("topic_candidates = %+v, want one line", eb.TopicCandidates)
 	}
 	want := "Pull request #12 (acme/api)" +
-		" — overflow: +10 kept (commit 6, issue_comment 4), 5 lost, 14:05–16:20"
+		" — overflow: +10 more items not listed (commit 6, issue_comment 4), 5 lost, 14:05–16:20"
 	if eb.TopicCandidates[0] != want {
 		t.Fatalf("topic line = %q, want %q", eb.TopicCandidates[0], want)
 	}
@@ -427,7 +427,7 @@ func TestBuildDraftGroupedTruncatedPRsCarryCombinedSummary(t *testing.T) {
 		})
 	}
 	eb := evidenceBlock(t, BuildDraft(draftReview(nil, nil, topics, nil), "test"))
-	want := "5 PRs (#10–#14) in acme/api — overflow: +60 kept (commit 60), 15 lost, 09:00–16:50"
+	want := "5 PRs (#10–#14) in acme/api — overflow: +60 more items not listed (commit 60), 15 lost, 09:00–16:50"
 	if len(eb.TopicCandidates) != 1 || eb.TopicCandidates[0] != want {
 		t.Fatalf("topic_candidates = %+v, want one grouped line %q", eb.TopicCandidates, want)
 	}
@@ -451,7 +451,7 @@ func TestBuildDraftCollapsedRepeatsCarryCombinedSummary(t *testing.T) {
 	}
 	topics := []TopicCandidate{mk(1, 1, 1, "2026-10-26T09:00:00+07:00"), mk(2, 2, 1, "2026-10-26T17:30:00+07:00")}
 	eb := evidenceBlock(t, BuildDraft(draftReview(nil, nil, topics, nil), "test"))
-	want := "2× Deploy run (acme/api) — overflow: +2 kept (commit 2), 3 lost, 09:00–17:30"
+	want := "2× Deploy run (acme/api) — overflow: +2 more items not listed (commit 2), 3 lost, 09:00–17:30"
 	if len(eb.TopicCandidates) != 1 || eb.TopicCandidates[0] != want {
 		t.Fatalf("topic_candidates = %+v, want one collapsed line %q", eb.TopicCandidates, want)
 	}
@@ -487,7 +487,7 @@ func TestBuildDraftMoreLineCarriesAggregateLoss(t *testing.T) {
 	if len(eb.TopicCandidates) != maxDraftTopicCandidates+1 {
 		t.Fatalf("topic_candidates = %d lines, want %d (cap plus one more line)", len(eb.TopicCandidates), maxDraftTopicCandidates+1)
 	}
-	want := "+3 more — overflow: +6 kept (commit 3, issue_comment 3), 6 lost, 11:00–13:30"
+	want := "+3 more — overflow: +6 more items not listed (commit 3, issue_comment 3), 6 lost, 11:00–13:30"
 	got := eb.TopicCandidates[maxDraftTopicCandidates]
 	if got != want {
 		t.Fatalf("more line = %q, want %q", got, want)
@@ -527,8 +527,8 @@ func TestBuildDraftBusyDayWithOverflowStaysBounded(t *testing.T) {
 		t.Fatalf("busy-day draft with overflow = %d bytes, want <= 3000: %s", got, raw)
 	}
 	for _, want := range []string{
-		"10 PRs (#10–#19) in acme/api — overflow: +1500 kept (commit 750, issue_comment 750), 500 lost, 12:00–15:14",
-		"10 PRs (#20–#29) in acme/web — overflow: +1500 kept (commit 750, issue_comment 750), 500 lost, 12:00–15:14",
+		"10 PRs (#10–#19) in acme/api — overflow: +1500 more items not listed (commit 750, issue_comment 750), 500 lost, 12:00–15:14",
+		"10 PRs (#20–#29) in acme/web — overflow: +1500 more items not listed (commit 750, issue_comment 750), 500 lost, 12:00–15:14",
 	} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("draft lacks combined grouped line %q: %s", want, raw)
