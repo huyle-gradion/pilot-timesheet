@@ -229,3 +229,21 @@ func TestAgentSubmitZeroOperationsIsNoOp(t *testing.T) {
 		t.Fatalf("receipt=%+v writes=%d", receipt, remote.writeCount())
 	}
 }
+
+func TestSubmitChatRefusesACarryFromAnotherTimezone(t *testing.T) {
+	cfg := writeTestConfigTZ(t, overnightTZ)
+	stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{overnightEntry("night-1", "work", "23:00", "05:00", "Overnight release")})
+	stageAndSave(t, cfg, carryTarget, nil)
+	path := timesheet.CarryPath(statePathFor(cfg), testDate)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.ReplaceAll(string(b), overnightTZ, "Europe/Berlin")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	if err := runAgentSubmit([]string{"--config", cfg, "--date", carryTarget}); err == nil || !strings.Contains(err.Error(), "timezone") {
+		t.Fatalf("submit --chat = %v, want the carry timezone refusal", err)
+	}
+}

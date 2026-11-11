@@ -23,8 +23,6 @@ func writeTestConfig(t *testing.T) string {
 	return cfg
 }
 
-// Regression: status --date with no recorded entries file must report zero
-// entries, not dereference the missing file (previously a nil panic).
 func TestRunStatusDateWithoutEntriesFile(t *testing.T) {
 	cfg := writeTestConfig(t)
 	if err := runStatus([]string{"--config", cfg, "--date", "2026-10-24"}); err != nil {
@@ -45,8 +43,6 @@ func TestRunRecordRejectsDateMismatch(t *testing.T) {
 		t.Fatal("expected a date mismatch error")
 	}
 }
-
-// --- DESC-ONLY-1: record --draft + --descriptions (issue #152) ---------------
 
 func writeRecordInputs(t *testing.T, dir string) (draftPath, descPath string) {
 	t.Helper()
@@ -102,8 +98,6 @@ func TestRunRecordComposesFromDraftAndDescriptions(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record --draft --descriptions: %v", err)
 	}
-	// state.json sits next to the config's state_path; read the entries back
-	// through the documented path derivation.
 	statePath := filepath.Join(filepath.Dir(cfg), "state.json")
 	f, err := timesheet.ReadEntries(statePath, "2026-10-26")
 	if err != nil || f == nil || len(f.Entries) != 2 {
@@ -119,6 +113,59 @@ func TestRunRecordComposesFromDraftAndDescriptions(t *testing.T) {
 	if byID["evidence-20:00-21:00"] != "Evening research notes" {
 		t.Fatalf("evidence description = %q", byID["evidence-20:00-21:00"])
 	}
+}
+
+func TestRunRecordReportsABadConfigBeforeADateMismatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.json")
+	file := filepath.Join(dir, "reviewed.json")
+	if err := os.WriteFile(cfg, []byte(`{not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"date":"2026-10-20","blocks":[{"block_id":"b","description":"x"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runRecord([]string{"--config", cfg, "--date", "2026-10-24", "--file", file})
+	if err == nil || strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("record = %v, want the configuration error, not the date mismatch", err)
+	}
+}
+
+func TestRunRecordReplaceDropsBlocksAbsentFromTheFile(t *testing.T) {
+	cfg := writeTestConfig(t)
+	dir := t.TempDir()
+	draftPath, descPath := writeRecordInputs(t, dir)
+	file := filepath.Join(dir, "reviewed.json")
+	if err := os.WriteFile(file, []byte(`{"date":"2026-10-26","blocks":[{"block_id":"only","kind":"evidence","start":"11:00","end":"12:00","description":"Only block"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captureStdout(t, func() {
+		if err := runRecord([]string{"--config", cfg, "--date", "2026-10-26", "--draft", draftPath, "--descriptions", descPath}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runRecord([]string{"--config", cfg, "--date", "2026-10-26", "--file", file, "--replace"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	f, err := timesheet.ReadEntries(statePathFor(cfg), "2026-10-26")
+	if err != nil || f == nil || len(f.Entries) != 1 || f.Entries[0].BlockID != "only" {
+		t.Fatalf("entries after --replace = %+v, %v; want only the file's block", f, err)
+	}
+}
+
+func TestRunRecordSucceedsWhileAnotherProcessHoldsTheStore(t *testing.T) {
+	cfg := writeTestConfig(t)
+	store, err := timesheet.OpenStore(statePathFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	draftPath, descPath := writeRecordInputs(t, t.TempDir())
+	captureStdout(t, func() {
+		if err := runRecord([]string{"--config", cfg, "--date", "2026-10-26", "--draft", draftPath, "--descriptions", descPath}); err != nil {
+			t.Errorf("record under a held store lock = %v, want it to open no store", err)
+		}
+	})
 }
 
 func TestRunRecordFlagCombinations(t *testing.T) {
@@ -168,7 +215,6 @@ func TestRunRecordComposeValidationErrors(t *testing.T) {
 	dir := t.TempDir()
 	draftPath, _ := writeRecordInputs(t, dir)
 
-	// Missing description names the offending block_id.
 	missing := filepath.Join(dir, "missing.json")
 	if err := os.WriteFile(missing, []byte(`{"descriptions": {"evidence-20:00-21:00": "Evening research notes"}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -178,7 +224,6 @@ func TestRunRecordComposeValidationErrors(t *testing.T) {
 		t.Fatalf("missing description: err = %v, want the named block_id", err)
 	}
 
-	// Unknown block_id is rejected.
 	unknown := filepath.Join(dir, "unknown.json")
 	if err := os.WriteFile(unknown, []byte(`{"descriptions": {"meeting-09:00-10:00": "x", "evidence-20:00-21:00": "y", "nope": "z"}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -188,7 +233,6 @@ func TestRunRecordComposeValidationErrors(t *testing.T) {
 		t.Fatalf("unknown block: err = %v, want the unknown id", err)
 	}
 
-	// notes must be a JSON string, never an array.
 	notesArray := filepath.Join(dir, "notes-array.json")
 	if err := os.WriteFile(notesArray, []byte(`{"notes": ["a"], "descriptions": {"meeting-09:00-10:00": "x", "evidence-20:00-21:00": "y"}}`), 0o600); err != nil {
 		t.Fatal(err)

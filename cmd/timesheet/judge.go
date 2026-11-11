@@ -15,38 +15,22 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// judge answers the day's current judgment with the configured judge backend
-// (ADR 0010, issue #241):
-//
-//	timesheet judge [--config <path>] [--env-file <path>] [--date <day>]
-//
-// It derives the day exactly as next does. At a block_descriptions or
-// classifications judgment it renders the owned prompt, reuses a stored
-// response when the prompt is unchanged, otherwise makes one backend call
-// (one retry), and writes the judgment's answer file with the digest the
-// report published. next --do then consumes that file exactly as it consumes
-// an agent-written one. Without a judge configuration it refuses and changes
-// nothing; the agent-driven path is unaffected.
 const (
 	judgeResponsesDir = "judge"
 	judgeUsageFile    = "judge-usage.jsonl"
 )
 
 type judgeReceipt struct {
-	Day        string    `json:"day"`
-	State      string    `json:"state"`
-	Kind       string    `json:"kind,omitempty"`
-	AnswerFile string    `json:"answer_file,omitempty"`
-	Cached     bool      `json:"cached,omitempty"`
-	Usage      llm.Usage `json:"usage"`
-	Notice     string    `json:"notice"`
-	// CachedUsage is what a reused reply cost when it was first asked. It is
-	// never printed: a cached reply adds no tokens to a production day (its
-	// call is already in the day's ledger); eval run counts it (#279).
+	Day         string    `json:"day"`
+	State       string    `json:"state"`
+	Kind        string    `json:"kind,omitempty"`
+	AnswerFile  string    `json:"answer_file,omitempty"`
+	Cached      bool      `json:"cached,omitempty"`
+	Usage       llm.Usage `json:"usage"`
+	Notice      string    `json:"notice"`
 	CachedUsage llm.Usage `json:"-"`
 }
 
-// judgeUsageRecord is one line of judge-usage.jsonl in the day folder.
 type judgeUsageRecord struct {
 	At     string    `json:"at"`
 	Kind   string    `json:"kind"`
@@ -150,7 +134,6 @@ func newJudgeBackend(cfg *timesheet.Config, envFile string) (llm.Backend, error)
 	}
 }
 
-// answerJudgment renders, asks (or reuses) and writes the answer file.
 func answerJudgment(ctx context.Context, cfg *timesheet.Config, day string, j *nextJudgment, backend llm.Backend, now time.Time) (judgeReceipt, error) {
 	r := judgeReceipt{Day: day, State: stateJudgment, Kind: j.Kind, AnswerFile: j.AnswerFile}
 	dir, err := dayArtifactsDir(cfg.StatePath, day)
@@ -226,15 +209,10 @@ func judgeIntervals(j *nextJudgment) ([]llm.Interval, []llm.CandidateSet) {
 	return intervals, sets
 }
 
-// askCached reuses a stored reply for an unchanged prompt; otherwise it checks
-// the daily cap, asks the backend and stores the reply. Every call made is
-// recorded in judge-usage.jsonl.
 func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind string, p llm.Prompt, lastError string, backend llm.Backend, parse func(string) (T, error), now time.Time, r *judgeReceipt) (T, error) {
 	var zero T
 	cachePath := filepath.Join(dir, judgeResponsesDir, kind+"-"+p.Key[:16]+".json")
 	if lastError != "" {
-		// The stored answer was rejected downstream (repair-once, #240): do
-		// not reuse it, and tell the model what was wrong.
 		p.Text += "\n\nThe previous answer for this same content was rejected: " + lastError + "\nFix exactly that."
 	} else if data, err := os.ReadFile(cachePath); err == nil {
 		var stored judgeResponse
@@ -268,7 +246,6 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 	return v, nil
 }
 
-// judgeCapError is the daily token cap refusal; eval run stops on it.
 type judgeCapError struct {
 	limit, spent int
 	day          string
@@ -295,7 +272,6 @@ func appendJudgeUsage(dir string, rec judgeUsageRecord) error {
 	return nil
 }
 
-// judgeTokensSpent sums the day's non-cached judge usage.
 func judgeTokensSpent(dir string) (int, error) {
 	f, err := os.Open(filepath.Join(dir, judgeUsageFile))
 	if errors.Is(err, os.ErrNotExist) {

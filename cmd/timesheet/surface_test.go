@@ -13,9 +13,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// echoTerminal types the plan_id at the approve prompt, then the approval_id
-// the approve step printed at the submit prompt, like an operator reading the
-// screen.
 type echoTerminal struct {
 	out    *bytes.Buffer
 	planID string
@@ -140,5 +137,11 @@ func TestRetiredCommandsNameTheirReplacement(t *testing.T) {
 		if !ok || exit.ExitCode() != 2 || strings.Count(strings.TrimSpace(stderr.String()), "\n") != 0 || !strings.Contains(stderr.String(), want) {
 			t.Errorf("%s: exit %v, stderr %q; want one line naming %q", old, err, stderr.String(), want)
 		}
+	}
+}
+
+func TestRetiredFlagErrorStopsAtDoubleDash(t *testing.T) {
+	if err := retiredFlagError("log", []string{"--", "x", "--project", "WORK"}); err != nil {
+		t.Fatalf("log -- x --project = %v, want arguments after -- left alone", err)
 	}
 }

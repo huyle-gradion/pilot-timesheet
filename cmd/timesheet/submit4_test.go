@@ -16,26 +16,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- SUBMIT-4 synthetic acceptance tests ---------------------------------------
-//
-// The human-gate commands are exercised at full depth against a loopback MCP
-// provider (the SUBMIT-3 fixture approach) extended with the write tools and a
-// classifications service, so approve's fresh catalog proof and submit's
-// verified dispatch both run against synthetic remote state. No network beyond
-// the loopback; the credential resolves from the process environment.
-//
-// The TTY gate itself is tested WITHOUT any seam: under `go test` neither
-// stdin nor stdout is a terminal, so the production interactiveFactory refuses
-// — proving the real gate fires and, because it fires before the store opens,
-// that zero remote calls are made and no state changes.
-//
-// The interactive happy paths use the documented test seam
-// (interactiveFactory, interactive.go): a scripted fake terminal replaces the
-// production channel, so no pty is needed.
-
-// injectTTY replaces the production operator channel with a scripted fake
-// terminal whose input is the given lines. This is the test seam; the gate
-// tests deliberately do NOT call it.
 func injectTTY(t *testing.T, lines ...string) {
 	t.Helper()
 	old := interactiveFactory
@@ -48,31 +28,23 @@ func injectTTY(t *testing.T, lines ...string) {
 	t.Cleanup(func() { interactiveFactory = old })
 }
 
-// stubSubmit is a loopback MCP provider serving the two read tools plus
-// (when writeTools is set) the two write tools, with synthetic week,
-// classification and write-acknowledgment documents. It records every tool
-// call so tests can assert zero remote calls. It is a test fixture, not a
-// product path.
 type stubSubmit struct {
-	mu         sync.Mutex
-	entries    map[string][]map[string]any
-	calls      []string
-	writeCalls []string
-	// writeParams keeps each write call's raw JSON-RPC params, byte for byte.
+	mu          sync.Mutex
+	entries     map[string][]map[string]any
+	calls       []string
+	writeCalls  []string
 	writeParams []string
 	writeTools  bool
 	failMode    string
 	nextCreate  int
 }
 
-// allCalls reports every tool invocation the provider has served.
 func (s *stubSubmit) allCalls() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.calls...)
 }
 
-// writeCount reports how many write dispatches reached the provider.
 func (s *stubSubmit) writeCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,10 +133,6 @@ func (s *stubSubmit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case "tool":
 				result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "synthetic write failure"}}}
 			case "reset":
-				// Applied-then-corrupted: the synthetic effect IS applied, then
-				// trailing garbage makes the acknowledgment undecodable, so no
-				// identity is ever established — the exact in_flight-forever
-				// shape resolve_write exists for.
 				_ = s.applyWrite(p.Name, p.Arguments)
 				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *req.ID, "result": result})
 				_, _ = w.Write([]byte("SUFFIX-NOT-JSON"))
@@ -181,9 +149,6 @@ func (s *stubSubmit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": *req.ID, "result": result})
 }
 
-// applyWrite performs the synthetic mutation for one write call and returns a
-// full structured acknowledgment ({"entry": {...}}), mirroring the internal
-// fakeMCP semantics.
 func (s *stubSubmit) applyWrite(name string, args map[string]any) map[string]any {
 	date, _ := args["date"].(string)
 	start, _ := args["startTime"].(string)
@@ -229,9 +194,6 @@ func (s *stubSubmit) applyWrite(name string, args map[string]any) map[string]any
 	}
 }
 
-// savedDayForSubmit builds the full SUBMIT-1+2 flow up to save against a
-// synthetic remote, like the SUBMIT-3 fixture, but with a stub that also
-// serves classifications and (optionally failing) write tools.
 func savedDayForSubmit(t *testing.T, desc string, remote []map[string]any, failMode string) (string, *stubSubmit) {
 	t.Helper()
 	stub := &stubSubmit{entries: map[string][]map[string]any{testDate: remote}, failMode: failMode, writeTools: true}
@@ -261,9 +223,6 @@ func savedDayForSubmit(t *testing.T, desc string, remote []map[string]any, failM
 	return cfg, stub
 }
 
-// approveReadyPlan runs plan and the interactive approve against an EMPTY
-// remote day, so the plan is ready with exactly one create operation. Returns
-// the config path, the plan id and the approval id.
 func approveReadyPlan(t *testing.T, failMode string) (string, string, string, *stubSubmit) {
 	t.Helper()
 	cfg, stub := savedDayForSubmit(t, "Build the bridge", nil, failMode)
@@ -354,10 +313,6 @@ func readApprovals(t *testing.T, cfg string) []timesheet.ApprovalRecord {
 	return append([]timesheet.ApprovalRecord(nil), store.State().Approvals...)
 }
 
-// TestGateRefusesNonTTYWithZeroRemoteCallsAndNoStateChange: with the production
-// operator channel (go test's stdio is not a terminal), approve, submit and
-// resolve-write each refuse naming the gate, make ZERO remote calls and leave
-// the store byte-identical. The refusal fires before the store opens.
 func TestGateRefusesNonTTYWithZeroRemoteCallsAndNoStateChange(t *testing.T) {
 	cfg, stub := savedDayForSubmit(t, "Build the bridge", nil, "")
 	decision := filepath.Join(filepath.Dir(cfg), "write-decision.json")
@@ -391,8 +346,25 @@ func TestGateRefusesNonTTYWithZeroRemoteCallsAndNoStateChange(t *testing.T) {
 	}
 }
 
-// TestSubmitStatusIsNotTTYGated: the read-only status runs headless like any
-// other non-gated command.
+func TestRenderPlanBodyShowsTaskAndReason(t *testing.T) {
+	body := renderPlanBody(timesheet.PlanPreview{Operations: []timesheet.PlanOperation{{Task: "task-synthetic", Reason: "reason-synthetic"}}})
+	if !strings.Contains(body, "task=task-synthetic") || !strings.Contains(body, "reason=reason-synthetic") {
+		t.Fatalf("approve prompt body = %q, want the task and the audit reason", body)
+	}
+}
+
+func TestApproveTTYGateRefusesBeforeTheStoreOpens(t *testing.T) {
+	cfg := writeTestConfig(t)
+	store, err := timesheet.OpenStore(statePathFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := runApprove([]string{"--config", cfg, "--date", testDate}); err == nil || !strings.Contains(err.Error(), "interactive-only") {
+		t.Fatalf("approve with the store held = %v, want the TTY refusal first", err)
+	}
+}
+
 func TestSubmitStatusIsNotTTYGated(t *testing.T) {
 	cfg, _ := savedDayForSubmit(t, "Build the bridge", nil, "")
 	res := runSubmitStatusCapture(t, []string{"--config", cfg, "--date", testDate})
@@ -401,15 +373,10 @@ func TestSubmitStatusIsNotTTYGated(t *testing.T) {
 	}
 }
 
-// TestApproveInteractiveHappyPathAndWrongIDAborts: typing the exact plan_id
-// records the approval; typing anything else aborts with no approval and no
-// state change. A blocked plan confirmed by the human is refused by the op
-// verbatim (plan_not_ready).
 func TestApproveInteractiveHappyPathAndWrongIDAborts(t *testing.T) {
 	cfg, stub := savedDayForSubmit(t, "Build the bridge", nil, "")
 	preview := runPlanCapture(t, []string{"--config", cfg, "--date", testDate})
 
-	// Wrong id typed: abort, no approval.
 	injectTTY(t, "not-the-plan-id")
 	if err := runApprove([]string{"--config", cfg, "--date", testDate}); err == nil ||
 		!strings.Contains(err.Error(), "does not match") {
@@ -419,14 +386,12 @@ func TestApproveInteractiveHappyPathAndWrongIDAborts(t *testing.T) {
 		t.Fatalf("approvals after wrong id = %+v, want none", approvals)
 	}
 
-	// EOF / empty line typed: abort.
 	injectTTY(t)
 	if err := runApprove([]string{"--config", cfg, "--date", testDate}); err == nil ||
 		!strings.Contains(err.Error(), "aborted:") {
 		t.Fatalf("approve with EOF = %v, want the abort", err)
 	}
 
-	// Correct id typed: the approval is recorded, bound to the exact plan.
 	injectTTY(t, preview.PlanID)
 	receipt := runApproveCapture(t, []string{"--config", cfg, "--date", testDate})
 	if !strings.HasPrefix(receipt.ApprovalID, "apr-") || receipt.PlanID != preview.PlanID ||
@@ -441,7 +406,6 @@ func TestApproveInteractiveHappyPathAndWrongIDAborts(t *testing.T) {
 		t.Fatal("the gated-approve happy path made no remote calls at all; the fixture is broken")
 	}
 
-	// A blocked plan, confirmed by the human, is the op's own refusal verbatim.
 	cfgBlocked, _ := savedDayForSubmit(t, "Build the bridge",
 		[]map[string]any{remoteWeekEntry("r-1", "09:00", "10:00", "cat-1", "Someone else's work")}, "")
 	blocked := runPlanCapture(t, []string{"--config", cfgBlocked, "--date", testDate})
@@ -455,10 +419,6 @@ func TestApproveInteractiveHappyPathAndWrongIDAborts(t *testing.T) {
 	}
 }
 
-// TestSubmitConsumesApprovalThenReplayIsBlocked: the happy path dispatches
-// exactly one verified write through the loopback stub and prints the receipt
-// faithfully; a replay with the consumed approval and a submit with an unknown
-// approval are both blocked_before_dispatch with zero write dispatches.
 func TestSubmitConsumesApprovalThenReplayIsBlocked(t *testing.T) {
 	cfg, planID, approvalID, stub := approveReadyPlan(t, "")
 
@@ -476,7 +436,6 @@ func TestSubmitConsumesApprovalThenReplayIsBlocked(t *testing.T) {
 		t.Fatalf("call inventory = %+v / stub %d, want exactly one write dispatch", receipt.Calls, stub.writeCount())
 	}
 
-	// Replay with the consumed approval: blocked_before_dispatch, no writes.
 	injectTTY(t, approvalID)
 	replay := runSubmitCapture(t, []string{"--config", cfg, "--date", testDate, "--approval-id", approvalID})
 	if replay.Status != timesheet.SubmitBlockedBeforeDispatch || len(replay.Blockers) == 0 ||
@@ -487,7 +446,6 @@ func TestSubmitConsumesApprovalThenReplayIsBlocked(t *testing.T) {
 		t.Fatalf("replay dispatched writes: stub now at %d", stub.writeCount())
 	}
 
-	// Unknown approval id: blocked_before_dispatch, no writes.
 	injectTTY(t, "apr-does-not-exist")
 	unknown := runSubmitCapture(t, []string{"--config", cfg, "--date", testDate, "--approval-id", "apr-does-not-exist"})
 	if unknown.Status != timesheet.SubmitBlockedBeforeDispatch || len(unknown.Blockers) == 0 ||
@@ -499,10 +457,6 @@ func TestSubmitConsumesApprovalThenReplayIsBlocked(t *testing.T) {
 	}
 }
 
-// TestSubmitStatusReportsUnresolvedWrites: after a submission whose write
-// applied but whose acknowledgment was never decodable, submit-status lists
-// the durable unresolved write reference with its next_safe_action so a human
-// can decide recovery. Read-only throughout.
 func TestSubmitStatusReportsUnresolvedWrites(t *testing.T) {
 	cfg, _, approvalID, _ := approveReadyPlan(t, "reset")
 	injectTTY(t, approvalID)
@@ -522,14 +476,12 @@ func TestSubmitStatusReportsUnresolvedWrites(t *testing.T) {
 	if !strings.Contains(status.NextAction, "resolve_write") {
 		t.Fatalf("next_safe_action = %q, want the resolve_write recovery instruction", status.NextAction)
 	}
-	// Read-only: status changed nothing.
 	again := runSubmitStatusCapture(t, []string{"--config", cfg, "--date", testDate})
 	if len(again.Unresolved) != 1 || again.Unresolved[0].WriteRef != ref {
 		t.Fatalf("second submit-status = %+v, want the same single unresolved write", again.Unresolved)
 	}
 }
 
-// writeDecisionFor writes a resolve-write decision file.
 func writeDecisionFor(t *testing.T, cfg, body string) string {
 	t.Helper()
 	path := filepath.Join(filepath.Dir(cfg), "write-decision.json")
@@ -539,15 +491,7 @@ func writeDecisionFor(t *testing.T, cfg, body string) string {
 	return path
 }
 
-// TestResolveWriteAdoptAndNotApplied: the human-authored decision file
-// resolves an unknown write outcome against the current complete observation
-// (the reconcile prerequisite), adopt binds the applied effect, not_applied
-// attests nothing applied, refusals pass through verbatim, and every resolved
-// blocker clears from submit-status. resolve-write is TTY-gated like the
-// other human decisions.
 func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
-	// Adopt: the write applied but its acknowledgment was lost (failMode
-	// "reset"), so the outcome is unknown and the effect is real.
 	cfg, _, approvalID, stub := approveReadyPlan(t, "reset")
 	injectTTY(t, approvalID)
 	receipt := runSubmitCapture(t, []string{"--config", cfg, "--date", testDate, "--approval-id", approvalID})
@@ -559,9 +503,6 @@ func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
 		t.Fatalf("stub write count = %d, want 1", stub.writeCount())
 	}
 
-	// Gate: resolve-write refuses non-TTY even with a decision file. The
-	// production gate is checked directly (the fixture's fake terminal is
-	// scoped to each interactive invocation below).
 	decision := writeDecisionFor(t, cfg,
 		`{"write_ref": "`+ref+`", "observation_id": "obs-x", "decision": "adopt", "remote_id": "r-new-1"}`)
 	savedFactory := interactiveFactory
@@ -572,14 +513,11 @@ func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
 		t.Fatalf("resolve-write non-TTY = %v, want the gate refusal", err)
 	}
 
-	// The observation prerequisite: reconcile first — the decision file's
-	// observation_id must name the CURRENT complete observation.
 	rec := runReconcileCapture(t, []string{"--config", cfg, "--date", testDate})
 	if rec.ObservationID == "" {
 		t.Fatalf("reconcile = %+v, want a persisted observation", rec)
 	}
 
-	// Verbatim refusals: a wrong observation_id and an unknown remote_id.
 	wrongObs := writeDecisionFor(t, cfg,
 		`{"write_ref": "`+ref+`", "observation_id": "obs-wrong", "decision": "adopt", "remote_id": "r-new-1"}`)
 	injectTTY(t, ref)
@@ -595,7 +533,6 @@ func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
 		t.Fatalf("resolve-write unknown remote = %v, want the verbatim unknown_remote refusal", err)
 	}
 
-	// The adopt decision, confirmed by typing the write reference.
 	adopt := writeDecisionFor(t, cfg,
 		`{"write_ref": "`+ref+`", "observation_id": "`+rec.ObservationID+`", "decision": "adopt", "remote_id": "r-new-1"}`)
 	injectTTY(t, ref)
@@ -608,8 +545,6 @@ func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
 		t.Fatalf("submit-status after adopt = %+v, want the blocker cleared", status)
 	}
 
-	// Not_applied: a write whose dispatch failed at the tool level applied
-	// nothing, so the human's attestation is consistent and the blocker clears.
 	cfg2, _, approvalID2, _ := approveReadyPlan(t, "tool")
 	injectTTY(t, approvalID2)
 	receipt2 := runSubmitCapture(t, []string{"--config", cfg2, "--date", testDate, "--approval-id", approvalID2})
@@ -630,7 +565,6 @@ func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
 		t.Fatalf("submit-status after not_applied = %+v, want the blocker cleared", status2)
 	}
 
-	// A write_ref is never resolved twice.
 	injectTTY(t, ref2)
 	if err := runResolveWrite([]string{"--config", cfg2, "--file", notApplied}); err == nil ||
 		!strings.Contains(err.Error(), "never re-resolved") {
@@ -638,10 +572,7 @@ func TestResolveWriteAdoptAndNotApplied(t *testing.T) {
 	}
 }
 
-// TestSubmit4FlagErrors: the new commands' flag surface.
 func TestSubmit4FlagErrors(t *testing.T) {
-	// The missing-config cases resolve the $HOME default; pin it to an empty
-	// directory so the default config never exists and the test is hermetic.
 	t.Setenv("HOME", t.TempDir())
 	cfg := writeTestConfig(t)
 	decision := writeDecisionFor(t, cfg, `{"write_ref": "wr", "observation_id": "obs", "decision": "not_applied"}`)
@@ -668,7 +599,6 @@ func TestSubmit4FlagErrors(t *testing.T) {
 			t.Fatalf("%s: err = %v, want %q", tc.name, err, tc.want)
 		}
 	}
-	// Decision-file shape errors surface before the gate; they name the schema.
 	bad := writeDecisionFor(t, cfg, `{"decision": }`)
 	err := runResolveWrite([]string{"--config", cfg, "--file", bad})
 	if err == nil || !strings.Contains(err.Error(), "expected schema") {
