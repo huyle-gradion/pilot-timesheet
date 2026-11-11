@@ -20,6 +20,12 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   current build, `init` and the binary-owned `log` flow, documents the real
   source statuses, and moves the retired workflow modes, `--offline`/journal
   notes and `$TS` examples under one historical banner (#194).
+- Keep `serve` as an internal command (the only route to legacy migration,
+  `cancel`, `check_environment` and `revoke_approval`) and pin it with in-repo
+  end-to-end JSONL tests (the status handshake, `migration_preview` /
+  `migration_apply`, malformed lines, close and EOF, and the binary's own
+  stdin/stdout); the interface doc now lists the #262 public surface and marks
+  `serve` internal, matching the README (#230).
 
 ## 0.2.0-dev.10
 
