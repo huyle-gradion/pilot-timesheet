@@ -212,13 +212,17 @@ store path and the existing endpoint/credential context digest. No protocol or
 state schema changes. Chat consent is agent-enforced, not human-presence proof;
 see [ADR 0009](../adr/0009-chat-confirmed-submission.md).
 
-Token usage comes from the binary: each `next --do --auto` report carries
-`usage`, and judge calls are logged in the day folder. When `judge.tokens_csv`
-names a file (typically the repository's `benchmarks/tokens.csv`), each run
-appends one row there; when it is empty, no row is written. `scripts/tokens.py`
+Token usage comes from the binary: each `next --do --auto` run that used the judge
+reports `usage`, and judge calls are logged in the day folder. That usage
+counts the judge's calls only, not an agent session, so it is not directly
+comparable with the historical session rows. When `judge.tokens_csv` names a
+file (typically the repository's `benchmarks/tokens.csv`), each run appends
+one row there; when it is empty, no row is written. `scripts/tokens.py`
 remains only to import usage from historical agent-session transcripts
-(Claude Code, Pi and pig stores) into the same file; it keeps existing rows,
-never blocks the day, and copies no transcript content.
+(Claude Code, Pi and pig stores); it writes to `benchmarks/tokens.csv` by
+default, so pass `--out <judge.tokens_csv path>` to import into a different
+file. It keeps existing rows, never blocks the day, and copies no transcript
+content.
 
 ## Protocol envelope
 
