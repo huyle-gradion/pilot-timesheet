@@ -17,6 +17,7 @@ package timesheet
 // interpreted.
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,8 @@ import (
 	"github.com/teambition/rrule-go"
 )
 
+var calendarFetchTimeout = collectHTTPTimeout
+
 type collectCalendarResult struct {
 	Status   string
 	Detail   string
@@ -36,8 +39,7 @@ type collectCalendarResult struct {
 }
 
 // collectCalendar fetches and expands the configured private feed for the
-// recorded day's calendrical window [windowStart, windowEnd). It never echoes
-// the feed URL, its credential value, or any part of the fetched document.
+// recorded day's calendrical window [windowStart, windowEnd).
 func collectCalendar(calUser string, env map[string]string, windowStart, windowEnd time.Time, dayLoc *time.Location) collectCalendarResult {
 	raw, present := resolveEnv(env, "GCAL_ICS_URL")
 	if !present || strings.TrimSpace(raw) == "" {
@@ -55,10 +57,15 @@ func collectCalendar(calUser string, env map[string]string, windowStart, windowE
 		}
 	}
 
-	client := &http.Client{Timeout: collectHTTPTimeout}
+	client := &http.Client{Timeout: calendarFetchTimeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		req.Header.Del("Referer")
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}}
 	resp, err := client.Get(feedURL)
 	if err != nil {
-		// Sanitized: network error text can embed the requested URL.
 		return collectCalendarResult{
 			Status: StatusFailed,
 			Detail: "the configured feed could not be fetched",

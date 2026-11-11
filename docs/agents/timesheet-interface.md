@@ -1,7 +1,7 @@
-# Pilot Timesheet interface (`0.3.0`)
+# Pilot Timesheet interface (`0.4.0`)
 
-Application version: `0.3.0` (released as `v0.3.0`; the previous release is
-`0.2.0`).
+Application version: `0.4.0` (released as `v0.4.0`; the previous release is
+`0.3.0`).
 State schema: `4`.
 
 This document is the public interface for the current release. The
