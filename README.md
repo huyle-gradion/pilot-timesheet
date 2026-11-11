@@ -197,7 +197,8 @@ gates are unchanged. See [the approval policy](docs/adr/0009-chat-confirmed-subm
 ### Token usage
 
 The binary reports its own usage: every `log` report that used the judge carries
-`usage` (calls, input and output tokens, and `exact`), each judge call is logged in the
+`usage` (calls, input and output tokens, any harness `cache_tokens`, and
+`exact`), each judge call is logged in the
 day folder, and `judge.tokens_csv` appends one row per run to a local
 `benchmarks/tokens.csv` (git-ignored; token data is personal). The skill no
 longer scrapes agent session stores. `scripts/tokens.py` stays only to import
@@ -273,9 +274,16 @@ token, `exact: false`) unless the harness prints a usage envelope and
 `judge.usage_format` names it. For a harness run as
 `claude -p --output-format json`, set `"usage_format": "claude-json"`: the
 binary reads the reply from the envelope's `result` and the counts from its
-`usage` (input includes the cache creation and cache read tokens, so the
-harness's own setup is counted). A count the envelope lacks is estimated and
-the total is marked inexact; a run mixing exact and estimated calls is inexact.
+`modelUsage`, summed over every model, or from `usage` when `modelUsage` is
+absent. A count the envelope lacks is estimated and the total is marked
+inexact; a run mixing exact and estimated calls is inexact.
+
+`tokens`, `max_day_tokens` and `daily_token_cap` count only non-cache input
+and output tokens, the part the binary's prompt and the reply control. A
+harness also re-sends its own setup (system prompt, tool schemas), mostly as
+prompt-cache reads; those cache creation and cache read tokens are reported
+separately as `usage.cache_tokens` (and in the `cache_tokens` column of
+`tokens.csv`) and never count toward the cap or the per-day target.
 
 Without `--out`
 (export's default dataset path is `<state dir>/eval/golden.json`), the

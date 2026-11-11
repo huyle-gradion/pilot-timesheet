@@ -34,14 +34,34 @@ func TestCommandBackendReadsTheHarnessReportedUsage(t *testing.T) {
 		stdout string
 		want   Usage
 	}{
-		"exact usage": {
+		"usage without modelUsage": {
 			`{"type":"result","subtype":"success","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}","total_cost_usd":0.01,` +
 				`"usage":{"input_tokens":12,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":7}}` + "\n",
-			Usage{Calls: 1, InputTokens: 1112, OutputTokens: 7, Exact: true},
+			Usage{Calls: 1, InputTokens: 12, OutputTokens: 7, CacheTokens: 1100, Exact: true},
+		},
+		"modelUsage preferred and summed": {
+			`{"type":"result","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}",` +
+				`"usage":{"input_tokens":5,"cache_read_input_tokens":50,"output_tokens":1},` +
+				`"modelUsage":{"model-a":{"inputTokens":10,"outputTokens":4,"cacheReadInputTokens":100,"cacheCreationInputTokens":20,"costUSD":0.01},` +
+				`"model-b":{"inputTokens":3,"outputTokens":2,"cacheReadInputTokens":0,"cacheCreationInputTokens":0}}}`,
+			Usage{Calls: 1, InputTokens: 13, OutputTokens: 6, CacheTokens: 120, Exact: true},
+		},
+		"modelUsage missing a count": {
+			`{"type":"result","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}","usage":{"input_tokens":5,"output_tokens":1},` +
+				`"modelUsage":{"model-a":{"inputTokens":10,"outputTokens":4},"model-b":{"inputTokens":3}}}`,
+			Usage{Calls: 1, InputTokens: 13, OutputTokens: EstimateTokens(answerDoc)},
+		},
+		"empty modelUsage falls back to usage": {
+			`{"type":"result","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}","usage":{"input_tokens":12,"output_tokens":7},"modelUsage":{}}`,
+			Usage{Calls: 1, InputTokens: 12, OutputTokens: 7, Exact: true},
 		},
 		"null cache counts": {
 			`{"type":"result","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}","usage":{"input_tokens":12,"cache_creation_input_tokens":null,"output_tokens":7}}`,
 			Usage{Calls: 1, InputTokens: 12, OutputTokens: 7, Exact: true},
+		},
+		"negative count": {
+			`{"type":"result","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}","usage":{"input_tokens":-5,"output_tokens":7,"cache_read_input_tokens":-9}}`,
+			Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: 7},
 		},
 		"no usage": {
 			`{"type":"result","is_error":false,"result":"{\"descriptions\":{\"b1\":\"x\"}}"}`,
@@ -79,20 +99,32 @@ func TestCommandBackendDefaultFormatKeepsTheRawReply(t *testing.T) {
 func TestCommandBackendRejectsAMalformedEnvelope(t *testing.T) {
 	const prompt = "prompt"
 	sent := Usage{Calls: 1, InputTokens: EstimateTokens(prompt)}
+	// Every stdout carries the marker; no error may repeat it.
+	const marker = "SYNTHETIC-HARNESS-OUTPUT-286"
+	limitUsage := Usage{Calls: 1, InputTokens: 30, OutputTokens: 2, CacheTokens: 400, Exact: true}
+	const limitTokens = `"usage":{"input_tokens":30,"output_tokens":2,"cache_read_input_tokens":400}`
 	cases := map[string]struct {
 		stdout    string
 		transient bool
 		usage     Usage
 	}{
-		"plain text":      {answerDoc, false, sent},
-		"not json":        {"Error: not logged in", false, sent},
-		"no result":       {`{"type":"result","subtype":"error_max_turns","is_error":false}`, false, sent},
-		"result not text": {`{"type":"result","is_error":false,"result":{"descriptions":{}}}`, false, sent},
-		"another message": {`{"type":"assistant","result":"x"}`, false, sent},
-		"two documents":   {`{"type":"result","result":"x"}{"type":"result","result":"y"}`, false, sent},
+		"plain text":      {`{"descriptions":{"b1":"` + marker + `"}}`, false, sent},
+		"not json":        {"Error: " + marker, false, sent},
+		"no result":       {`{"type":"result","subtype":"success","is_error":false,"session_id":"` + marker + `"}`, false, sent},
+		"result not text": {`{"type":"result","is_error":false,"result":{"descriptions":{"b1":"` + marker + `"}}}`, false, sent},
+		"another message": {`{"type":"assistant","result":"` + marker + `"}`, false, sent},
+		"two documents":   {`{"type":"result","result":"x"}{"type":"result","result":"` + marker + `"}`, false, sent},
 		"harness error": {
-			`{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["overloaded"],"usage":{"input_tokens":30,"output_tokens":2}}`,
-			true, Usage{Calls: 1, InputTokens: 30, OutputTokens: 2, Exact: true},
+			`{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["` + marker + `"],` + limitTokens + `}`,
+			true, limitUsage,
+		},
+		"max turns": {
+			`{"type":"result","subtype":"error_max_turns","is_error":true,"errors":["` + marker + `"],` + limitTokens + `}`,
+			false, limitUsage,
+		},
+		"max budget": {
+			`{"type":"result","subtype":"error_max_budget_usd","is_error":true,"errors":["` + marker + `"],` + limitTokens + `}`,
+			false, limitUsage,
 		},
 	}
 	for name, tc := range cases {
@@ -102,7 +134,7 @@ func TestCommandBackendRejectsAMalformedEnvelope(t *testing.T) {
 			if !errors.As(err, &be) || be.Transient != tc.transient || reply != "" || usage != tc.usage {
 				t.Fatalf("reply/usage/err = %q / %+v / %v; want a backend failure (transient %v) with usage %+v", reply, usage, err, tc.transient, tc.usage)
 			}
-			if strings.Contains(err.Error(), "not logged in") || strings.Contains(err.Error(), "overloaded") {
+			if strings.Contains(err.Error(), marker) {
 				t.Fatalf("err %q echoes harness output", err)
 			}
 		})

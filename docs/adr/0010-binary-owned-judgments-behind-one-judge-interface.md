@@ -133,13 +133,22 @@ questions and reports, with no per-agent integrations maintained in parallel.
 Decision 2 keeps harness-specific output parsing out of the core, and also says
 the headless backend records real usage when the harness reports it. A harness
 reports usage only inside its own output envelope, so the second promise needs
-a narrow exception to the first. The configuration may name one known envelope
-in `judge.usage_format` (today only `claude-json`, the result object of
+a narrow exception to the first, and to Decision 2's statement that the binary
+names no harness: the binary now names one harness output format, as an
+accepted value of a configuration field. The configuration may name it in
+`judge.usage_format` (today only `claude-json`, the result object of
 `claude -p --output-format json`). The binary then takes the reply text from
-the envelope and the token counts from its usage, and validates the reply
-exactly as before. Nothing changes without the field: stdout is the reply and
-usage is estimated. The binary still names no harness by default, an unknown
-format is a configuration error, and a count the envelope lacks falls back to
-the estimate rather than failing the judgment. Output that does not match the
-named envelope is a backend failure, not a rejected answer, because the model
-cannot fix the harness's framing.
+the envelope and the token counts from its `modelUsage` (or `usage` when that
+is absent), and validates the reply exactly as before. Nothing changes without
+the field: stdout is the reply and usage is estimated. No harness is assumed by
+default, an unknown format is a configuration error, and a count the envelope
+lacks falls back to the estimate rather than failing the judgment. Output that
+does not match the named envelope is a backend failure, not a rejected answer,
+because the model cannot fix the harness's framing.
+
+The daily cap stays on what the binary controls. It counts only non-cache
+input and output tokens. The prompt-cache creation and read tokens a harness
+reports for its own cached setup (system prompt, tool schemas) are recorded
+separately as `cache_tokens` in the usage record, the run report and the
+`cache_tokens` column of `tokens.csv`, and count toward neither the cap nor
+the per-day token target.

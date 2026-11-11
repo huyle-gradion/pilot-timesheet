@@ -30,18 +30,26 @@ const (
 )
 
 // Usage is one call's token counts. Exact is false when the backend cannot
-// report usage and the counts are estimated from the text sizes.
+// report usage and the counts are estimated from the text sizes. CacheTokens
+// are the prompt-cache creation and read tokens a harness reports for its own
+// cached setup; the binary does not control them, so Total leaves them out
+// and the daily cap never counts them (ADR 0010).
 type Usage struct {
 	Calls        int  `json:"calls"`
 	InputTokens  int  `json:"input_tokens"`
 	OutputTokens int  `json:"output_tokens"`
+	CacheTokens  int  `json:"cache_tokens,omitempty"`
 	Exact        bool `json:"exact"`
 }
 
 func (u Usage) add(v Usage) Usage {
-	return Usage{Calls: u.Calls + v.Calls, InputTokens: u.InputTokens + v.InputTokens, OutputTokens: u.OutputTokens + v.OutputTokens, Exact: u.Exact && v.Exact}
+	return Usage{
+		Calls: u.Calls + v.Calls, InputTokens: u.InputTokens + v.InputTokens, OutputTokens: u.OutputTokens + v.OutputTokens,
+		CacheTokens: u.CacheTokens + v.CacheTokens, Exact: u.Exact && v.Exact,
+	}
 }
 
+// Total is the input and output tokens, without CacheTokens.
 func (u Usage) Total() int { return u.InputTokens + u.OutputTokens }
 
 func EstimateTokens(s string) int { return (len(s) + 3) / 4 }
@@ -138,27 +146,31 @@ func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Us
 	return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
 }
 
-// claudeJSONReply unwraps one `claude -p --output-format json` result object.
-// Its "result" string is the reply, which the caller validates exactly as a
-// plain reply. Input tokens are usage.input_tokens plus the cache creation and
-// cache read counts (the harness's cached setup is still sent to the model).
-// A count the envelope lacks is estimated and marks the usage inexact, so
-// missing usage never fails a call. Output that is not one result object
-// carrying a reply is a permanent failure: the configured format does not
-// match the harness, and sending the prompt again would not change that. An
-// object with is_error set is transient, like a harness that exits non-zero.
-// No reason echoes the harness output.
+// claudeJSONReply unwraps one `claude -p --output-format json` result object
+// (the Agent SDK's SDKResultMessage). Its "result" string is the reply, which
+// the caller validates exactly as a plain reply.
+//
+// Token counts come from modelUsage, summed over every model, because it also
+// counts subagents and the request that crossed a budget; usage (main loop
+// only) is the fallback when modelUsage is absent or empty. InputTokens is the
+// non-cache input only; the cache creation and cache read counts go to
+// CacheTokens, outside the daily cap. A count the envelope lacks is estimated
+// and marks the usage inexact, so missing usage never fails a call.
+//
+// Output that is not one result object carrying a reply is a permanent
+// failure: the configured format does not match the harness, and sending the
+// prompt again would not change that. An is_error object is transient, like
+// a harness that exits non-zero, except error_max_turns and
+// error_max_budget_usd, which a resend would hit again. No reason echoes the
+// harness output.
 func claudeJSONReply(stdout []byte, prompt string) (string, Usage, error) {
 	var env struct {
-		Type    string          `json:"type"`
-		IsError bool            `json:"is_error"`
-		Result  json.RawMessage `json:"result"`
-		Usage   *struct {
-			InputTokens   *int `json:"input_tokens"`
-			OutputTokens  *int `json:"output_tokens"`
-			CacheCreation *int `json:"cache_creation_input_tokens"`
-			CacheRead     *int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+		Type       string                      `json:"type"`
+		Subtype    string                      `json:"subtype"`
+		IsError    bool                        `json:"is_error"`
+		Result     json.RawMessage             `json:"result"`
+		Usage      *claudeTokens               `json:"usage"`
+		ModelUsage map[string]claudeModelUsage `json:"modelUsage"`
 	}
 	sent := Usage{Calls: 1, InputTokens: EstimateTokens(prompt)}
 	dec := json.NewDecoder(bytes.NewReader(stdout))
@@ -169,24 +181,73 @@ func claudeJSONReply(stdout []byte, prompt string) (string, Usage, error) {
 	if !env.IsError && json.Unmarshal(env.Result, &reply) != nil {
 		return "", sent, permanent("the harness result object carries no reply text")
 	}
+	reported := claudeTokens{}
+	switch {
+	case len(env.ModelUsage) > 0:
+		reported = sumModelUsage(env.ModelUsage)
+	case env.Usage != nil:
+		reported = *env.Usage
+	}
 	usage := Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}
-	if u := env.Usage; u != nil {
-		in, inOK := tokenCount(u.InputTokens)
-		out, outOK := tokenCount(u.OutputTokens)
-		if inOK {
-			cacheCreation, _ := tokenCount(u.CacheCreation)
-			cacheRead, _ := tokenCount(u.CacheRead)
-			usage.InputTokens = in + cacheCreation + cacheRead
-		}
-		if outOK {
-			usage.OutputTokens = out
-		}
-		usage.Exact = inOK && outOK
+	in, inOK := tokenCount(reported.InputTokens)
+	out, outOK := tokenCount(reported.OutputTokens)
+	if inOK {
+		usage.InputTokens = in
 	}
-	if env.IsError {
-		return "", usage, transient("the harness reported an error result")
+	if outOK {
+		usage.OutputTokens = out
 	}
-	return reply, usage, nil
+	cacheCreation, _ := tokenCount(reported.CacheCreation)
+	cacheRead, _ := tokenCount(reported.CacheRead)
+	usage.CacheTokens = cacheCreation + cacheRead
+	usage.Exact = inOK && outOK
+	switch {
+	case !env.IsError:
+		return reply, usage, nil
+	case env.Subtype == "error_max_turns" || env.Subtype == "error_max_budget_usd":
+		return "", usage, permanent("the harness stopped at its own limit (%s)", env.Subtype)
+	}
+	return "", usage, transient("the harness reported an error result")
+}
+
+// claudeTokens is the result object's usage (snake_case, cache counts
+// nullable).
+type claudeTokens struct {
+	InputTokens   *int `json:"input_tokens"`
+	OutputTokens  *int `json:"output_tokens"`
+	CacheCreation *int `json:"cache_creation_input_tokens"`
+	CacheRead     *int `json:"cache_read_input_tokens"`
+}
+
+// claudeModelUsage is one modelUsage entry (camelCase).
+type claudeModelUsage struct {
+	InputTokens   *int `json:"inputTokens"`
+	OutputTokens  *int `json:"outputTokens"`
+	CacheCreation *int `json:"cacheCreationInputTokens"`
+	CacheRead     *int `json:"cacheReadInputTokens"`
+}
+
+// sumModelUsage adds every model's counts. A count is known only when every
+// model reports it.
+func sumModelUsage(models map[string]claudeModelUsage) claudeTokens {
+	var in, out, creation, read []*int
+	for _, m := range models {
+		in, out = append(in, m.InputTokens), append(out, m.OutputTokens)
+		creation, read = append(creation, m.CacheCreation), append(read, m.CacheRead)
+	}
+	return claudeTokens{InputTokens: sumCounts(in), OutputTokens: sumCounts(out), CacheCreation: sumCounts(creation), CacheRead: sumCounts(read)}
+}
+
+func sumCounts(ns []*int) *int {
+	total := 0
+	for _, n := range ns {
+		v, ok := tokenCount(n)
+		if !ok {
+			return nil
+		}
+		total += v
+	}
+	return &total
 }
 
 func tokenCount(n *int) (int, bool) {

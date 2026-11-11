@@ -261,7 +261,8 @@ refuses. `timesheet log` is the public form: it runs `next --do`, with `--auto`
 when a judge is configured. Its default action budget is 24 (`--max-actions` overrides it). When
 `judge.tokens_csv` names a file, each run appends one row in the
 `benchmarks/tokens.csv` columns (`session_id` `timesheet-auto:<UTC time>`,
-`cache_tokens` 0); `scripts/tokens.py` keeps those rows when it refreshes the
+`cache_tokens` the harness-reported cache tokens, else 0; `total_tokens` input
+plus output plus cache); `scripts/tokens.py` keeps those rows when it refreshes the
 file.
 
 `--auto` is not recommended in the README until it scores at or above the
@@ -280,12 +281,17 @@ the prompt and reply sizes (`exact: false`) unless `usage_format` names the
 harness's output envelope: with `"usage_format": "claude-json"` (and the
 harness run as `claude -p --output-format json`), stdout must be one JSON
 object of `type` `result`; its `result` string is the reply, validated as
-before, and `usage.input_tokens` plus `usage.cache_creation_input_tokens` and
-`usage.cache_read_input_tokens` are the input tokens and `usage.output_tokens`
-the output tokens (`exact: true`). A count the envelope lacks is estimated and
-the usage is marked inexact. Output that is not such an object is a permanent
-backend failure (not retried); `is_error: true` is a transient one. Any other
-`usage_format` value is a configuration error. The `openai` backend sends one
+before. Counts come from `modelUsage`, summed over every model
+(`inputTokens`, `outputTokens`, `cacheCreationInputTokens`,
+`cacheReadInputTokens`), or from `usage` (`input_tokens`, `output_tokens`,
+`cache_creation_input_tokens`, `cache_read_input_tokens`) when `modelUsage` is
+absent (`exact: true`). Input and output are the non-cache counts; the two
+cache counts are reported as `cache_tokens` and never count toward
+`daily_token_cap`. A count the envelope lacks is estimated and the usage is
+marked inexact. Output that is not such an object is a permanent backend
+failure (not retried); `is_error: true` is a transient one, except the
+`error_max_turns` and `error_max_budget_usd` subtypes, which are permanent.
+Any other `usage_format` value is a configuration error. The `openai` backend sends one
 chat-completions request; its key is read from the env file by name.
 
 - **Prompts** are `internal/llm/prompts/*.tmpl`, embedded in the binary, with a
