@@ -314,7 +314,12 @@ saved selection are. A day part with a missing draft, an unreadable ledger, a
 stage map that no longer matches the ledger, no bound catalog candidates, or no
 accepted classification is
 listed in `skipped` with its reason and never counts as a pass. An empty store
-gives an empty dataset and a note.
+gives an empty dataset and a note. A dataset of 0 days is still written, so its
+skip reasons stay inspectable, with a one-line warning on stderr (#282). `eval
+run` refuses a dataset with no replayable day (no days, or every part would be
+skipped before a judge call) before any judge call and writes no candidate;
+`eval score` refuses a dataset with no accepted classification or description
+instead of printing rates of 0.
 
 The dataset holds personal evidence: it defaults to `<state dir>/eval/golden.json`,
 any path inside a git work tree is refused, and it never carries configuration,

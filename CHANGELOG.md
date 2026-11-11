@@ -73,6 +73,13 @@ Carry the after-midnight remainder of long overnight entries into the next day
   catalog candidate sets the judgment picked from, and leaves out intervals
   decided from approved history. A day without bound candidates is skipped
   with a reason. Schema 1 datasets are refused; export them again.
+- An empty golden dataset no longer reads as zeros with exit 0 (#282).
+  `eval run` refuses a dataset with no replayable day (no days, or every part
+  would be skipped before a judge call) with one line, before any judge call
+  and without writing a candidate. `eval score` refuses a dataset with no
+  accepted classification or description instead of printing rates of 0.
+  `eval export` still writes a dataset of 0 days, so its skip reasons stay
+  inspectable, and warns on stderr.
 
 ## 0.2.0
 
