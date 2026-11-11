@@ -101,12 +101,8 @@ func TestCallBeforeInit_Uninitialized(t *testing.T) {
 	}
 }
 
-// TestJSONRPCErrorMessage_RedactBeforeBound proves the JSON-RPC error path
-// redacts the token BEFORE bounding the message, so a token straddling the byte
-// cap cannot leave a bare prefix (S5L1-1).
 func TestJSONRPCErrorMessage_RedactBeforeBound(t *testing.T) {
 	const token = "S3CR3T-TOKEN-DO-NOT-LEAK"
-	// 250 filler bytes + the token: the token straddles the 256-byte cap.
 	msg := strings.Repeat("A", 250) + token
 
 	f := newFakeMCP()
@@ -131,8 +127,6 @@ func TestJSONRPCErrorMessage_RedactBeforeBound(t *testing.T) {
 	}
 }
 
-// TestProtocolVersionMismatch_Bounded proves the server-supplied protocol
-// version is bounded before formatting (S5L1-2).
 func TestProtocolVersionMismatch_Bounded(t *testing.T) {
 	f := newFakeMCP()
 	f.protocolVersion = strings.Repeat("v", 1000)
@@ -147,8 +141,6 @@ func TestProtocolVersionMismatch_Bounded(t *testing.T) {
 	}
 }
 
-// TestPostInitOmitsSessionHeaderWhenUnassigned proves post-init requests omit the
-// session header when the server assigned no session id (S5L1-6a).
 func TestPostInitOmitsSessionHeaderWhenUnassigned(t *testing.T) {
 	f := newFakeMCP()
 	f.omitSessionID = true
@@ -170,8 +162,6 @@ func TestPostInitOmitsSessionHeaderWhenUnassigned(t *testing.T) {
 	}
 }
 
-// Test404SessionExpired proves a post-init 404 maps to MCP_ERR_SESSION_EXPIRED
-// (S5L1-6c).
 func Test404SessionExpired(t *testing.T) {
 	f := newFakeMCP()
 	sess, _ := newServerSession(t, f)
@@ -189,8 +179,6 @@ func Test404SessionExpired(t *testing.T) {
 	}
 }
 
-// TestResponseIDMismatch proves a response whose id does not match the request is
-// rejected as a protocol error (S5L1-8).
 func TestResponseIDMismatch(t *testing.T) {
 	f := newFakeMCP()
 	sess, _ := newServerSession(t, f)
@@ -208,8 +196,6 @@ func TestResponseIDMismatch(t *testing.T) {
 	}
 }
 
-// TestResponseJSONRPCVersionInvalid proves a response with a bad jsonrpc version
-// is rejected as a protocol error (S5L1-8).
 func TestResponseJSONRPCVersionInvalid(t *testing.T) {
 	f := newFakeMCP()
 	sess, _ := newServerSession(t, f)
@@ -296,9 +282,6 @@ func TestCallTool_StructuredPreferred(t *testing.T) {
 	}
 }
 
-// F4: Content is ALWAYS captured alongside structuredContent (the classification
-// tool carries Code + Activity Type only in the text block), while Text keeps its
-// fallback-only semantics. Content is bounded.
 func TestCallTool_ContentCapturedAlongsideStructured(t *testing.T) {
 	f := newFakeMCP()
 	f.callResultRaw = json.RawMessage(`{"structuredContent":{"resources":[{"id":"u1"}]},"content":[{"type":"text","text":"- Name (CODE) [internal project] · u1"}]}`)
@@ -322,7 +305,6 @@ func TestCallTool_ContentCapturedAlongsideStructured(t *testing.T) {
 	}
 }
 
-// F4: Content is bounded to MaxTextBlockBytes.
 func TestCallTool_ContentIsBounded(t *testing.T) {
 	big := strings.Repeat("x", MaxTextBlockBytes+100)
 	f := newFakeMCP()
@@ -477,7 +459,6 @@ func TestCallTool_ExactlyOneAttempt(t *testing.T) {
 func TestTokenNeverLeaks(t *testing.T) {
 	const token = "S3CR3T-TOKEN-DO-NOT-LEAK"
 
-	// HTTP-status error body contains the token.
 	tr := methodAwareTransport(func(string, *http.Request) (*http.Response, error) {
 		return resp(http.StatusInternalServerError, "application/json", "leaked "+token), nil
 	})
@@ -493,7 +474,6 @@ func TestTokenNeverLeaks(t *testing.T) {
 		t.Errorf("token leaked into HTTP-status error: %v", err)
 	}
 
-	// JSON-RPC error message contains the token.
 	f := newFakeMCP()
 	f.rpcErr = &rpcError{Code: -32000, Message: "bad " + token}
 	sess2, _ := newServerSession(t, f)
@@ -509,7 +489,6 @@ func TestTokenNeverLeaks(t *testing.T) {
 		t.Errorf("token leaked into JSON-RPC error: %v", err)
 	}
 
-	// Serialized config/session never contain the token.
 	cfgData, _ := json.Marshal(Config{Endpoint: "http://example.invalid", Token: token})
 	if strings.Contains(string(cfgData), token) {
 		t.Errorf("token leaked into serialized Config: %s", cfgData)
@@ -540,5 +519,69 @@ func TestClose_IdempotentAndBlocks(t *testing.T) {
 func TestNewSession_RejectsEmptyEndpoint(t *testing.T) {
 	if _, err := NewSession(Config{}); err == nil {
 		t.Error("expected an error for an empty endpoint")
+	}
+}
+
+func TestStatusErrorRedactsBeforeBound(t *testing.T) {
+	const token = "S3CR3T-TOKEN-DO-NOT-LEAK"
+	body := strings.Repeat("A", maxErrorSnippetBytes-6) + token
+	tr := methodAwareTransport(func(string, *http.Request) (*http.Response, error) {
+		return resp(http.StatusInternalServerError, "application/json", body), nil
+	})
+	sess := newTestSession(t, Config{Endpoint: "http://example.invalid", Token: token, Transport: tr})
+	if _, err := sess.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	_, err := sess.CallTool(context.Background(), "t", nil)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for k := 4; k <= len(token); k++ {
+		if strings.Contains(err.Error(), token[:k]) {
+			t.Errorf("token prefix %q leaked: %v", token[:k], err)
+		}
+	}
+}
+
+func TestProtocolVersionMismatchRedactsToken(t *testing.T) {
+	const token = "S3CR3T-TOKEN-DO-NOT-LEAK"
+	f := newFakeMCP()
+	f.protocolVersion = token
+	sess, _ := newServerSession(t, f)
+	sess.cfg.Token = token
+
+	_, err := sess.Initialize(context.Background())
+	if StableCodeOf(err) != CodeProtocolVersion {
+		t.Fatalf("expected %s, got %v", CodeProtocolVersion, err)
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Errorf("token leaked into the version mismatch: %v", err)
+	}
+}
+
+func TestRequestsAcceptOnlyJSON(t *testing.T) {
+	tr := methodAwareTransport(func(string, *http.Request) (*http.Response, error) {
+		return resp(http.StatusOK, "application/json", `{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`), nil
+	})
+	var accepts []string
+	inner := tr.fn
+	tr.fn = func(r *http.Request) (*http.Response, error) {
+		accepts = append(accepts, r.Header.Get("Accept"))
+		return inner(r)
+	}
+	sess := newTestSession(t, Config{Endpoint: "http://example.invalid", Transport: tr})
+	if _, err := sess.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if _, err := sess.ListTools(context.Background()); err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if len(accepts) != 3 {
+		t.Fatalf("recorded %d requests, want initialize, initialized and tools/list", len(accepts))
+	}
+	for _, a := range accepts {
+		if a != "application/json" {
+			t.Errorf("Accept = %q, want only application/json: SSE responses are not parsed", a)
+		}
 	}
 }

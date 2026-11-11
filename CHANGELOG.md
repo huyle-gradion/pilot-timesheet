@@ -73,6 +73,7 @@ Carry the after-midnight remainder of long overnight entries into the next day
   catalog candidate sets the judgment picked from, and leaves out intervals
   decided from approved history. A day without bound candidates is skipped
   with a reason. Schema 1 datasets are refused; export them again.
+- Remove narrating comments from `internal/mcp` and `internal/llm` (#258); four constraints they stated are now tests (MCP status and version errors redact the token before bounding, requests accept only `application/json`, a judge backend identity never carries the key).
 
 ## 0.2.0
 

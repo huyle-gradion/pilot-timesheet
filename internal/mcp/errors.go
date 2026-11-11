@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// ErrorKind classifies a typed MCP transport error.
 type ErrorKind int
 
 const (
@@ -74,12 +73,10 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("[%s] %s", e.StableCode, e.Message)
 }
 
-// IsUninitialized reports whether err is an ErrUninitialized MCP error.
 func IsUninitialized(err error) bool {
 	return IsKind(err, ErrUninitialized)
 }
 
-// IsKind reports whether err is an MCP error of the given kind.
 func IsKind(err error, kind ErrorKind) bool {
 	var e *Error
 	if errors.As(err, &e) {

@@ -18,7 +18,6 @@ import (
 //go:embed prompts/*.tmpl
 var promptFS embed.FS
 
-// Context bounds: long evidence is cut before it enters a prompt.
 const (
 	// MaxTitleRunes bounds a block title or an interval description.
 	MaxTitleRunes = 300
@@ -36,7 +35,6 @@ const (
 // ErrInvalidReply marks a reply that does not validate against the judgment.
 var ErrInvalidReply = errors.New("the judge reply is not a valid answer")
 
-// Prompt is one rendered prompt plus the cache key that identifies it.
 type Prompt struct {
 	Text string
 	// Key binds the template bytes, the backend identity and the rendered
@@ -78,8 +76,6 @@ func compactJSON(v any) string {
 	return string(data)
 }
 
-// --- descriptions -----------------------------------------------------------
-
 type describeBlock struct {
 	BlockID          string   `json:"block_id"`
 	Kind             string   `json:"kind"`
@@ -89,8 +85,6 @@ type describeBlock struct {
 	OutsideWorkHours bool     `json:"outside_work_hours,omitempty"`
 }
 
-// proseLimit is how long a block's prose may be so that record's appended
-// PRs list still fits the ledger's description limit.
 func proseLimit(b timesheet.DraftBlock) int {
 	n := maxDescriptionRunes
 	if b.PRsInline != "" {
@@ -102,7 +96,6 @@ func proseLimit(b timesheet.DraftBlock) int {
 	return n
 }
 
-// DescribePrompt renders the descriptions prompt for a draft.
 func DescribePrompt(d timesheet.Draft, backend Backend) (Prompt, error) {
 	blocks := make([]describeBlock, 0, len(d.Blocks))
 	limit := maxDescriptionRunes
@@ -168,16 +161,12 @@ func ParseDescriptions(d timesheet.Draft, reply string) (timesheet.DescriptionsF
 	return f, nil
 }
 
-// --- classifications --------------------------------------------------------
-
-// Option is one catalog option a set offers.
 type Option struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Code  string `json:"code,omitempty"`
 }
 
-// CandidateSet is one prefetched catalog read (issue #234).
 type CandidateSet struct {
 	Ref       string   `json:"-"`
 	CatalogID string   `json:"-"`
@@ -194,13 +183,11 @@ type Interval struct {
 	Set         string `json:"set,omitempty"`
 }
 
-// Selection is one validated pick, with the catalog id the binary fills in.
 type Selection struct {
 	CatalogID        string
 	ClassificationID string
 }
 
-// ClassifyPrompt renders the classifications prompt.
 func ClassifyPrompt(intervals []Interval, sets []CandidateSet, backend Backend) (Prompt, error) {
 	in := make([]Interval, 0, len(intervals))
 	for _, iv := range intervals {
@@ -255,8 +242,6 @@ func ParseSelections(intervals []Interval, sets []CandidateSet, reply string) (m
 	}
 	return picks, nil
 }
-
-// --- shared -----------------------------------------------------------------
 
 // decodeObject reads the one JSON object in a reply, tolerating a code fence
 // or surrounding text a harness may add.

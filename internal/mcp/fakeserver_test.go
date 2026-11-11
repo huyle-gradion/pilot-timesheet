@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// recordedRequest captures what the fake server saw.
 type recordedRequest struct {
 	Method    string
 	SessionID string
@@ -18,7 +17,6 @@ type recordedRequest struct {
 	HasID     bool
 }
 
-// fakeMCP is a minimal stateful MCP server for hermetic tests.
 type fakeMCP struct {
 	mu              sync.Mutex
 	requests        []recordedRequest
@@ -117,7 +115,6 @@ func writeRPCError(w http.ResponseWriter, id *int64, e *rpcError) {
 	_ = json.NewEncoder(w).Encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: e})
 }
 
-// fakeTransport records calls and injects faults without real HTTP.
 type fakeTransport struct {
 	mu      sync.Mutex
 	methods []string
@@ -170,7 +167,6 @@ func resp(status int, contentType, body string) *http.Response {
 	}
 }
 
-// methodAwareTransport returns a 200 handshake and lets fn handle other methods.
 func methodAwareTransport(fn func(method string, r *http.Request) (*http.Response, error)) *fakeTransport {
 	return &fakeTransport{fn: func(r *http.Request) (*http.Response, error) {
 		method := requestMethod(r)

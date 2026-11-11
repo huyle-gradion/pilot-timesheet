@@ -184,3 +184,11 @@ func TestPromptKeyBindsBackendAndContent(t *testing.T) {
 		t.Fatalf("keys %s %s %s; text %q", a.Key, b.Key, c.Key, a.Text[:40])
 	}
 }
+
+func TestBackendIdentityNeverCarriesTheKey(t *testing.T) {
+	const key = "synthetic-judge-key"
+	b := OpenAIBackend{BaseURL: "http://127.0.0.1:1/v1", Model: "m", APIKey: key}
+	if strings.Contains(b.Identity(), key) {
+		t.Fatalf("Identity() = %q carries the API key", b.Identity())
+	}
+}
