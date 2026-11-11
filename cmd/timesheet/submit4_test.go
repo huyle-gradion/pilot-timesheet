@@ -58,9 +58,11 @@ type stubSubmit struct {
 	entries    map[string][]map[string]any
 	calls      []string
 	writeCalls []string
-	writeTools bool
-	failMode   string
-	nextCreate int
+	// writeParams keeps each write call's raw JSON-RPC params, byte for byte.
+	writeParams []string
+	writeTools  bool
+	failMode    string
+	nextCreate  int
 }
 
 // allCalls reports every tool invocation the provider has served.
@@ -148,6 +150,7 @@ func (s *stubSubmit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			s.writeCalls = append(s.writeCalls, p.Name)
+			s.writeParams = append(s.writeParams, string(req.Params))
 			switch s.failMode {
 			case "second-tool":
 				if len(s.writeCalls) == 2 {
