@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -48,6 +49,9 @@ type benchState struct {
 	caret      int // caret within text, in runes
 	preview    *timesheet.PlanPreview
 	approvals  []timesheet.ApprovalRow
+	question   string
+	options    []string
+	choice     int
 }
 
 type tuiScreen int
@@ -56,6 +60,7 @@ const (
 	screenDay tuiScreen = iota
 	screenBench
 	screenGate
+	screenAsk
 )
 
 const (
@@ -208,6 +213,9 @@ func updateKey(m tuiModel, key string) (tuiModel, effect) {
 		m.busy, m.err = true, nil
 		return m, tickEffect(m.env)
 	case "enter":
+		if m.snap.action.State == stateAskHuman && m.snap.action.Ask != nil {
+			return openAskForm(m, m.snap.action.Ask), nil
+		}
 		step := stepAct(m.snap.action)
 		if step == "" {
 			return m, nil
@@ -274,7 +282,45 @@ func tickEffect(e tuiEnv) effect {
 	}
 }
 
+func openAskForm(m tuiModel, q *askHuman) tuiModel {
+	if err := answerable(q); err != nil {
+		m.err = err
+		return m
+	}
+	m.err = nil
+	m.bench = benchState{
+		screen: screenAsk, kind: q.Kind, digest: q.Digest, answerFile: q.AnswerFile,
+		question: q.Question, options: slices.Clone(q.Options),
+	}
+	return m
+}
+
+func updateAskKey(m tuiModel, key string) (tuiModel, effect) {
+	b := m.bench
+	switch key {
+	case "esc":
+		m.bench, m.err = benchState{}, nil
+	case "up", "k":
+		b.choice = max(b.choice-1, 0)
+		m.bench = b
+	case "down", "j":
+		b.choice = min(b.choice+1, len(b.options)-1)
+		m.bench = b
+	case "enter":
+		if b.choice < 0 || b.choice >= len(b.options) {
+			return m, nil
+		}
+		m.busy, m.err = true, nil
+		answer := pendingAnswer{Kind: b.kind, Digest: b.digest, Answer: b.options[b.choice], Surface: "tui"}
+		return m, func() any { return m.env.answerAsk(answer) }
+	}
+	return m, nil
+}
+
 func updateFormKey(m tuiModel, key string) (tuiModel, effect) {
+	if m.bench.screen == screenAsk {
+		return updateAskKey(m, key)
+	}
 	b := m.bench
 	switch key {
 	case "esc":
@@ -305,6 +351,9 @@ func updateText(m tuiModel, e textEvent) (tuiModel, effect) {
 	}
 	if m.busy {
 		return m, nil
+	}
+	if m.bench.screen == screenAsk {
+		return updateAskKey(m, string(e.runes))
 	}
 	b := m.bench
 	b.text, b.caret = insertRunes(b.text, b.caret, e.runes)

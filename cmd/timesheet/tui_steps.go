@@ -165,6 +165,14 @@ func (e tuiEnv) refreshAfterStale(reopen string) any {
 	return te
 }
 
+func (e tuiEnv) answerAsk(p pendingAnswer) any {
+	receipt, err := answerAsk(e.cfg, e.configPath, e.envFile, e.day, e.h.store, p, nil)
+	if err != nil {
+		return actDoneEvent{err: err}
+	}
+	return actDoneEvent{notice: "answered " + receipt.Kind + " with " + receipt.Answer + " (surface tui); [enter] continues the day"}
+}
+
 func (e tuiEnv) sendClose() any {
 	_, err := e.h.call("close", timesheet.Request{})
 	return closeSentEvent{err}

@@ -177,6 +177,8 @@ func renderFooter(m tuiModel) string {
 		line = s.hint.Render("working: keys are locked until the current step finishes")
 	case m.notice != "":
 		line = recorded("%s", m.notice)
+	case m.snap.action.State == stateAskHuman && m.snap.action.Ask != nil && answerable(m.snap.action.Ask) == nil:
+		line = s.hint.Render("[enter] answer form   [r] re-derive   [q] quit")
 	case stepAct(m.snap.action) == stateHumanGates:
 		line = s.hint.Render("[enter] approve gate   [s] submit gate   [r] re-derive   [q] quit")
 	default:
@@ -232,6 +234,30 @@ func renderGate(m tuiModel) string {
 		middle = fitTail(middle, n, s)
 	}
 	return head + middle + tail
+}
+
+func renderAskForm(m tuiModel) string {
+	s := m.env.styles
+	b := m.bench
+	var out strings.Builder
+	out.WriteString(s.gate.Render("answer ask_human:") + recorded(" %s\n", b.kind))
+	labelRow(&out, s, "question", "\n  ", b.question)
+	labelRow(&out, s, "answer file", "  ", b.answerFile)
+	labelRow(&out, s, "digest", "       ", b.digest)
+	out.WriteString(s.label.Render("options") + "\n")
+	for i, o := range b.options {
+		lead := "    "
+		if i == b.choice {
+			lead = "  " + s.caret.Render(">") + " "
+		}
+		out.WriteString(lead + recorded("%s\n", o))
+	}
+	if m.err != nil {
+		out.WriteString("\n")
+		labelRow(&out, s, "last error", "\n  ", m.err.Error())
+	}
+	out.WriteString("\n" + s.hint.Render("[up/down] choose   [enter] write the answer (surface tui)   [esc] dismiss") + "\n")
+	return out.String()
 }
 
 // clampCaret returns the text's runes and the caret (a rune index) clamped

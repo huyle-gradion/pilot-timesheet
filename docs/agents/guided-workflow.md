@@ -16,9 +16,10 @@ follow-up and the `internal/run` package were removed in the CLI cut-over
    the configured timezone). It reports one typed `state`:
    - `human_gates`: the day is saved and planned. Approve and submit in the
      TUI (step 2) or with terminal `submit` (step 3).
-   - `ask_human`: a decision only the owner makes. The TUI shows the question
-     and its answer file; write the answer to that file as its `protocol`
-     says, or answer through the agent skill, then run `log` again.
+   - `ask_human`: a decision only the owner makes. Answer it in a terminal
+     with `bin/timesheet answer --date <YYYY-MM-DD> [--kind <kind>] <answer>`,
+     in the TUI's answer form, or through the agent skill, then run `log`
+     again.
    - `judgment`: no judge is configured. Answer it in the TUI or through the
      agent skill's fallback, then run `log` again.
    - `stopped`: read the reason; nothing was submitted.

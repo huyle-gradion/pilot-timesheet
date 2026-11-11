@@ -83,7 +83,7 @@ A mise-managed Go (`mise exec -- go build ...`) is environment troubleshooting
 on hosts where `go` is not on `PATH`; it is not a project dependency.
 
 `bin/timesheet` is the production-named executable. Its public commands are
-`init`, `log`, `next`, `status`, `submit` (with `submit status`,
+`init`, `log`, `next`, `status`, `answer`, `submit` (with `submit status`,
 `submit resolve` and `submit revoke`), `migrate`, `tui`, `daily`, `judge`,
 `eval` and `version`; `timesheet help` lists them. Every command is one
 stateless process over the local store: it reads the store, acts, and returns.
@@ -134,7 +134,9 @@ the configured judge (ADR 0010), so the agent only relays and reports:
   (`timesheet submit` in a terminal, or `/submit` in chat).
 - `ask_human`: a decision only you can make (acknowledging an incomplete
   source, a resolve decision). The agent relays the
-  question and writes only your answer.
+  question and writes only your answer. Without an agent, answer it yourself
+  in a terminal with `timesheet answer --date <day> [--kind <kind>] <answer>`
+  or in the TUI's answer form; the daily notification names the command.
 - `stopped`: a real blocker, reported verbatim.
 
 Without a `judge` section, `log` stops at each judgment and the agent answers
@@ -285,7 +287,11 @@ refusal before the alternate screen starts. The day screen renders the loop's
 derived state verbatim: state, step, why, judgment protocol, human-gate
 commands and store-wide unresolved-write counts. `enter` runs the act the
 derived step licenses, `s` opens the submit gate, `r` re-derives, and `q` sends
-`close` and exits, discarding unsaved session state.
+`close` and exits, discarding unsaved session state. At `ask_human`, `enter`
+opens an answer form: pick one of the question's closed options with the arrow
+keys and `enter` writes the digest-bound answer file with `"surface":"tui"`
+after re-deriving the question, so a stale form is refused and shown as its
+`last error`. The `resolve` question has no form; write its decision file.
 
 `--config` and `--env-file` are process inputs for `tui` and the
 headless commands. They are never request fields and never model

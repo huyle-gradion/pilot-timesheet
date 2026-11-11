@@ -244,7 +244,7 @@ func TestBareInvocationAndHelpStayConcise(t *testing.T) {
 
 	var synopsis strings.Builder
 	printSynopsis(&synopsis)
-	for _, want := range []string{"Usage:", "timesheet init", "timesheet log", "--max-actions", "timesheet submit status", "timesheet submit resolve", "timesheet version"} {
+	for _, want := range []string{"Usage:", "timesheet init", "timesheet log", "--max-actions", "timesheet answer", "timesheet submit status", "timesheet submit resolve", "timesheet version"} {
 		if !strings.Contains(synopsis.String(), want) {
 			t.Fatalf("synopsis does not carry %q", want)
 		}

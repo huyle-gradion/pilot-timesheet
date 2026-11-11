@@ -17,6 +17,7 @@ const commandSynopsis = `Usage:
   timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--max-actions <n>]
   timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet status [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
+  timesheet answer [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--kind <kind>] <answer>
   timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
   timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
   timesheet submit status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
@@ -129,6 +130,14 @@ func main() {
 		}
 	case "record":
 		if err := runRecord(os.Args[2:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
+			os.Exit(1)
+		}
+	case "answer":
+		if err := runAnswer(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return
 			}
