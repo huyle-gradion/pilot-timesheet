@@ -30,9 +30,9 @@ Contributions are welcome: see [Contributing](#contributing), and the
 and [`help wanted`](https://github.com/huyle-gradion/pilot-timesheet/labels/help%20wanted)
 queues for a starting point.
 
-Application version: **`0.4.0`** (released as
-[`v0.4.0`](https://github.com/huyle-gradion/pilot-timesheet/releases/tag/v0.4.0);
-the previous release is `0.3.0`). State schema `4`.
+Application version: **`0.5.0`** (released as
+[`v0.5.0`](https://github.com/huyle-gradion/pilot-timesheet/releases/tag/v0.5.0);
+the previous release is `0.4.0`). State schema `4`.
 
 ## Quickstart
 
