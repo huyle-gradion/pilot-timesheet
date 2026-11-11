@@ -240,6 +240,10 @@ class CaptureTests(CaptureFixture):
             '"$TS_BINARY" next --do',
             "/path/to/timesheet next --do --date 2026-11-04",
             "timesheet next",
+            '"$TS_BINARY" log',
+            '"$TS_BINARY" log --date 2026-11-10',
+            "bin/timesheet log",
+            '"$TS_BINARY" submit --chat --date 2026-11-10',
         ]:
             with self.subTest(command=command):
                 self.assertIsNotNone(module.SKILL_MARKER.search(command))

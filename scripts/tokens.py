@@ -25,7 +25,7 @@ from typing import Final, TypeAlias, TypedDict
 
 SKILL_MARKER: Final = re.compile(
     r'(?:^|[;&|\n])\s*["\']?(?:[^\n"\']*/timesheet|timesheet|\$TS_BINARY)["\']?\s+'
-    r"(?:next|collect|draft|run|record|status|agent-submit)\b"
+    r"(?:log|submit|next|collect|draft|run|record|status|agent-submit)\b"
 )
 FIELDS: Final = ("date", "session_id", "input_tokens", "output_tokens", "cache_tokens", "total_tokens")
 REPO: Final = Path(__file__).resolve().parents[1]
