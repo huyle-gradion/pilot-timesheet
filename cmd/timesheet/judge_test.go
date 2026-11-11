@@ -182,6 +182,36 @@ func TestJudgeStopsAtTheDailyCap(t *testing.T) {
 	}
 }
 
+func TestJudgePermanentFailureIsOneCall(t *testing.T) {
+	chat := &fakeChat{status: http.StatusUnauthorized}
+	cfg, args, _ := descriptionsDayWithJudge(t, chat)
+	_, err := judgeDoc(t, args...)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "retry") || chat.calls != 1 {
+		t.Fatalf("err = %v after %d call(s), want one call and no retry", err, chat.calls)
+	}
+	data, _ := os.ReadFile(filepath.Join(testArtifactDir(t, cfg, "2026-10-20"), judgeUsageFile))
+	if !strings.Contains(string(data), `"calls":1`) {
+		t.Fatalf("usage ledger = %s, want the one failed call", data)
+	}
+}
+
+func TestJudgeChecksTheCapBeforeTheRetry(t *testing.T) {
+	chat := &fakeChat{answer: func(string) string { return `{"descriptions":{}}` }}
+	cfg, args, _ := descriptionsDayWithJudge(t, chat)
+	data, _ := os.ReadFile(cfg)
+	var doc map[string]any
+	_ = json.Unmarshal(data, &doc)
+	addJudge(t, cfg, map[string]any{"backend": "openai", "base_url": doc["judge"].(map[string]any)["base_url"], "model": "m", "daily_token_cap": 600})
+	_, err := judgeDoc(t, args...)
+	if err == nil || !strings.Contains(err.Error(), "daily token cap (600)") || !strings.Contains(err.Error(), "(440 spent)") || chat.calls != 1 {
+		t.Fatalf("err = %v after %d call(s), want the cap to stop the retry", err, chat.calls)
+	}
+	usage, _ := os.ReadFile(filepath.Join(testArtifactDir(t, cfg, "2026-10-20"), judgeUsageFile))
+	if !strings.Contains(string(usage), `"input_tokens":400`) {
+		t.Fatalf("usage ledger = %s, want the first call counted", usage)
+	}
+}
+
 func TestJudgeIsOffWithoutConfiguration(t *testing.T) {
 	cfg := writeTestConfig(t)
 	_, err := judgeDoc(t, "--config", cfg, "--date", testDate)

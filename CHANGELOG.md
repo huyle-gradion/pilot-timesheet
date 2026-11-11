@@ -4,6 +4,12 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- The judge's single retry tells failures apart (#285). Only a reply that does
+  not validate is resent with the "previous reply was rejected" note. A
+  permanent backend failure (HTTP 401, 403, 404, a missing harness) is not
+  retried; a transient one (timeout, 429, 5xx) is resent unchanged after a
+  short backoff that honors `Retry-After` up to ten seconds. The daily token
+  cap is now checked before the retry too, as the README states.
 - `internal/timesheet` comments are removed (#258). New tests pin the
   constraints they stated, including that a write left in flight blocks the
   plan, its approval and any new submit after a restart.
