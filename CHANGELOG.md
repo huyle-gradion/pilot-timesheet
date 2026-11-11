@@ -2,6 +2,14 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- `internal/mcp` and `internal/llm` constraints that only a comment stated
+  are now pinned by tests (#290): MCP calls on one session run one at a time
+  with distinct request ids, `CallResult` refuses to marshal, and a prompt's
+  cache key changes when its template bytes change while the keys of the
+  shipped templates stay put. Notifications use their own send path.
+
 ## 0.4.0
 
 - Security: the calendar collector no longer sends the private feed URL
