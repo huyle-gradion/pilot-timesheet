@@ -14,19 +14,22 @@ follow-up and the `internal/run` package were removed in the CLI cut-over
 
 1. **Run the day.** `bin/timesheet log --date <YYYY-MM-DD>` (default: today in
    the configured timezone). It reports one typed `state`:
-   - `human_gates`: the day is saved and planned; go to step 3.
-   - `ask_human`: a decision only the owner makes. Answer it in the TUI
-     (step 2) or through the agent skill, then run `log` again.
+   - `human_gates`: the day is saved and planned. Approve and submit in the
+     TUI (step 2) or with terminal `submit` (step 3).
+   - `ask_human`: a decision only the owner makes. The TUI shows the question
+     and its answer file; write the answer to that file as its `protocol`
+     says, or answer through the agent skill, then run `log` again.
    - `judgment`: no judge is configured. Answer it in the TUI or through the
      agent skill's fallback, then run `log` again.
    - `stopped`: read the reason; nothing was submitted.
 2. **Look at or finish the day in the TUI (optional).**
    `bin/timesheet tui --date <YYYY-MM-DD>` shows the same derived state that
    `log` and `next` report. `enter` runs the step the state allows, `r`
-   re-derives it, and `q` exits. Saving is the only thing that makes work
+   re-derives it, and `q` exits. At `human_gates`, `enter` opens the approve
+   gate and `s` opens the submit gate. Saving is the only thing that makes work
    eligible for a plan. See [Native TUI operator flow](../../README.md#native-tui-operator-flow)
    for the full key and form list.
-3. **Approve and submit in the terminal.**
+3. **Or approve and submit with terminal `submit`.**
    `bin/timesheet submit --date <YYYY-MM-DD>` shows the exact plan, asks you to
    type its `plan_id` to approve, then asks you to type the `approval_id` to
    submit. If you stop between the two, the approval is kept; resume with
@@ -35,7 +38,9 @@ follow-up and the `internal/run` package were removed in the CLI cut-over
    reports outcomes and unresolved writes. An unresolved write is settled only
    by a human with `bin/timesheet submit resolve --file <decision.json>`.
 
-Logging, `status`, `next` and the TUI never approve or submit. An agent never
+`log`, `status` and `next` never approve or submit. The TUI and terminal
+`submit` do, each behind a typed `plan_id` (approve) and `approval_id`
+(submit) echo. An agent never
 runs `submit` or `submit resolve`; chat-confirmed submission (`submit --chat`)
 follows [ADR 0009](../adr/0009-chat-confirmed-submission.md) and the `/submit`
 skill.
