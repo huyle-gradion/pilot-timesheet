@@ -74,6 +74,13 @@ func TestPartitionDayUntimedItemFollowsTopicsFirstBlock(t *testing.T) {
 	}
 }
 
+func TestPartitionDayKeepsConfirmedWorkAcrossLunchWhole(t *testing.T) {
+	got := partitionDay(nil, nil, []Segment{{Start: "11:00", End: "14:00", Description: "stated"}}, "UTC").Blocks
+	if len(got) != 1 || got[0].span != (minuteSpan{11 * 60, 14 * 60}) {
+		t.Fatalf("partitionDay blocks = %+v, want one 11:00-14:00 block", got)
+	}
+}
+
 func TestPartitionWorkNeverCarvesLunch(t *testing.T) {
 	got := partitionWork([]Segment{{Start: "11:00", End: "14:00", Description: "stated"}}, nil)
 	if len(got) != 1 || got[0].span != (minuteSpan{11 * 60, 14 * 60}) {

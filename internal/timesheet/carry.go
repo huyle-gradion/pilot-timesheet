@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-// The source ledger is never modified. Like the stage map it carries no
-// state-schema weight and is never read by the session dispatcher or the plan
-// builder; nothing reaches the remote except through the target day's own
-// human-gated submission.
-
 // CarrySegment is one carried part of a source-day stage unit. Start and End
 // are clocks on Date (the source date's next date) in Timezone (the source
 // day's recorded timezone); Minutes is the real elapsed time between them.
@@ -167,6 +162,11 @@ func wallOrRealMinutes(date, timezone, start, end string) int {
 	return em - sm
 }
 
+// CarryFile is the carry record entries/<source date>.carry.json, replaced
+// whole by every derivation of the source day. The source ledger is never
+// modified. Like the stage map the record carries no state-schema weight and
+// is never read by the session dispatcher or the plan builder; nothing reaches
+// the remote except through the target day's own human-gated submission.
 type CarryFile struct {
 	SourceDate string         `json:"source_date"`
 	AppVersion string         `json:"app_version"`
@@ -178,7 +178,7 @@ func CarryPath(statePath, sourceDate string) string {
 	return strings.TrimSuffix(EntriesPath(statePath, sourceDate), ".json") + ".carry.json"
 }
 
-// A missing file is (nil, nil).
+// ReadCarry reads the carry record of sourceDate. A missing file is (nil, nil).
 func ReadCarry(statePath, sourceDate string) ([]CarrySegment, error) {
 	data, err := os.ReadFile(CarryPath(statePath, sourceDate))
 	if errors.Is(err, os.ErrNotExist) {

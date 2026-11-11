@@ -1,13 +1,5 @@
 package timesheet
 
-// GradionReader verifies READ capabilities only: it requires timesheet__get_my_week and
-// timesheet__get_classifications and has no method that can dispatch log_time,
-// edit_time, a delete tool, a REST call, or an arbitrary tool name. It exposes no
-// generic MCP call operation. The endpoint is operator-configured and the token
-// is resolved by the compiled binary through the documented dotenv/inherited
-// precedence; neither value is ever echoed into a response, receipt, error or
-// state document.
-
 import (
 	"bytes"
 	"context"
@@ -31,6 +23,13 @@ const (
 	maxGradionResponseBytes = 8 << 20
 )
 
+// GradionReader verifies READ capabilities only: it requires
+// timesheet__get_my_week and timesheet__get_classifications and has no method
+// that can dispatch log_time, edit_time, a delete tool, a REST call, or an
+// arbitrary tool name. It exposes no generic MCP call operation. The endpoint
+// is operator-configured and the token is resolved by the compiled binary
+// through the documented dotenv/inherited precedence; neither value is ever
+// echoed into a response, receipt, error or state document.
 type GradionReader struct {
 	session  *mcp.Session
 	verified bool
