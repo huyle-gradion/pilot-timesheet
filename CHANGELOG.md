@@ -2,7 +2,11 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
-## Unreleased
+## 0.2.0
+
+The first final release of the `0.2.0` line. It includes everything in the
+`0.2.0-dev` pre-releases below: the binary runs the day and
+owns its judgments (the 12-factor redesign, #246). Since `0.2.0-dev.11`:
 
 Retire `serve` (#272): every capability it alone reached is now a stateless
 command that reads the store and returns.
