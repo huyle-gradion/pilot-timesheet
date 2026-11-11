@@ -13,9 +13,9 @@ import (
 )
 
 const commandSynopsis = `Usage:
-  timesheet init [--project <id>=<name>[=<classification>]]... [--seed-config <path>] [--tz <IANA>]
-  timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--max-actions <n>]
-  timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+  timesheet init [--seed-config <path>] [--tz <IANA>]
+  timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--max-actions <n>]
+  timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet status [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
   timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
@@ -24,9 +24,9 @@ const commandSynopsis = `Usage:
   timesheet submit revoke [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
   timesheet migrate preview [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>...
   timesheet migrate apply [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>... --migration-id <id>
-  timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+  timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
-  timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+  timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
   timesheet eval export [--config <path>] [--out <file outside any repository>]
   timesheet eval run --golden <file> [--out <file outside any repository>] [--config <path>] [--env-file <path>]
   timesheet eval score --golden <file> [--candidate <file>]
@@ -57,6 +57,17 @@ func main() {
 	if _, retired := retiredCommands[os.Args[1]]; retired {
 		fmt.Fprintf(os.Stderr, "timesheet: %s\n", retiredCommandError(os.Args[1]))
 		os.Exit(2)
+	}
+	if err := retiredFlagError(os.Args[1], os.Args[2:]); err != nil {
+		fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
+		os.Exit(2)
+	}
+	stderrLine := func(line string) { fmt.Fprintf(os.Stderr, "timesheet: %s\n", line) }
+	timesheet.UpgradeNotice = stderrLine
+	// init only reads a --seed-config and its own probe; it never edits a
+	// configuration it did not create (ADR 0012).
+	if os.Args[1] != "init" {
+		timesheet.RetiredConfigHook = retiredConfigHook(stderrLine)
 	}
 	switch os.Args[1] {
 	case "help", "-h", "--help":

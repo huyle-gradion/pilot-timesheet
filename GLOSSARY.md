@@ -21,15 +21,15 @@ Temporally close evidence within one Topic Candidate. Its timestamp span may sug
 _Avoid_: Working interval, confirmed duration
 
 **Time Block**:
-A bounded working interval with a project and description, either proposed or confirmed. Only user confirmation establishes it as recorded work.
+A bounded working interval with a description, either proposed or confirmed. It carries no project (an interval saved before state schema 4 may keep one as an inert legacy label). Only user confirmation establishes it as recorded work.
 _Avoid_: Timeslot, chunk
 
 **Proposed Time Block**:
-A suggested working interval awaiting confirmation of its duration, attendance where applicable, project, and description.
+A suggested working interval awaiting confirmation of its duration, attendance where applicable, and description.
 _Avoid_: Confirmed work, approved entry
 
 **Confirmed Time Block**:
-A working interval whose time, project, description, and applicable attendance the user has confirmed. Confirmation does not authorize remote submission.
+A working interval whose time, description, and applicable attendance the user has confirmed. Confirmation does not authorize remote submission.
 _Avoid_: Submitted entry, submission approval
 
 **Collision**:
@@ -37,7 +37,7 @@ An overlap between proposed or confirmed working intervals, or calendar and acti
 _Avoid_: Double-counted work, automatic resolution
 
 **Timesheet Entry**:
-A work record prepared for or stored in Gradion, with a date, bounded interval, project or classification, and description. Its local status distinguishes reviewed, approved, and remotely submitted work.
+A work record prepared for or stored in Gradion, with a date, bounded interval, classification, and description. Its local status distinguishes reviewed, approved, and remotely submitted work.
 _Avoid_: Evidence item, topic candidate
 
 **Carried Segment**:
@@ -73,8 +73,12 @@ Recorded agent start, pause, resume, or finish activity suggesting that the user
 _Avoid_: Billable agent time, continuous user work
 
 **Classification**:
-A Gradion identifier categorizing submitted work. Its relationship to a billing project depends on the verified Gradion contract.
+A Gradion identifier categorizing submitted work. It is the only category a timesheet entry carries: it comes from the configured default classification or the classification judgment, never from a project.
 _Avoid_: Inferred project, AI-assigned billing code
+
+**Legacy Project Label**:
+The project an interval saved before state schema 4 still carries. It is inert: nothing reads it, the remote never receives it, and a new interval has none (ADR 0012).
+_Avoid_: Project, billing project
 
 **Harness-Agnostic Skill**:
 An agent-facing workflow usable without requiring a particular agent vendor or model.

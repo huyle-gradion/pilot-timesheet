@@ -46,13 +46,14 @@ go build -trimpath -o bin/timesheet ./cmd/timesheet
 bin/timesheet version          # prints the version, exits 0
 ```
 
-Create the `~/.timesheet` store once with `init`. Projects are never invented:
-pass `--project '<id>=<name>[=<classification>]'` flags (repeatable; the
-classification is optional) or a `--seed-config` to load; the timezone is an
+Create the `~/.timesheet` store once with `init`. It needs no project: the
+remote has none, so an interval carries a time span, a description and a
+classification ([ADR 0012](docs/adr/0012-retire-the-local-project.md)). Pass
+a `--seed-config` to copy an existing configuration; the timezone is an
 explicit `--tz <IANA>` or the host zone:
 
 ```bash
-bin/timesheet init --project 'acme=Acme Client' --tz 'America/New_York'
+bin/timesheet init --tz 'America/New_York'
 ```
 
 Then log the day. It runs every step and ends at a ready plan without
@@ -122,7 +123,7 @@ finds or rebuilds the binary with its `scripts/ts-env` helper, then runs one
 command and acts on its result:
 
 ```bash
-bin/timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+bin/timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
 ```
 
 The binary runs every deterministic step and answers its own judgments with
@@ -132,7 +133,7 @@ the configured judge (ADR 0010), so the agent only relays and reports:
   read-only submission status; approval and submission stay with you
   (`timesheet submit` in a terminal, or `/submit` in chat).
 - `ask_human`: a decision only you can make (acknowledging an incomplete
-  source, choosing a project, a resolve decision). The agent relays the
+  source, a resolve decision). The agent relays the
   question and writes only your answer.
 - `stopped`: a real blocker, reported verbatim.
 
@@ -206,8 +207,9 @@ To configure an authoritative default, enable Gradion, explicitly query
 `gradion.default_classification` to its `catalog_id`, `classification_id` from
 the option's `id`, `code`, `name` and `activity_type`. All five fields are required.
 The example config uses synthetic placeholders; replace them with the reviewed
-receipt or remove the optional object. This differs from suggestion-only
-`projects[].default_classification`.
+receipt or remove the optional object. Without it, the classification judgment
+decides (ADR 0010). The retired `projects[].default_classification` never
+reached the remote and is ignored if an old configuration still lists it.
 
 `next` then derives `classify --configured-default` for unselected unsaved
 intervals, including meetings and split chunks. It reads only that cached

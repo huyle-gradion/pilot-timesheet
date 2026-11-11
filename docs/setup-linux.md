@@ -32,17 +32,14 @@ The home defaults are (discovery precedence is in section 3):
 | `~/.timesheet/config.json` | `0600` | non-secret configuration |
 | `~/.timesheet/.env.local` | `0600` | credential **names** only, no values |
 
-Run setup with at least one project. Ids and names are never invented from the
-directory name, the git remote or a default classification:
+Run setup. It needs no project: an interval carries a time span, a
+description and a classification, never a project
+([ADR 0012](adr/0012-retire-the-local-project.md)):
 
 ```bash
-bin/timesheet init --project 'pilot=Personal Pilot Timesheet'
+bin/timesheet init
 ```
 
-- `--project` is `<id>=<name>[=<classification>]`, repeatable. Quote values
-  that contain spaces. The project id must match the configuration's project-id
-  grammar (no slash). The classification is optional and stays absent when you
-  omit it.
 - The timezone is taken from an explicit `--tz <IANA zone>`, otherwise from the
   host: `$TZ`, `/etc/timezone`, then the `/etc/localtime` symlink (the Omarchy
   path). If none resolves, setup stops and tells you to pass `--tz`; it never
@@ -51,10 +48,12 @@ bin/timesheet init --project 'pilot=Personal Pilot Timesheet'
   (`~/.timesheet/state.json`), so commands using that config do not resolve
   their store from the cwd. The state file itself is not created by setup; the
   first command that opens the store creates it.
-- `--seed-config <path>` copies a loadable configuration's projects and
-  `required_env` instead of `--project` values, and resolves that seed's
-  relative paths against the seed file's own directory. Pass either `--project`
-  or `--seed-config`, not both.
+- `--seed-config <path>` copies a loadable configuration (its `required_env`,
+  `sources` and other sections) instead of the defaults, and resolves that
+  seed's relative paths against the seed file's own directory. A retired
+  `projects` list or `migration.project_map` in the seed is not copied.
+- `--project` was removed. Passing it fails with one line telling you to drop
+  it.
 
 After setup, start the day with `bin/timesheet log` (it defaults to today in
 the configured timezone). It runs the day itself and reports one typed state:
@@ -128,8 +127,8 @@ loses cleanly with `EEXIST` and reports `present`; a crash cannot leave a
 half-written final file. The temporary file is removed when the attempt
 finishes; a crash can leave one behind, and setup will neither reuse nor delete
 it. The whole generated configuration is validated with the real loader before
-anything under `~/.timesheet` is touched, so invalid project ids, timezone
-values or seed content leave the directory untouched.
+anything under `~/.timesheet` is touched, so invalid timezone values or seed
+content leave the directory untouched.
 
 The directory is created `0700` only when absent. An existing `~/.timesheet`
 that is a symlink or a regular file is refused, not followed or modified.
@@ -138,7 +137,7 @@ that is a symlink or a regular file is refused, not followed or modified.
 
 | Symptom | Meaning and fix |
 |---|---|
-| `no configuration at ./timesheet.json or ~/.timesheet/config.json` | Run `bin/timesheet init --project …`, or pass `--config <path>`. |
+| `no configuration at ./timesheet.json or ~/.timesheet/config.json` | Run `bin/timesheet init`, or pass `--config <path>`. |
 | `cannot determine the host IANA timezone; pass --tz` | Zone files are missing or unreadable on this host; pass `--tz Europe/Amsterdam` (or your zone). |
 | `exists but does not load: "config: …"` | The existing config is invalid and was left untouched; fix that field yourself. |
 | `unsafe: group/other permissions` | The existing file is readable by other users; setup reports it and does not chmod it. Fix the mode yourself. |

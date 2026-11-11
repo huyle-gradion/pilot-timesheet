@@ -31,7 +31,6 @@ func snapshotConfig(path string) *Config {
 	return &Config{
 		Timezone:  "Asia/Ho_Chi_Minh",
 		StatePath: path,
-		Projects:  []Project{{ID: "WORK", Name: "Work"}},
 		Sources: &SourcesConfig{
 			Enabled:  true,
 			Github:   &GitHubSourceConfig{Enabled: true, User: "u", Repositories: []string{"acme/api"}},

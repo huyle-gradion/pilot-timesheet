@@ -4,6 +4,56 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+Retire the local project (#185, ADR 0012). The remote has no project, so an
+interval no longer carries one.
+
+- **Breaking:** `--project` is removed from `init`, `log`, `next`, `tui`,
+  `judge`, `stage`, `classify` and `save`. Passing it exits `2` with one line
+  telling you to drop it. A configuration with several projects no longer
+  makes `stage` refuse or `next`/`log` ask.
+- **Breaking:** the `ask_human` kind `project` is retired. An
+  `ask-project.json` answer left in a day folder is ignored.
+- **Breaking:** the staged interval text grammar is
+  `DATE HH:MM-HH:MM DESCRIPTION`. The project token and the `/CLASSIFICATION`
+  suffix are gone; the `unknown_project` error code is retired.
+- **Breaking:** state schema `4`. An interval's `project` is optional: new
+  intervals have none, and intervals saved before keep theirs as an inert
+  legacy label, never rewritten. A schema 1-3 file is validated in its own
+  shape, upgraded in memory, and written as schema `4` by the next successful
+  write together with one `migration.schema_upgrades` receipt (from and to
+  schema, build version, days, intervals, legacy project labels,
+  `applied_at`).
+- **Breaking, one-way upgrade:** before that first write, the schema 1-3 file
+  is kept at `state.json.schema<N>.bak` (0600; complete or absent; the next
+  free `.bak.1`, `.bak.2`, ... when that name holds anything but these exact
+  bytes), and the write prints one stderr line naming the file used. `0.2.0` cannot read a schema `4`
+  file: it fails closed with `state_invalid: local state file is not valid
+  JSON for the supported schema`. To downgrade, restore the backup over
+  `state.json` and put `projects` back in the configuration (the old build
+  requires at least one). The receipt's `app_version` reads `0.2.0` until the
+  `0.3.0` release.
+- `init` needs no project and writes none. `--seed-config` no longer copies a
+  seed's `projects` or `migration.project_map`.
+- The configuration keys `projects` and `migration.project_map` are retired.
+  A configuration that lists them still loads. On the first load, every
+  command except `init` removes them from the file with an edit that keeps
+  every other key and its formatting (names matched without regard to case),
+  keeps the original as `<config>.bak` (or the next free `.bak.N`), and prints
+  one stderr line. This includes `status`, `plan` and the `daily` timer, whose
+  line lands in the service journal. A file it cannot rewrite safely
+  (read-only, a symlink, other hard links) keeps them, ignored, with one
+  stderr line.
+- Review, day and segment output no longer show an interval's legacy
+  `project` or local `classification` label. Both stay inert in state.
+- Classification comes from `gradion.default_classification` when configured
+  and otherwise from the ADR 0010 classification judgment. The retired
+  per-project `default_classification` only ever set a local label.
+- `migrate preview|apply` no longer requires a legacy project to map to a
+  configured one. The migrated interval carries no project, and the receipt's
+  legacy interval audit keeps the original value.
+- Remote write bodies are unchanged: a test pins the exact bytes a day's
+  writes send, captured before the change.
+
 Carry the after-midnight remainder of long overnight entries into the next day
 (#277, ADR 0011).
 

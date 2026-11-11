@@ -13,7 +13,6 @@ func testConfig(path string) *Config {
 	return &Config{
 		Timezone:  "Europe/Amsterdam",
 		StatePath: path,
-		Projects:  []Project{{ID: "acme", DefaultClassification: "dev"}},
 	}
 }
 
@@ -265,7 +264,7 @@ func TestFinalIntervalRemovalAndTimezoneReload(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "1", Op: "open_day", Day: "2026-10-30"}))
 	requireOK(t, call(t, session, Request{
 		ID: "2", Op: "add_interval", Day: "2026-10-30", Revision: revision(0),
-		Text: "2026-10-30 09:00-10:00 acme work",
+		Text: "2026-10-30 09:00-10:00 work",
 	}))
 	confirm := call(t, session, Request{ID: "3", Op: "confirm", Day: "2026-10-30", Revision: revision(0)})
 	requireOK(t, confirm)
@@ -332,7 +331,7 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "1", Op: "open_day", Day: "2026-11-02"}))
 	requireOK(t, call(t, session, Request{
 		ID: "2", Op: "add_interval", Day: "2026-11-02", Revision: revision(0),
-		Text: "2026-11-02 23:00-02:00 acme work",
+		Text: "2026-11-02 23:00-02:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "3", Op: "confirm", Day: "2026-11-02", Revision: revision(0)}))
 	requireOK(t, call(t, session, Request{ID: "4", Op: "save", Day: "2026-11-02", Revision: revision(1)}))
@@ -341,14 +340,14 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 	// but the durable candidate still contains the longer interval.
 	requireOK(t, call(t, session, Request{
 		ID: "5", Op: "edit_interval", Day: "2026-11-02", Revision: revision(1),
-		IntervalID: "iv-20261102-1", Text: "2026-11-02 23:00-01:00 acme work",
+		IntervalID: "iv-20261102-1", Text: "2026-11-02 23:00-01:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "6", Op: "confirm", Day: "2026-11-02", Revision: revision(1)}))
 
 	requireOK(t, call(t, session, Request{ID: "7", Op: "open_day", Day: "2026-11-03"}))
 	requireOK(t, call(t, session, Request{
 		ID: "8", Op: "add_interval", Day: "2026-11-03", Revision: revision(0),
-		Text: "2026-11-03 01:00-02:00 acme work",
+		Text: "2026-11-03 01:00-02:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "9", Op: "confirm", Day: "2026-11-03", Revision: revision(0)}))
 
@@ -385,13 +384,13 @@ func TestSaveUsesDurableCandidateAndKeepsReceiptsRestartSafe(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "20", Op: "open_day", Day: "2026-11-04"}))
 	requireOK(t, call(t, session, Request{
 		ID: "21", Op: "add_interval", Day: "2026-11-04", Revision: revision(0),
-		Text: "2026-11-04 23:00-01:00 acme work",
+		Text: "2026-11-04 23:00-01:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "22", Op: "confirm", Day: "2026-11-04", Revision: revision(0)}))
 	requireOK(t, call(t, session, Request{ID: "23", Op: "open_day", Day: "2026-11-05"}))
 	requireOK(t, call(t, session, Request{
 		ID: "24", Op: "add_interval", Day: "2026-11-05", Revision: revision(0),
-		Text: "2026-11-05 01:00-02:00 acme work",
+		Text: "2026-11-05 01:00-02:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "25", Op: "confirm", Day: "2026-11-05", Revision: revision(0)}))
 	dependent := call(t, session, Request{ID: "26", Op: "save", Day: "2026-11-05", Revision: revision(1)})
@@ -418,20 +417,20 @@ func TestHistoryTotalMatchesDurableSave(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "1", Op: "open_day", Day: "2026-11-10"}))
 	requireOK(t, call(t, session, Request{
 		ID: "2", Op: "add_interval", Day: "2026-11-10", Revision: revision(0),
-		Text: "2026-11-10 23:00-01:00 acme durable origin",
+		Text: "2026-11-10 23:00-01:00 durable origin",
 	}))
 	requireOK(t, call(t, session, Request{ID: "3", Op: "confirm", Day: "2026-11-10", Revision: revision(0)}))
 	requireOK(t, call(t, session, Request{ID: "4", Op: "save", Day: "2026-11-10", Revision: revision(1)}))
 	requireOK(t, call(t, session, Request{
 		ID: "5", Op: "edit_interval", Day: "2026-11-10", Revision: revision(1),
-		IntervalID: "iv-20261110-1", Text: "2026-11-10 23:00-02:00 acme unsaved extension",
+		IntervalID: "iv-20261110-1", Text: "2026-11-10 23:00-02:00 unsaved extension",
 	}))
 	requireOK(t, call(t, session, Request{ID: "6", Op: "confirm", Day: "2026-11-10", Revision: revision(1)}))
 
 	requireOK(t, call(t, session, Request{ID: "7", Op: "open_day", Day: "2026-11-11"}))
 	requireOK(t, call(t, session, Request{
 		ID: "8", Op: "add_interval", Day: "2026-11-11", Revision: revision(0),
-		Text: "2026-11-11 02:00-03:00 acme dependent",
+		Text: "2026-11-11 02:00-03:00 dependent",
 	}))
 	requireOK(t, call(t, session, Request{ID: "9", Op: "confirm", Day: "2026-11-11", Revision: revision(0)}))
 	saved := call(t, session, Request{ID: "10", Op: "save", Day: "2026-11-11", Revision: revision(1)})
@@ -470,7 +469,7 @@ func TestPreRenameFailurePreservesOldStateAndAllowsRetry(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "1", Op: "open_day", Day: "2026-12-01"}))
 	requireOK(t, call(t, session, Request{
 		ID: "2", Op: "add_interval", Day: "2026-12-01", Revision: revision(0),
-		Text: "2026-12-01 09:00-10:00 acme work",
+		Text: "2026-12-01 09:00-10:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "3", Op: "confirm", Day: "2026-12-01", Revision: revision(0)}))
 	requireOK(t, call(t, session, Request{ID: "4", Op: "save", Day: "2026-12-01", Revision: revision(1)}))
@@ -482,7 +481,7 @@ func TestPreRenameFailurePreservesOldStateAndAllowsRetry(t *testing.T) {
 	// Stage a second confirmed revision, then fail before rename.
 	requireOK(t, call(t, session, Request{
 		ID: "5", Op: "edit_interval", Day: "2026-12-01", Revision: revision(1),
-		IntervalID: "iv-20261201-1", Text: "2026-12-01 09:00-11:00 acme work",
+		IntervalID: "iv-20261201-1", Text: "2026-12-01 09:00-11:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "6", Op: "confirm", Day: "2026-12-01", Revision: revision(1)}))
 	storeFaultHook = func(stage string) error {
@@ -529,14 +528,14 @@ func TestPostRenameUncertaintyBlocksBlindRetryAndRecovers(t *testing.T) {
 	requireOK(t, call(t, session, Request{ID: "1", Op: "open_day", Day: "2026-12-02"}))
 	requireOK(t, call(t, session, Request{
 		ID: "2", Op: "add_interval", Day: "2026-12-02", Revision: revision(0),
-		Text: "2026-12-02 09:00-10:00 acme work",
+		Text: "2026-12-02 09:00-10:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "3", Op: "confirm", Day: "2026-12-02", Revision: revision(0)}))
 	requireOK(t, call(t, session, Request{ID: "4", Op: "save", Day: "2026-12-02", Revision: revision(1)}))
 
 	requireOK(t, call(t, session, Request{
 		ID: "5", Op: "edit_interval", Day: "2026-12-02", Revision: revision(1),
-		IntervalID: "iv-20261202-1", Text: "2026-12-02 09:00-11:00 acme work",
+		IntervalID: "iv-20261202-1", Text: "2026-12-02 09:00-11:00 work",
 	}))
 	requireOK(t, call(t, session, Request{ID: "6", Op: "confirm", Day: "2026-12-02", Revision: revision(1)}))
 

@@ -199,14 +199,6 @@ func deriveBlockedPlan(o nextObservation, n nextAction, plan *timesheet.PlanSnap
 // map matches the ledger's own projection, and classification is current when
 // the sidecar's per-block digests bind to that projection.
 func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
-	if o.ProjectBlocked {
-		// Several projects and none chosen: the human picks one (or passes
-		// --project); next never guesses.
-		q := projectAsk(o.Day, o.artifactDir(), o.ProjectIDs)
-		q.LastError = o.ProjectAskError
-		return n.withAsk(q)
-	}
-
 	if len(o.Units) == 0 {
 		return n.withStop("nothing in the entries ledger has both a start and an end, so stage skipped every block " +
 			"(times are never invented); fix the ledger entries and record again")
@@ -216,12 +208,12 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 	// are second-resolution, so a same-second ledger edit would otherwise look
 	// current and send save into a fail-closed replay loop.
 	if !stageMapMatchesUnits(o.Artifacts.StageMap, o.Units) {
-		return n.withAction("stage", o.projectArgv("stage"),
+		return n.withAction("stage", o.argv("stage"),
 			"the stage map does not match the ledger's current derivation ("+strconv.Itoa(len(o.Units))+
 				" stageable unit(s)), so the staged interval ids are not current")
 	}
 	if !timesheet.SameCarries(o.CarryDerived, o.Artifacts.CarryOut) {
-		return n.withAction("stage", o.projectArgv("stage"),
+		return n.withAction("stage", o.argv("stage"),
 			"the carry record into the next date ("+strconv.Itoa(len(o.Artifacts.CarryOut))+
 				" segment(s)) does not match the ledger's current derivation ("+strconv.Itoa(len(o.CarryDerived))+"); stage rewrites it")
 	}
@@ -241,7 +233,7 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 			if o.Workflow.ConfiguredDefaultError != "" {
 				return n.withStop(o.Workflow.ConfiguredDefaultError)
 			}
-			return n.withAction("classify", append(o.projectArgv("classify"), "--configured-default"), "unselected intervals require the configured cached default; existing explicit selections are preserved")
+			return n.withAction("classify", append(o.argv("classify"), "--configured-default"), "unselected intervals require the configured cached default; existing explicit selections are preserved")
 		}
 	}
 	if o.GradionEnabled && !binds {
@@ -260,7 +252,7 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 		// here); only the intervals it cannot decide are judged.
 		historyBound := o.History != nil && o.History.LedgerDigest == digest
 		if o.Workflow.SubmittedHistory > 0 && !historyBound {
-			return n.withAction("classify", append(o.projectArgv("classify"), "--from-history"),
+			return n.withAction("classify", append(o.argv("classify"), "--from-history"),
 				"confirmed submissions exist on other days; classify intervals whose repository or title has one consistent prior classification before the judgment")
 		}
 		judged := blocks
@@ -323,7 +315,7 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 	if stop := o.sourceGateStop(n); stop != nil {
 		return *stop
 	}
-	return n.withAction("save", o.projectArgv("save"),
+	return n.withAction("save", o.argv("save"),
 		"the day is staged and within the source gate; save runs the existing confirm+save pair")
 }
 
@@ -388,10 +380,6 @@ func (o nextObservation) argv(verb string) []string {
 	return append(cmd, "--date", o.Day)
 }
 
-func (o nextObservation) projectArgv(verb string) []string {
-	return append(o.argv(verb), "--project", o.Project)
-}
-
 func (o nextObservation) recordArgv() []string {
 	return append(o.argv("record"), "--draft", o.DraftPath, "--descriptions", o.DescriptionsPath)
 }
@@ -404,7 +392,7 @@ func (o nextObservation) classifyArgv() []string {
 // reuses it for the explicit offline clear, so the named remedy is the same
 // supported command.
 func (o nextObservation) classifyFileArgv(file string) []string {
-	return append(o.argv("classify"), "--file", file, "--project", o.Project)
+	return append(o.argv("classify"), "--file", file)
 }
 
 func (o nextObservation) artifactDir() string {

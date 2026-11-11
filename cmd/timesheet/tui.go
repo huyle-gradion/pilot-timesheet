@@ -79,7 +79,7 @@ func preflightTui(f *nextFlags) (tuiModel, error) {
 		fileEnv = timesheet.MergeEnv(loaded)
 	}
 	env := tuiEnv{
-		cfg: cfg, configPath: configPath, envFile: envFile, day: day, project: f.project,
+		cfg: cfg, configPath: configPath, envFile: envFile, day: day,
 		styles: stdoutStyles(),
 		// One held session over the TUI's own store, built literally.
 		h: &headlessSession{

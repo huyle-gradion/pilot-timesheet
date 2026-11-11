@@ -21,8 +21,8 @@ func noOverlapReview() Review {
 			{Ref: "m2", Start: "2026-10-26T14:00:00+07:00", End: "2026-10-26T15:00:00+07:00", Title: "Design review"},
 		},
 		[]Segment{
-			{IntervalID: "i1", Date: "2026-10-26", Start: "10:00", End: "11:00", Project: "WORK", Description: "Bridge PRs"},
-			{IntervalID: "i2", Date: "2026-10-26", Start: "16:00", End: "17:30", Project: "WORK", Description: "Deep work"},
+			{IntervalID: "i1", Date: "2026-10-26", Start: "10:00", End: "11:00", Description: "Bridge PRs"},
+			{IntervalID: "i2", Date: "2026-10-26", Start: "16:00", End: "17:30", Description: "Deep work"},
 		},
 		[]TopicCandidate{
 			{Title: "Calendar filtering", FirstAt: "2026-10-26T09:05:00+07:00", LastAt: "2026-10-26T09:25:00+07:00",
@@ -76,7 +76,7 @@ func sourceKeys(b DraftBlock) []string {
 }
 
 func segment(desc, start, end string) Segment {
-	return Segment{IntervalID: "i-" + start, Date: "2026-10-26", Start: start, End: end, Project: "WORK", Description: desc}
+	return Segment{IntervalID: "i-" + start, Date: "2026-10-26", Start: start, End: end, Description: desc}
 }
 
 func topic(title, first, last string, items ...EvidenceItem) TopicCandidate {

@@ -124,7 +124,6 @@ func writeTestConfigWithGradion(t *testing.T, endpoint string) string {
 	body := `{
   "timezone": "Asia/Ho_Chi_Minh",
   "state_path": "` + filepath.Join(dir, "state.json") + `",
-  "projects": [{"id": "WORK", "name": "Work", "default_classification": "DEV"}],
   "gradion": {"enabled": true, "endpoint": "` + endpoint + `", "token_env": "SYNTHETIC_GRADION_TOKEN"}
 }`
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {

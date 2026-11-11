@@ -1,0 +1,507 @@
+{
+  "schema": 3,
+  "saved_at": "2026-11-11T02:56:01Z",
+  "days": {
+    "2026-10-26": {
+      "date": "2026-10-26",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "revision": 1,
+      "next_interval": 4,
+      "confirmed": [
+        {
+          "id": "iv-20261026-1",
+          "date": "2026-10-26",
+          "start": "08:00",
+          "end": "12:00",
+          "project": "WORK",
+          "classification": "DEV",
+          "description": "Implement synthetic design",
+          "remote_classification_id": "cls-dev",
+          "remote_catalog_id": "cat-1"
+        },
+        {
+          "id": "iv-20261026-2",
+          "date": "2026-10-26",
+          "start": "12:00",
+          "end": "13:00",
+          "project": "WORK",
+          "classification": "DEV",
+          "description": "Implement synthetic design",
+          "remote_classification_id": "cls-dev",
+          "remote_catalog_id": "cat-1"
+        },
+        {
+          "id": "iv-20261026-3",
+          "date": "2026-10-26",
+          "start": "14:00",
+          "end": "15:00",
+          "project": "WORK",
+          "classification": "DEV",
+          "description": "Review the deck",
+          "remote_classification_id": "cls-dev",
+          "remote_catalog_id": "cat-1"
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "confirmed_at": "2026-11-11T02:56:01Z",
+          "intervals": 3,
+          "total_minutes": 360,
+          "snapshot": [
+            {
+              "id": "iv-20261026-1",
+              "date": "2026-10-26",
+              "start": "08:00",
+              "end": "12:00",
+              "project": "WORK",
+              "classification": "DEV",
+              "description": "Implement synthetic design",
+              "remote_classification_id": "cls-dev",
+              "remote_catalog_id": "cat-1"
+            },
+            {
+              "id": "iv-20261026-2",
+              "date": "2026-10-26",
+              "start": "12:00",
+              "end": "13:00",
+              "project": "WORK",
+              "classification": "DEV",
+              "description": "Implement synthetic design",
+              "remote_classification_id": "cls-dev",
+              "remote_catalog_id": "cat-1"
+            },
+            {
+              "id": "iv-20261026-3",
+              "date": "2026-10-26",
+              "start": "14:00",
+              "end": "15:00",
+              "project": "WORK",
+              "classification": "DEV",
+              "description": "Review the deck",
+              "remote_classification_id": "cls-dev",
+              "remote_catalog_id": "cat-1"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "remote": {
+    "bindings": [
+      {
+        "local_id": "iv-20261026-1",
+        "remote_id": "r-new-1",
+        "date": "2026-10-26",
+        "start_time": "08:00",
+        "end_time": "12:00",
+        "classification_id": "cls-dev",
+        "description": "Implement synthetic design",
+        "last_observed": {
+          "remote_id": "r-new-1",
+          "date": "2026-10-26",
+          "start_time": "08:00",
+          "end_time": "12:00",
+          "classification_id": "cls-dev",
+          "description": "Implement synthetic design",
+          "status": "logged",
+          "content_observed": true
+        },
+        "created_at": "2026-11-11T02:56:01Z",
+        "updated_at": "2026-11-11T02:56:01Z",
+        "origin": "submission"
+      },
+      {
+        "local_id": "iv-20261026-2",
+        "remote_id": "r-new-2",
+        "date": "2026-10-26",
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "classification_id": "cls-dev",
+        "description": "Implement synthetic design",
+        "last_observed": {
+          "remote_id": "r-new-2",
+          "date": "2026-10-26",
+          "start_time": "12:00",
+          "end_time": "13:00",
+          "classification_id": "cls-dev",
+          "description": "Implement synthetic design",
+          "status": "logged",
+          "content_observed": true
+        },
+        "created_at": "2026-11-11T02:56:01Z",
+        "updated_at": "2026-11-11T02:56:01Z",
+        "origin": "submission"
+      },
+      {
+        "local_id": "iv-20261026-3",
+        "remote_id": "r-new-3",
+        "date": "2026-10-26",
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "classification_id": "cls-dev",
+        "description": "Review the deck",
+        "last_observed": {
+          "remote_id": "r-new-3",
+          "date": "2026-10-26",
+          "start_time": "14:00",
+          "end_time": "15:00",
+          "classification_id": "cls-dev",
+          "description": "Review the deck",
+          "status": "logged",
+          "content_observed": true
+        },
+        "created_at": "2026-11-11T02:56:01Z",
+        "updated_at": "2026-11-11T02:56:01Z",
+        "origin": "submission"
+      }
+    ],
+    "observations": {
+      "2026-10-26": {
+        "observation_id": "1a4314bccb0b1cb82ee88dd1deafd3283a7a74bd4003cd4ec20df2b09c90df1d",
+        "date": "2026-10-26",
+        "observed_at": "2026-11-11T02:56:01Z",
+        "complete": true,
+        "entries": [
+          {
+            "remote_id": "r-new-1",
+            "date": "2026-10-26",
+            "start_time": "08:00",
+            "end_time": "12:00",
+            "classification_id": "cls-dev",
+            "description": "Implement synthetic design",
+            "status": "logged",
+            "content_observed": true
+          },
+          {
+            "remote_id": "r-new-2",
+            "date": "2026-10-26",
+            "start_time": "12:00",
+            "end_time": "13:00",
+            "classification_id": "cls-dev",
+            "description": "Implement synthetic design",
+            "status": "logged",
+            "content_observed": true
+          },
+          {
+            "remote_id": "r-new-3",
+            "date": "2026-10-26",
+            "start_time": "14:00",
+            "end_time": "15:00",
+            "classification_id": "cls-dev",
+            "description": "Review the deck",
+            "status": "logged",
+            "content_observed": true
+          }
+        ]
+      }
+    },
+    "catalogs": {
+      "cat-1": {
+        "catalog_id": "cat-1",
+        "query": "test",
+        "options": [
+          {
+            "id": "cls-dev",
+            "name": "Development",
+            "code": "DEV",
+            "activity_type": "engineering"
+          }
+        ],
+        "complete": true,
+        "observed_at": "2026-11-11T02:56:01Z"
+      }
+    }
+  },
+  "plans": {
+    "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e": {
+      "plan_id": "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e",
+      "date": "2026-10-26",
+      "state": "ready",
+      "remote_observation": "92027e49e35b3b943748c4ab94fc6c751318f0f4cf0fc82f6301c4f9dad981ef",
+      "remote_observations": {
+        "2026-10-26": "92027e49e35b3b943748c4ab94fc6c751318f0f4cf0fc82f6301c4f9dad981ef"
+      },
+      "remote_complete": true,
+      "remote_fingerprint": "548e9d700c6ea2d05ec3d484eeddd34cf739aa992f16bb2c5388057a62a56c26",
+      "source_revisions": {
+        "2026-10-26": 1
+      },
+      "operations": [
+        {
+          "local_id": "iv-20261026-1",
+          "kind": "create",
+          "date": "2026-10-26",
+          "start_time": "08:00",
+          "end_time": "12:00",
+          "minutes": 240,
+          "classification_id": "cls-dev",
+          "description": "Implement synthetic design",
+          "catalog_id": "cat-1",
+          "origin_dates": [
+            "2026-10-26"
+          ],
+          "origin_revisions": {
+            "2026-10-26": 1
+          },
+          "selected_choice": {
+            "id": "cls-dev",
+            "name": "Development",
+            "code": "DEV",
+            "activity_type": "engineering"
+          }
+        },
+        {
+          "local_id": "iv-20261026-2",
+          "kind": "create",
+          "date": "2026-10-26",
+          "start_time": "12:00",
+          "end_time": "13:00",
+          "minutes": 60,
+          "classification_id": "cls-dev",
+          "description": "Implement synthetic design",
+          "catalog_id": "cat-1",
+          "origin_dates": [
+            "2026-10-26"
+          ],
+          "origin_revisions": {
+            "2026-10-26": 1
+          },
+          "selected_choice": {
+            "id": "cls-dev",
+            "name": "Development",
+            "code": "DEV",
+            "activity_type": "engineering"
+          }
+        },
+        {
+          "local_id": "iv-20261026-3",
+          "kind": "create",
+          "date": "2026-10-26",
+          "start_time": "14:00",
+          "end_time": "15:00",
+          "minutes": 60,
+          "classification_id": "cls-dev",
+          "description": "Review the deck",
+          "catalog_id": "cat-1",
+          "origin_dates": [
+            "2026-10-26"
+          ],
+          "origin_revisions": {
+            "2026-10-26": 1
+          },
+          "selected_choice": {
+            "id": "cls-dev",
+            "name": "Development",
+            "code": "DEV",
+            "activity_type": "engineering"
+          }
+        }
+      ],
+      "created_at": "2026-11-11T02:56:01Z"
+    }
+  },
+  "approvals": [
+    {
+      "approval_id": "apr-2d4c0672aa9a854cef32e86f6d9ccdff",
+      "plan_id": "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e",
+      "date": "2026-10-26",
+      "state": "executing",
+      "approved_at": "2026-11-11T02:56:01Z",
+      "context_digest": "0c4c6be179978a116e9be9814914b685431607495f4e9f68fc4912091e30188d",
+      "summary": {
+        "source_revisions": {
+          "2026-10-26": 1
+        },
+        "remote_observations": {
+          "2026-10-26": "92027e49e35b3b943748c4ab94fc6c751318f0f4cf0fc82f6301c4f9dad981ef"
+        },
+        "remote_fingerprint": "548e9d700c6ea2d05ec3d484eeddd34cf739aa992f16bb2c5388057a62a56c26",
+        "operation_digests": [
+          "aa04bb409f94d093a8959dec3ec1b11cd817e3321c4f45308a6dd43b8d039b2f",
+          "cbc7343f5427d4ff62e5837809e224c36c2d4fbf940a8a9e195258aaa5565246",
+          "39ad44af876b547acd09e249c6526926ed0f713625293a492f78c32c312801b3"
+        ],
+        "classifications": {
+          "cls-dev": "39750bbf076eaf9bc1547015c43813c710227484dc35d34f98f33ef245507149"
+        },
+        "choices": {
+          "cls-dev": {
+            "id": "cls-dev",
+            "name": "Development",
+            "code": "DEV",
+            "activity_type": "engineering"
+          }
+        }
+      },
+      "execution_id": "run-73d5d6f9416d93d5",
+      "consumed_at": "2026-11-11T02:56:01Z"
+    }
+  ],
+  "intents": [
+    {
+      "write_ref": "wr-d2ccc49c3204a2fd3c044711",
+      "execution_id": "run-73d5d6f9416d93d5",
+      "approval_id": "apr-2d4c0672aa9a854cef32e86f6d9ccdff",
+      "plan_id": "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e",
+      "date": "2026-10-26",
+      "op_index": 0,
+      "local_id": "iv-20261026-1",
+      "action": "create",
+      "acknowledged_id": "r-new-1",
+      "op_digest": "aa04bb409f94d093a8959dec3ec1b11cd817e3321c4f45308a6dd43b8d039b2f",
+      "operation": {
+        "local_id": "iv-20261026-1",
+        "kind": "create",
+        "date": "2026-10-26",
+        "start_time": "08:00",
+        "end_time": "12:00",
+        "minutes": 240,
+        "classification_id": "cls-dev",
+        "description": "Implement synthetic design",
+        "catalog_id": "cat-1",
+        "origin_dates": [
+          "2026-10-26"
+        ],
+        "origin_revisions": {
+          "2026-10-26": 1
+        },
+        "selected_choice": {
+          "id": "cls-dev",
+          "name": "Development",
+          "code": "DEV",
+          "activity_type": "engineering"
+        }
+      },
+      "preconditions": "548e9d700c6ea2d05ec3d484eeddd34cf739aa992f16bb2c5388057a62a56c26",
+      "status": "confirmed",
+      "observed": {
+        "remote_id": "r-new-1",
+        "date": "2026-10-26",
+        "start_time": "08:00",
+        "end_time": "12:00",
+        "classification_id": "cls-dev",
+        "description": "Implement synthetic design",
+        "status": "logged",
+        "content_observed": true
+      },
+      "attempted_at": "2026-11-11T02:56:01Z",
+      "recorded_at": "2026-11-11T02:56:01Z"
+    },
+    {
+      "write_ref": "wr-71027f6bb5ce9685fd6ce713",
+      "execution_id": "run-73d5d6f9416d93d5",
+      "approval_id": "apr-2d4c0672aa9a854cef32e86f6d9ccdff",
+      "plan_id": "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e",
+      "date": "2026-10-26",
+      "op_index": 1,
+      "local_id": "iv-20261026-2",
+      "action": "create",
+      "acknowledged_id": "r-new-2",
+      "op_digest": "cbc7343f5427d4ff62e5837809e224c36c2d4fbf940a8a9e195258aaa5565246",
+      "operation": {
+        "local_id": "iv-20261026-2",
+        "kind": "create",
+        "date": "2026-10-26",
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "minutes": 60,
+        "classification_id": "cls-dev",
+        "description": "Implement synthetic design",
+        "catalog_id": "cat-1",
+        "origin_dates": [
+          "2026-10-26"
+        ],
+        "origin_revisions": {
+          "2026-10-26": 1
+        },
+        "selected_choice": {
+          "id": "cls-dev",
+          "name": "Development",
+          "code": "DEV",
+          "activity_type": "engineering"
+        }
+      },
+      "preconditions": "548e9d700c6ea2d05ec3d484eeddd34cf739aa992f16bb2c5388057a62a56c26",
+      "status": "confirmed",
+      "observed": {
+        "remote_id": "r-new-2",
+        "date": "2026-10-26",
+        "start_time": "12:00",
+        "end_time": "13:00",
+        "classification_id": "cls-dev",
+        "description": "Implement synthetic design",
+        "status": "logged",
+        "content_observed": true
+      },
+      "attempted_at": "2026-11-11T02:56:01Z",
+      "recorded_at": "2026-11-11T02:56:01Z"
+    },
+    {
+      "write_ref": "wr-20118a4a77617b5bdbbd1566",
+      "execution_id": "run-73d5d6f9416d93d5",
+      "approval_id": "apr-2d4c0672aa9a854cef32e86f6d9ccdff",
+      "plan_id": "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e",
+      "date": "2026-10-26",
+      "op_index": 2,
+      "local_id": "iv-20261026-3",
+      "action": "create",
+      "acknowledged_id": "r-new-3",
+      "op_digest": "39ad44af876b547acd09e249c6526926ed0f713625293a492f78c32c312801b3",
+      "operation": {
+        "local_id": "iv-20261026-3",
+        "kind": "create",
+        "date": "2026-10-26",
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "minutes": 60,
+        "classification_id": "cls-dev",
+        "description": "Review the deck",
+        "catalog_id": "cat-1",
+        "origin_dates": [
+          "2026-10-26"
+        ],
+        "origin_revisions": {
+          "2026-10-26": 1
+        },
+        "selected_choice": {
+          "id": "cls-dev",
+          "name": "Development",
+          "code": "DEV",
+          "activity_type": "engineering"
+        }
+      },
+      "preconditions": "548e9d700c6ea2d05ec3d484eeddd34cf739aa992f16bb2c5388057a62a56c26",
+      "status": "confirmed",
+      "observed": {
+        "remote_id": "r-new-3",
+        "date": "2026-10-26",
+        "start_time": "14:00",
+        "end_time": "15:00",
+        "classification_id": "cls-dev",
+        "description": "Review the deck",
+        "status": "logged",
+        "content_observed": true
+      },
+      "attempted_at": "2026-11-11T02:56:01Z",
+      "recorded_at": "2026-11-11T02:56:01Z"
+    }
+  ],
+  "executions": [
+    {
+      "execution_id": "run-73d5d6f9416d93d5",
+      "approval_id": "apr-2d4c0672aa9a854cef32e86f6d9ccdff",
+      "plan_id": "3739310893cd931f6b73c8e232f2b5f8b2e5311f2815bcfa4e9e5d8544e2c78e",
+      "date": "2026-10-26",
+      "state": "completed",
+      "attempts": 3,
+      "confirmed": 3,
+      "unresolved": 0,
+      "unattempted": 0,
+      "outcome": "all_confirmed",
+      "started_at": "2026-11-11T02:56:01Z",
+      "finished_at": "2026-11-11T02:56:01Z",
+      "next_action": "the exact approved operations completed and verified; no further action is required for this approval"
+    }
+  ]
+}

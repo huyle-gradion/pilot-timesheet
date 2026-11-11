@@ -32,7 +32,6 @@ func TestTerminalLinkCoveragePreservesSourceGate(t *testing.T) {
 			}, nil)
 			cfg := &Config{
 				Timezone: "UTC", StatePath: filepath.Join(t.TempDir(), "state.json"),
-				Projects: []Project{{ID: "WORK", Name: "Work", DefaultClassification: "DEV"}},
 				Sources: &SourcesConfig{Enabled: true, Github: &GitHubSourceConfig{
 					Enabled: true, User: statusTestUser, Repositories: []string{statusTestRepo}, APIBase: fixture.server.URL,
 				}},

@@ -602,15 +602,6 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 			if ambiguousIDs[strings.TrimSpace(li.ID)] {
 				continue
 			}
-			project := strings.TrimSpace(li.Project)
-			if mapped, ok := cfg.Migration.ProjectMap[project]; ok {
-				project = mapped
-			}
-			if _, ok := cfg.project(project); !ok {
-				addConflict(MigrationConflict{Code: "unknown_project", Date: src.Date,
-					Detail: "a legacy project is not representable by the new configuration; provision migration.project_map or correct it explicitly"})
-				continue
-			}
 			description := strings.TrimSpace(li.Description)
 			if description == "" {
 				addConflict(MigrationConflict{Code: "unrepresentable_interval", Date: src.Date,
@@ -653,7 +644,7 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 			if rawClass != "" {
 				if mapped, ok := cfg.Migration.ClassificationMap[rawClass]; ok {
 					localClass = mapped
-				} else if projectIDRE.MatchString(rawClass) {
+				} else if identifierRE.MatchString(rawClass) {
 					localClass = rawClass
 				} else {
 					addConflict(MigrationConflict{Code: "unrepresentable_classification", Date: src.Date,
@@ -666,7 +657,6 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 				Date:                     src.Date,
 				Start:                    strings.TrimSpace(li.StartTime),
 				End:                      strings.TrimSpace(li.EndTime),
-				Project:                  project,
 				Classification:           localClass,
 				Description:              description,
 				EvidenceRefs:             refs,
@@ -811,17 +801,9 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 					continue
 				}
 			}
+			// The fragment keeps its legacy project verbatim as an inert label
+			// (ADR 0012); no configured project is required.
 			project := strings.TrimSpace(lc.Project)
-			if project != "" {
-				if mapped, ok := cfg.Migration.ProjectMap[project]; ok {
-					project = mapped
-				}
-				if _, ok := cfg.project(project); !ok {
-					addConflict(MigrationConflict{Code: "unknown_project", Date: src.Date,
-						Detail: "a legacy carry fragment names a project the new configuration cannot represent"})
-					continue
-				}
-			}
 			fragment := fmt.Sprintf("carry-%s-%d", src.Date, i+1)
 			if len(lc.EvidenceIDs) > maxEvidenceRefs {
 				addConflict(MigrationConflict{Code: "too_many_evidence_refs", Date: src.Date,
@@ -958,7 +940,7 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 
 // bindMigrationContent folds the exact payload apply would commit (days,
 // bindings, outcomes, carries, receipt and conflicts) into the migration_id.
-// Each command reloads the configuration, so a project or classification map
+// Each command reloads the configuration, so a classification map
 // edited between preview and apply changes this payload and therefore the id:
 // apply can only commit what the preview showed (PR #275 review). The payload
 // is built deterministically and carries no timestamps of its own (AppliedAt

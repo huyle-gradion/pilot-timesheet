@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,8 @@ import (
 // fails with store_locked instead of racing or losing the first writer's work.
 //
 // durableSchema is the schema actually on disk: the loaded schema until a
-// successful write, then 2. An in-memory upgrade never writes by itself.
+// successful write, then the current schema. An in-memory upgrade never
+// writes by itself.
 type Store struct {
 	path          string
 	lock          *os.File
@@ -74,9 +76,9 @@ func newState() *State {
 	return &State{Schema: stateSchema, Days: map[string]*Day{}, Evidence: map[string]*DayEvidence{}}
 }
 
-// load reads the durable state. A schema-1 or schema-2 file is validated in its
-// own shape and upgraded in memory through an explicit conversion; the file is
-// not rewritten here. Any other schema fails closed. A file with trailing data,
+// load reads the durable state. A schema 1, 2 or 3 file is validated in its
+// own shape and upgraded in memory through an explicit conversion, with a
+// pending schema-upgrade receipt (ADR 0012); the file is not rewritten here. Any other schema fails closed. A file with trailing data,
 // unknown fields, a persisted authorization claim, or a schema-3-only section
 // under an older schema declaration is rejected without mutation.
 func (s *Store) load() error {
@@ -128,8 +130,8 @@ func (s *Store) load() error {
 		if err := validateLegacyState(&state); err != nil {
 			return err
 		}
-	case schemaTwoState:
-		if err := validateStateBody(&state); err != nil {
+	case schemaTwoState, schemaThreeState:
+		if err := validateStateBody(&state, true); err != nil {
 			return err
 		}
 	case stateSchema:
@@ -145,12 +147,39 @@ func (s *Store) load() error {
 	if state.Evidence == nil {
 		state.Evidence = map[string]*DayEvidence{}
 	}
+	if loaded != stateSchema && state.Migration != nil && len(state.Migration.SchemaUpgrades) > 0 {
+		return newError(CodeStateInvalid, "local state declares an older schema but carries a schema-upgrade receipt")
+	}
 	// Upgrade is in-memory only. A legacy file stays its own schema on disk
-	// until a later successful durable save or transaction activates schema 3.
+	// until a later successful durable save or transaction activates the
+	// current schema, together with the receipt recorded here.
+	if loaded != stateSchema {
+		recordSchemaUpgrade(&state, loaded)
+	}
 	state.Schema = stateSchema
 	s.state = &state
 	s.durableSchema = loaded
 	return nil
+}
+
+// recordSchemaUpgrade adds the pending receipt for upgrading a loaded file of
+// schema from to the current schema. Its content is a pure function of the
+// loaded state, so a migration preview and apply over the same file agree;
+// AppliedAt stays empty until the activating write stamps it.
+func recordSchemaUpgrade(state *State, from int) {
+	receipt := SchemaUpgradeReceipt{FromSchema: from, ToSchema: stateSchema, AppVersion: AppVersion, Days: len(state.Days)}
+	for _, day := range state.Days {
+		for _, iv := range day.Confirmed {
+			receipt.Intervals++
+			if iv.Project != "" {
+				receipt.LegacyProjectLabels++
+			}
+		}
+	}
+	if state.Migration == nil {
+		state.Migration = &MigrationState{}
+	}
+	state.Migration.SchemaUpgrades = append(state.Migration.SchemaUpgrades, receipt)
 }
 
 // convertSchemaTwoState is the explicit in-memory conversion of an accepted
@@ -268,7 +297,7 @@ func validateState(state *State) error {
 	if state.Schema != stateSchema {
 		return newError(CodeStateInvalid, "local state schema is not supported")
 	}
-	return validateStateBody(state)
+	return validateStateBody(state, false)
 }
 
 // validateLegacyState validates an R1/R2 schema-1 file in its own shape: days and
@@ -277,10 +306,13 @@ func validateLegacyState(state *State) error {
 	if state.Schema != legacyStateSchema {
 		return newError(CodeStateInvalid, "local state schema is not supported")
 	}
-	return validateStateBody(state)
+	return validateStateBody(state, true)
 }
 
-func validateStateBody(state *State) error {
+// validateStateBody checks the shared state body. requireProject is the
+// schema 1-3 shape, where every confirmed interval names a project; from
+// schema 4 the project is an optional legacy label (ADR 0012).
+func validateStateBody(state *State, requireProject bool) error {
 	if state.Days == nil {
 		state.Days = map[string]*Day{}
 	}
@@ -307,7 +339,7 @@ func validateStateBody(state *State) error {
 			if iv.Date != key {
 				return newError(CodeStateInvalid, "local state interval does not match its day record")
 			}
-			if iv.Project == "" || iv.Description == "" {
+			if (requireProject && iv.Project == "") || iv.Description == "" {
 				return newError(CodeStateInvalid, "local state interval is incomplete")
 			}
 			if err := validateRemoteClassificationFields(iv); err != nil {
@@ -513,6 +545,12 @@ func validateMigrationState(m *MigrationState) error {
 			return newError(CodeStateInvalid, "local state contains a migration source map without a receipt")
 		}
 	}
+	for _, u := range m.SchemaUpgrades {
+		if u.FromSchema < legacyStateSchema || u.ToSchema <= u.FromSchema || u.ToSchema > stateSchema ||
+			u.Days < 0 || u.Intervals < 0 || u.LegacyProjectLabels < 0 || u.LegacyProjectLabels > u.Intervals {
+			return newError(CodeStateInvalid, "local state contains an invalid schema-upgrade receipt")
+		}
+	}
 	fragments := map[string]bool{}
 	for _, c := range m.Carries {
 		if c.FragmentID == "" || fragments[c.FragmentID] {
@@ -696,7 +734,7 @@ func validResolution(decision string) bool {
 func validateRemoteClassificationFields(iv Interval) error {
 	if iv.RemoteClassificationID != "" {
 		if len(iv.RemoteClassificationID) > 128 || controlRune.MatchString(iv.RemoteClassificationID) ||
-			!projectIDRE.MatchString(iv.RemoteClassificationID) {
+			!identifierRE.MatchString(iv.RemoteClassificationID) {
 			return newError(CodeStateInvalid, "local state contains an invalid remote classification id")
 		}
 		if strings.TrimSpace(iv.RemoteCatalogID) == "" {
@@ -776,6 +814,73 @@ func (s *Store) Commit(expectedSavedRevision int, day *Day) error {
 // activated=true happened after activation and must not be treated as a safe
 // rollback or retried blindly.
 func (s *Store) write() (bool, error) {
+	upgrading := s.durableSchema < stateSchema
+	backup := ""
+	if upgrading {
+		// The upgrade is one-way: an older build cannot read the new schema.
+		// Keep the older file once, before the write that replaces it.
+		var err error
+		if backup, err = s.backupOlderSchema(); err != nil {
+			return false, err
+		}
+	}
+	undo := s.stampSchemaUpgrades()
+	activated, err := s.writeFile()
+	if !activated {
+		undo()
+	}
+	if activated && upgrading && UpgradeNotice != nil {
+		UpgradeNotice(fmt.Sprintf("local state upgraded to schema %d (one-way: an older build cannot read it); the schema-%d file is kept at %s, and to downgrade restore it and put `projects` back in the configuration",
+			stateSchema, s.durableSchema, backup))
+	}
+	return activated, err
+}
+
+// UpgradeNotice, when set, receives the one line the activating write of a
+// state schema upgrade reports. The command layer prints it on stderr.
+var UpgradeNotice func(line string)
+
+// backupOlderSchema keeps a complete copy of the on-disk file of the older
+// schema at <state>.schema<N>.bak (0600), or at the next free .bak.M when that
+// name holds anything but these exact bytes (keepBackup), and returns the
+// name used. The store's lock is held, so the file is still the one that was
+// loaded.
+func (s *Store) backupOlderSchema() (string, error) {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return "", newError(CodeWriteFailed, "local state cannot be backed up before its schema upgrade")
+	}
+	backup, err := keepBackup(fmt.Sprintf("%s.schema%d.bak", s.path, s.durableSchema), data)
+	if err != nil {
+		return "", newError(CodeWriteFailed, "local state cannot be backed up before its schema upgrade")
+	}
+	return backup, nil
+}
+
+// stampSchemaUpgrades dates each pending schema-upgrade receipt with this
+// write. The returned function clears the stamps again when the write did not
+// activate, so a receipt is dated only by the write that made it durable.
+func (s *Store) stampSchemaUpgrades() func() {
+	m := s.state.Migration
+	if m == nil {
+		return func() {}
+	}
+	var stamped []int
+	now := time.Now().UTC().Format(time.RFC3339)
+	for i := range m.SchemaUpgrades {
+		if m.SchemaUpgrades[i].AppliedAt == "" {
+			m.SchemaUpgrades[i].AppliedAt = now
+			stamped = append(stamped, i)
+		}
+	}
+	return func() {
+		for _, i := range stamped {
+			m.SchemaUpgrades[i].AppliedAt = ""
+		}
+	}
+}
+
+func (s *Store) writeFile() (bool, error) {
 	data, err := json.MarshalIndent(s.state, "", "  ")
 	if err != nil {
 		return false, newError(CodeWriteFailed, "local state cannot be encoded")

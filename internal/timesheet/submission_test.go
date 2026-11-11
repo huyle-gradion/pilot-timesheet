@@ -25,7 +25,7 @@ func createReadyFixture(t *testing.T) (*Session, *fakeMCP, *Store, string) {
 		t.Fatal(err)
 	}
 	if _, err := s.addInterval(Request{ID: "2", Op: "add_interval", Day: date, Revision: intPtr(0),
-		Text: date + " 09:00-10:00 P1 Synthetic work"}); err != nil {
+		Text: date + " 09:00-10:00 Synthetic work"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.confirm(Request{ID: "3", Op: "confirm", Day: date, Revision: intPtr(0)}); err != nil {
@@ -81,7 +81,6 @@ func newSessionFixture(t *testing.T, fake *fakeMCP, date string) (*Session, *Sto
 	cfg := &Config{
 		Timezone:  "UTC",
 		StatePath: filepath.Join(t.TempDir(), "state.json"),
-		Projects:  []Project{{ID: "P1", Name: "Synthetic", DefaultClassification: "DEV"}},
 		Gradion:   &GradionConfig{Enabled: true, Endpoint: server.URL, TokenEnv: DefaultGradionTokenEnv},
 	}
 	store, err := OpenStore(cfg.StatePath)
@@ -439,7 +438,7 @@ func TestSubmitExternalDriftStopsLaterOperations(t *testing.T) {
 
 	// A second, independent allocation on the same date: two create operations.
 	if _, err := s.addInterval(Request{ID: "9", Op: "add_interval", Day: date, Revision: intPtr(2),
-		Text: date + " 11:00-12:00 P1 Second task"}); err != nil {
+		Text: date + " 11:00-12:00 Second task"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.confirm(Request{ID: "10", Op: "confirm", Day: date, Revision: intPtr(2)}); err != nil {
@@ -610,7 +609,7 @@ func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.addInterval(Request{ID: "d1", Op: "add_interval", Day: "2026-10-19", Revision: intPtr(0),
-			Text: "2026-10-19 23:30-00:30 P1 unsaved spill draft"}); err != nil {
+			Text: "2026-10-19 23:30-00:30 unsaved spill draft"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -668,7 +667,7 @@ func TestUnrelatedDirtySessionKeepsSubmissionEligible(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.addInterval(Request{ID: "d1", Op: "add_interval", Day: "2026-10-21", Revision: intPtr(0),
-		Text: "2026-10-21 09:00-10:00 P1 unrelated draft"}); err != nil {
+		Text: "2026-10-21 09:00-10:00 unrelated draft"}); err != nil {
 		t.Fatal(err)
 	}
 	rec := approveReadyPlan(t, s, date)
@@ -702,11 +701,11 @@ func TestChangedExistingEntryStopsLaterOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.addInterval(Request{ID: "2", Op: "add_interval", Day: date, Revision: intPtr(0),
-		Text: date + " 09:00-10:00 P1 Synthetic work"}); err != nil {
+		Text: date + " 09:00-10:00 Synthetic work"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.addInterval(Request{ID: "3", Op: "add_interval", Day: date, Revision: intPtr(0),
-		Text: date + " 11:00-12:00 P1 Later work"}); err != nil {
+		Text: date + " 11:00-12:00 Later work"}); err != nil {
 		t.Fatal(err)
 	}
 	cat, err := s.classifications(Request{ID: "4", Op: "classifications"})
@@ -1014,7 +1013,7 @@ func TestUnsavedPriorDaySpillRemovalCannotAuthorizeSavedPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.addInterval(Request{ID: "o2", Op: "add_interval", Day: origin, Revision: intPtr(0),
-		Text: origin + " 23:00-01:00 P1 late session"}); err != nil {
+		Text: origin + " 23:00-01:00 late session"}); err != nil {
 		t.Fatal(err)
 	}
 	cat, err := s.classifications(Request{ID: "o3", Op: "classifications"})

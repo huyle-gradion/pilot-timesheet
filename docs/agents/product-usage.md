@@ -33,13 +33,13 @@ Create the home store once with `init` (full walkthrough, modes and recovery
 rules: [first-run setup](../setup-linux.md)):
 
 ```bash
-bin/timesheet init --project 'pilot=Pilot Timesheet'
+bin/timesheet init
 ```
 
 Then `bin/timesheet log` runs the day (see [Running a day](#running-a-day)).
 
 `init` creates `~/.timesheet/` (`0700`), a valid `~/.timesheet/config.json`
-(`0600`) with your projects, host timezone, an absolute `state_path` and
+(`0600`) with your host timezone, an absolute `state_path` and
 `required_env` (`GITHUB_TOKEN`, `GCAL_ICS_URL`), and
 `~/.timesheet/.env.local` (`0600`) listing credential **names** as comments and
 no values. It never overwrites an existing file. Every command then finds its
@@ -59,8 +59,8 @@ URL, and do not reuse the owner's private configuration. See
 
 | Starting point | Purpose |
 | --- | --- |
-| `timesheet init` | Writes a valid configuration with your `projects`, `timezone`, an absolute `state_path` and `required_env: ["GITHUB_TOKEN", "GCAL_ICS_URL"]`, and no sources; add sections as needed. With `--seed-config` it copies the seed configuration instead, including its `sources`. |
-| `cmd/timesheet/timesheet.example.json` | Synthetic template with `projects`, `required_env`, GitHub and calendar `sources`, a disabled `migration` and a disabled `gradion` boundary; it has no `work_hours`, `judge` or `daily` section (see the key table below). Replace every placeholder, including the `/path/to/home` paths. |
+| `timesheet init` | Writes a valid configuration with your `timezone`, an absolute `state_path` and `required_env: ["GITHUB_TOKEN", "GCAL_ICS_URL"]`, and no sources; add sections as needed. With `--seed-config` it copies the seed configuration instead, including its `sources`. |
+| `cmd/timesheet/timesheet.example.json` | Synthetic template with `required_env`, GitHub and calendar `sources`, a disabled `migration` and a disabled `gradion` boundary; it has no `work_hours`, `judge` or `daily` section (see the key table below). Replace every placeholder, including the `/path/to/home` paths. |
 
 Top-level keys (all non-secret; the loader rejects any key not listed):
 
@@ -68,11 +68,11 @@ Top-level keys (all non-secret; the loader rejects any key not listed):
 | --- | --- |
 | `timezone` | **Required** IANA timezone that defines the recorded day. |
 | `state_path` | **Required** state file. An absolute path is recommended; a relative one resolves against the process cwd. |
-| `projects` | **Required** non-empty list of `{ id, name, default_classification }`; `id` has no slash, `name` and `default_classification` are optional. |
+| `projects` | Retired ([ADR 0012](../adr/0012-retire-the-local-project.md)); an interval carries no project. Every command except `init`, including `status` and the `daily` timer (its notice goes to the service journal), removes it from the file on first load, keeping `<config>.bak` or the next free `.bak.N`, or ignores it when the file cannot be rewritten safely. |
 | `required_env` | Optional credential variable **names** to report when missing; never values. |
 | `sources` | Optional evidence collectors (GitHub, calendar); see below. |
 | `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification` object (`catalog_id`, `classification_id`, `code`, `name`, `activity_type`). |
-| `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `project_map`, `classification_map`). |
+| `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `classification_map`; a retired `project_map` is ignored). |
 | `work_hours` | Optional presentation-only main-work-time policy (`days`, `windows`). |
 | `judge` | Optional binary-owned judge (ADR 0010): `backend`, `command`, `base_url`, `model`, `api_key_env`, `timeout_seconds`, `daily_token_cap`, `tokens_csv`. |
 | `daily` | Optional scheduled-run policy: `log_after`, `days`, `desktop`, `desktop_command`, `webhook_env`, `webhook_kind`, `notify_empty`. |
@@ -178,6 +178,12 @@ line per warning on a complete source, and distinguishes conditions:
 
 ## Workflow modes and the matrix
 
+> **Historical (retired CLI).** This section describes the pre-R6 pipeline.
+> `run --decisions`, `review`, `preview`, `approve --plan` and the
+> decision-file `project` fields no longer exist, and intervals carry no
+> project ([ADR 0012](../adr/0012-retire-the-local-project.md)). Use
+> `timesheet log` ([Running a day](#running-a-day)).
+
 `run` picks a mode by precedence (highest first): `--decisions FILE` /
 `--non-interactive` → scripted; `--plain` → safe line-based; `--interactive` →
 terminal UI (only when stdin **and** stdout are real terminals and the environment
@@ -200,6 +206,12 @@ export and prints a single `approve --plan <PLANID>` follow-up. Details:
 [guided workflow](guided-workflow.md).
 
 ## Running the local workflow
+
+> **Historical (retired CLI).** This section describes the pre-R6 pipeline.
+> `run --decisions`, `review`, `preview`, `approve --plan` and the
+> decision-file `project` fields no longer exist, and intervals carry no
+> project ([ADR 0012](../adr/0012-retire-the-local-project.md)). Use
+> `timesheet log` ([Running a day](#running-a-day)).
 
 Throughout this section, `CFG` is the path to your config file and `D` is the
 target date:
@@ -380,6 +392,10 @@ remote submission.
 
 ## Running the connected (remote) workflow
 
+> **Historical (retired CLI).** `preview` and `approve --plan` no longer
+> exist. Submit a logged day with `timesheet submit` in a terminal or
+> `/submit` in chat.
+
 Connected mode adds a `gradion` endpoint. The evidence and review steps are
 **identical**; only the final gated steps differ. Run the same `run`/`review`
 above, then:
@@ -478,6 +494,20 @@ remote prompt prepares the exact plan for a human to `approve`/`submit` later.
 - **Only recorded work is captured** — this never establishes a complete day.
 
 ## Release note (upgrade behavior)
+
+**State schema 4 is a one-way upgrade** ([ADR 0012](../adr/0012-retire-the-local-project.md)).
+The first command that writes the store after the upgrade copies the old file
+to `state.json.schema3.bak` (or `.schema1.bak`/`.schema2.bak`; `0600`; the
+next free `.bak.1`, `.bak.2`, ... when that name already holds something
+else) and prints one stderr line naming the file it used. `0.2.0` cannot read
+the new file and stops with `state_invalid: local state file is not valid JSON
+for the supported schema`. To go back to `0.2.0`: restore the backup over
+`state.json` (`cp ~/.timesheet/state.json.schema3.bak ~/.timesheet/state.json`)
+and put a `projects` list back in the configuration (or restore
+the `config.json.bak` (or `.bak.N`) the stderr line named if the new build
+removed it), because `0.2.0` requires at
+least one project. Work saved by the new build after the upgrade is not in the
+backup.
 
 The `content_observed` flag on a remote observation is an **additive** field. On
 upgrade, a pre-existing mapping or observation recorded before this field existed

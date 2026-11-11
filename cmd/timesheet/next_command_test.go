@@ -144,13 +144,13 @@ func TestNextProgressesToSaveAndHumanGates(t *testing.T) {
 	}
 	executable(t, step)
 
-	// 4. recorded -> stage, carrying the resolved project.
+	// 4. recorded -> stage, with no project (ADR 0012).
 	step = nextDoc(t, args...)
 	if step.State != stateAction || step.Step != "stage" {
 		t.Fatalf("state/step = %q/%q, want action/stage", step.State, step.Step)
 	}
-	if !strings.Contains(strings.Join(step.Action.Cmd, " "), "--project WORK") {
-		t.Fatalf("stage argv = %#v, want the single configured project", step.Action.Cmd)
+	if strings.Contains(strings.Join(step.Action.Cmd, " "), "--project") {
+		t.Fatalf("stage argv = %#v, want no --project", step.Action.Cmd)
 	}
 	executable(t, step)
 

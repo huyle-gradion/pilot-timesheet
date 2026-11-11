@@ -62,7 +62,6 @@ func writeRunConfig(t *testing.T) string {
 	body := `{
   "timezone": "Asia/Ho_Chi_Minh",
   "state_path": "` + filepath.Join(dir, "state.json") + `",
-  "projects": [{"id": "WORK", "name": "Work", "default_classification": "DEV"}],
   "sources": {"enabled": true, "calendar": {"enabled": true, "user": "me@example.com"}}
 }`
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {

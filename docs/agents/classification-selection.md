@@ -48,9 +48,11 @@ validation only**: it is never a payload field, and the local record's
   explicit `classification_id`.
 - An **empty** classification **blocks** the plan with
   `unresolved_classification:<interval>`.
-- The project→classification config map is a **suggestion source only**
-  (`PlanResult.Suggestions`, `Source="config_map"`). Suggestions are surfaced in
-  the preview and **never applied**.
+- There is no project→classification map any more: the local project is
+  retired ([ADR 0012](../adr/0012-retire-the-local-project.md)). The only
+  configured default is `gradion.default_classification`, an exact reviewed
+  catalog option that `classify --configured-default` applies; otherwise the
+  classification judgment decides (ADR 0010).
 - Repository mappings, calendar text, AI, and config defaults never assign a
   classification silently.
 - Selection requires an **EXACT unique** catalog match (by id, then by code, then by

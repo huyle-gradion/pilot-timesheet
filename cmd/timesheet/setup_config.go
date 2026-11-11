@@ -35,18 +35,17 @@ func setupConfigBytes(opts setupOptions, seed *timesheet.Config, dir string) (da
 	var cfg timesheet.Config
 	if seed != nil {
 		cfg = *seed
+		// The retired project keys are never copied forward (ADR 0012).
+		cfg.RetiredProjects = nil
+		if cfg.Migration != nil {
+			migration := *cfg.Migration
+			migration.RetiredProjectMap = nil
+			cfg.Migration = &migration
+		}
 		if cfg.Migration != nil && strings.TrimSpace(cfg.Migration.LegacyRoot) != "" && !filepath.IsAbs(cfg.Migration.LegacyRoot) {
 			cfg.Migration.LegacyRoot = filepath.Join(filepath.Dir(opts.seedConfigPath), cfg.Migration.LegacyRoot)
 		}
 	} else {
-		cfg.Projects = make([]timesheet.Project, 0, len(opts.projects))
-		for _, seed := range opts.projects {
-			cfg.Projects = append(cfg.Projects, timesheet.Project{
-				ID:                    seed.id,
-				Name:                  seed.name,
-				DefaultClassification: seed.classification,
-			})
-		}
 		cfg.RequiredEnv = append([]string(nil), defaultSetupEnvNames()...)
 	}
 	cfg.Timezone = timezone
@@ -101,23 +100,6 @@ func setupEnvTemplate(names []string) []byte {
 		b.WriteString("\n")
 	}
 	return []byte(b.String())
-}
-
-func describeSetupProjects(seed *timesheet.Config, projects []projectSeed) string {
-	var parts []string
-	if seed != nil {
-		for _, p := range seed.Projects {
-			parts = append(parts, fmt.Sprintf("%s=%q", p.ID, p.Name))
-		}
-	} else {
-		for _, p := range projects {
-			parts = append(parts, fmt.Sprintf("%s=%q", p.id, p.name))
-		}
-	}
-	if len(parts) == 0 {
-		return "no projects"
-	}
-	return "projects " + strings.Join(parts, ", ")
 }
 
 // setupTimezone returns the configured IANA zone: the explicit --tz when given,

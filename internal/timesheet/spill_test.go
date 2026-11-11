@@ -15,7 +15,6 @@ func spillState(t *testing.T, requested string) (*Session, string) {
 	cfg := &Config{
 		Timezone:  "Asia/Ho_Chi_Minh",
 		StatePath: filepath.Join(t.TempDir(), "state.json"),
-		Projects:  []Project{{ID: "P1", Name: "Synthetic"}},
 	}
 	store, err := OpenStore(cfg.StatePath)
 	if err != nil {
@@ -30,7 +29,7 @@ func spillState(t *testing.T, requested string) (*Session, string) {
 		t.Fatal(err)
 	}
 	added, err := s.addInterval(Request{Day: previous, Revision: &opened.Revision,
-		Text: previous + " 23:00-01:00 P1 Overnight release watch"})
+		Text: previous + " 23:00-01:00 Overnight release watch"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,21 +13,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
 // nextFlags is the surface shared by the next and tui verbs: both take the
-// store-path flags, --date and --project, and both resolve an omitted --date
+// store-path flags and --date, and both resolve an omitted --date
 // through the binary's existing helper. --do and --max-actions are next's
 // flags; tui refuses both in its own runner.
 type nextFlags struct {
 	configPath    string
 	envFile       string
 	date          string
-	project       string
 	do            bool
 	auto          bool
 	maxActions    int
@@ -41,7 +39,6 @@ func parseNextFlags(name string, args []string) (*nextFlags, error) {
 	flags.StringVar(&f.configPath, "config", "", "configuration path (optional; defaults to $HOME/.timesheet/config.json)")
 	flags.StringVar(&f.envFile, "env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
 	flags.StringVar(&f.date, "date", "", "day to operate on, YYYY-MM-DD (optional; omitted means today in the configured timezone)")
-	flags.StringVar(&f.project, "project", "", "project id for staged/classified intervals (required when the configuration defines multiple projects)")
 	flags.BoolVar(&f.do, "do", false, "execute each derived action in-process until a judgment, stop or human gate")
 	flags.BoolVar(&f.auto, "auto", false, "with --do: answer each judgment with the configured judge and continue (issue #242)")
 	flags.IntVar(&f.maxActions, "max-actions", defaultMaxActions, "with --do: the most actions one run may execute before stopping")
@@ -122,7 +119,7 @@ func runNextFlags(f *nextFlags) error {
 	if err != nil {
 		return err
 	}
-	obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, f.project, store)
+	obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, store)
 	if closeErr := store.Close(); closeErr != nil {
 		return fmt.Errorf("next: the store lock cannot be released")
 	}
@@ -140,8 +137,8 @@ func runNextFlags(f *nextFlags) error {
 // before deriving or printing, and the tui verb holds the lock across ticks.
 // An underivable STATE (unreadable durable fact, artifact or sidecar) returns
 // a typed stop document the caller prints; only process-level failures (the
-// executable path, project resolution) return an error.
-func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, project string, store *timesheet.Store) (nextObservation, *nextAction, error) {
+// executable path) return an error.
+func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day string, store *timesheet.Store) (nextObservation, *nextAction, error) {
 	exe, err := absoluteExecutable()
 	if err != nil {
 		return nextObservation{}, nil, err
@@ -162,15 +159,10 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 		SidecarPath:      timesheet.ChoicesPath(cfg.StatePath, day),
 		GradionEnabled:   cfg.Gradion != nil && cfg.Gradion.Enabled,
 	}
-	obs.Project, obs.ProjectBlocked, obs.ProjectIDs, err = resolveNextProject(cfg, project)
-	if err != nil {
-		return nextObservation{}, nil, err
-	}
 	obs.Asks, err = readAskAnswers(dir)
 	if err != nil {
 		return obs, stoppedAction(day, "cannot read the human answers in "+dir+": "+err.Error()), nil
 	}
-	settleProjectAnswer(&obs, dir)
 
 	// A day left in the pre-#233 temp location is reported, never restarted.
 	legacy, err := legacyDayArtifactsStop(cfg.StatePath, day, dir)
@@ -269,29 +261,6 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 func stoppedAction(day, reason string) *nextAction {
 	n := nextAction{Day: day}.withStop(reason)
 	return &n
-}
-
-// resolveNextProject returns the exact project id derived commands carry. It
-// never guesses: several configured projects require an explicit --project, and
-// an explicit id must be one the configuration defines.
-func resolveNextProject(cfg *timesheet.Config, explicit string) (string, bool, []string, error) {
-	ids := make([]string, 0, len(cfg.Projects))
-	for _, p := range cfg.Projects {
-		ids = append(ids, p.ID)
-	}
-	explicit = strings.TrimSpace(explicit)
-	if explicit != "" {
-		for _, id := range ids {
-			if id == explicit {
-				return id, false, ids, nil
-			}
-		}
-		return "", false, ids, fmt.Errorf("next: --project %s is not configured (configured: %s)", explicit, strings.Join(ids, ", "))
-	}
-	if len(ids) == 1 {
-		return ids[0], false, ids, nil
-	}
-	return "", true, ids, nil
 }
 
 // absoluteExecutable is the running binary's absolute path, so a derived argv

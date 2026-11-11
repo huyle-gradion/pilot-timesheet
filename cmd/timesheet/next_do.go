@@ -28,7 +28,6 @@ type actDispatcher struct {
 	configPath string
 	envFile    string
 	day        string
-	project    string
 	held       *headlessSession
 	// cmd is the derived argv the act runs, for acts whose inputs are
 	// carried by their argv (acknowledge, resolve).
@@ -134,9 +133,6 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 		if stop != nil {
 			return report(*stop), nil
 		}
-		// The derivation resolves the project (a single configured project is
-		// implicit); the act must carry the same one, never the raw flag.
-		d.project = obs.Project
 		a := deriveDayNext(obs)
 		if a.State == stateJudgment && a.Judgment != nil && d.judge != nil {
 			// --auto: the binary answers the judgment and the loop re-derives.
@@ -219,7 +215,7 @@ func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day str
 // advanceDayReport is the --do run minus its stdout: the scheduled daily run
 // (issue #243) reads the same report to build its notification.
 func advanceDayReport(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day string) (advanceReport, error) {
-	d := actDispatcher{cfg: cfg, configPath: configPath, envFile: envFile, day: day, project: f.project}
+	d := actDispatcher{cfg: cfg, configPath: configPath, envFile: envFile, day: day}
 	if f.auto {
 		if cfg.Judge == nil {
 			return advanceReport{}, fmt.Errorf("next: --auto needs a judge section in the configuration (ADR 0010); without it, run next --do and answer judgments through the agent path")
@@ -237,7 +233,7 @@ func advanceDayReport(f *nextFlags, cfg *timesheet.Config, configPath, envFile, 
 		if err != nil {
 			return nextObservation{}, nil, err
 		}
-		obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, f.project, store)
+		obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, store)
 		closeErr := store.Close()
 		if err != nil {
 			return obs, stop, err

@@ -661,7 +661,7 @@ func (s *Session) addInterval(req Request) (IntervalMutation, error) {
 	if err != nil {
 		return IntervalMutation{}, err
 	}
-	iv, err := ParseInterval(req.Text, day.Date, s.cfg, loc)
+	iv, err := ParseInterval(req.Text, day.Date, loc)
 	if err != nil {
 		return IntervalMutation{}, err
 	}
@@ -724,7 +724,7 @@ func (s *Session) editInterval(req Request) (IntervalMutation, error) {
 		return IntervalMutation{}, err
 	}
 	previous := cloneIntervals(day.Staged)
-	replacement, err := ParseInterval(req.Text, day.Date, s.cfg, loc)
+	replacement, err := ParseInterval(req.Text, day.Date, loc)
 	if err != nil {
 		return IntervalMutation{}, err
 	}
@@ -819,7 +819,7 @@ func (s *Session) review(req Request) (Review, error) {
 		Dirty:         !intervalsEqual(day.Staged, day.Confirmed),
 		Confirmed:     confirmed,
 		Staged:        staged,
-		History:       append([]HistoryEntry(nil), day.History...),
+		History:       historyWithoutLegacyLabels(day.History),
 		Notes: []string{
 			"Confirmed work is local only; remote submission is not implemented in this build.",
 			"Staged changes become durable only after confirm and save.",
@@ -1251,10 +1251,7 @@ func (s *Session) validateInterval(iv Interval, origin string, loc *time.Locatio
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	if _, ok := s.cfg.project(iv.Project); !ok {
-		return time.Time{}, time.Time{}, newError(CodeUnknownProject, "project is not configured")
-	}
-	if iv.Classification != "" && !projectIDRE.MatchString(iv.Classification) {
+	if iv.Classification != "" && !identifierRE.MatchString(iv.Classification) {
 		return time.Time{}, time.Time{}, newError(CodeInvalidInterval, "classification is not a valid classification identifier")
 	}
 	if strings.TrimSpace(iv.Description) == "" {
@@ -2038,4 +2035,19 @@ func (s *Session) resolveRemoteRequest(req Request) (ResolutionReceipt, error) {
 		day = open
 	}
 	return s.resolveRemote(day, date, revision, req.ObservationID, req.RemoteID, req.LocalID, req.Decision)
+}
+
+// historyWithoutLegacyLabels copies the confirmed history for review output
+// with each snapshot interval's legacy project and local classification label
+// cleared (ADR 0012). State keeps them; review never shows them.
+func historyWithoutLegacyLabels(history []HistoryEntry) []HistoryEntry {
+	out := append([]HistoryEntry(nil), history...)
+	for i := range out {
+		snapshot := cloneIntervals(out[i].Snapshot)
+		for j := range snapshot {
+			snapshot[j].Project, snapshot[j].Classification = "", ""
+		}
+		out[i].Snapshot = snapshot
+	}
+	return out
 }

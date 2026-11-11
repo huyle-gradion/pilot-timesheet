@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
@@ -18,7 +17,7 @@ import (
 // make. It mirrors a judgment: a question, the closed set of answers when
 // there is one, an answer file and a digest binding the answer to the current
 // content. A valid bound answer licenses exactly one existing deterministic
-// action (acknowledge, resolve) or settles the day's project; an invalid or
+// action (acknowledge, resolve); an invalid or
 // stale one asks the same question again with last_error. The agent never
 // answers on its own: it relays the question, and the answer records the
 // surface it came from. approve, submit and resolve-write stay TTY-only human
@@ -27,7 +26,6 @@ const (
 	stateAskHuman = "ask_human"
 
 	askSourceAck = "source_acknowledgement"
-	askProject   = "project"
 	askResolve   = "resolve"
 )
 
@@ -161,39 +159,6 @@ func (o nextObservation) sourceAckAsk(src timesheet.SourceSnapshot) askHuman {
 		Protocol: askProtocol(file, digest, `"acknowledge"`) +
 			"; to refuse, leave the file unwritten and re-collect instead",
 	}
-}
-
-// projectAsk is the question for a configuration with several projects and
-// none chosen.
-func projectAsk(day, dir string, ids []string) askHuman {
-	sorted := slices.Clone(ids)
-	sort.Strings(sorted)
-	digest := askDigest(append([]string{day}, sorted...)...)
-	file := filepath.Join(dir, askFileName(askProject, ""))
-	return askHuman{
-		Kind: askProject, Day: day, AnswerFile: file, Digest: digest, Options: sorted,
-		Question: "the configuration defines the projects " + strings.Join(sorted, ", ") +
-			"; which project are " + day + "'s staged intervals for?",
-		Protocol: askProtocol(file, digest, `"<project id>"`) + "; the answer applies to this day only (--project still overrides it)",
-	}
-}
-
-// settleProjectAnswer applies a valid project answer to the observation, or
-// records why it was not accepted for the ask's last_error.
-func settleProjectAnswer(obs *nextObservation, dir string) {
-	if !obs.ProjectBlocked {
-		return
-	}
-	q := projectAsk(obs.Day, dir, obs.ProjectIDs)
-	a := obs.Asks[filepath.Base(q.AnswerFile)]
-	if !a.Present {
-		return
-	}
-	if problem := askProblem(a, q.Digest, q.Options); problem != "" {
-		obs.ProjectAskError = problem
-		return
-	}
-	obs.Project, obs.ProjectBlocked = a.Answer, false
 }
 
 // resolveAsk is the blocked-plan question. The answer file is the resolve

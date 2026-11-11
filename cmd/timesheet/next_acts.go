@@ -71,7 +71,7 @@ func (d actDispatcher) stageStep(h *headlessSession) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	receipt, err := applyStage(h, d.cfg, "next", d.day, d.project, summary)
+	receipt, err := applyStage(h, d.cfg, "next", d.day, summary)
 	if err != nil {
 		return "", err
 	}
@@ -83,7 +83,7 @@ func (d actDispatcher) classifyStep(h *headlessSession) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	receipt, err := classifyFileDay(h, d.cfg, d.day, d.project, choicesPath)
+	receipt, err := classifyFileDay(h, d.cfg, d.day, choicesPath)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +91,7 @@ func (d actDispatcher) classifyStep(h *headlessSession) (string, error) {
 }
 
 func (d actDispatcher) classifyDefaultStep(h *headlessSession) (string, error) {
-	receipt, err := classifyDefaultDay(h, d.day, d.project)
+	receipt, err := classifyDefaultDay(h, d.day)
 	if err != nil {
 		return "", err
 	}
@@ -99,7 +99,7 @@ func (d actDispatcher) classifyDefaultStep(h *headlessSession) (string, error) {
 }
 
 func (d actDispatcher) saveStep(h *headlessSession) (string, error) {
-	saved, err := saveDay(h, d.cfg, "next", d.day, d.project)
+	saved, err := saveDay(h, d.cfg, "next", d.day)
 	if err != nil {
 		return "", err
 	}

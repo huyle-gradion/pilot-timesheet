@@ -31,29 +31,10 @@ func writeTestConfigWithGithub(t *testing.T) string {
 	body := `{
   "timezone": "Asia/Ho_Chi_Minh",
   "state_path": "` + filepath.Join(dir, "state.json") + `",
-  "projects": [{"id": "WORK", "name": "Work", "default_classification": "DEV"}],
   "sources": {
     "enabled": true,
     "github": {"enabled": true, "user": "huyle-gradion", "repositories": ["acme/api"]}
   }
-}`
-	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return cfg
-}
-
-func writeTestConfigTwoProjects(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	cfg := filepath.Join(dir, "config.json")
-	body := `{
-  "timezone": "Asia/Ho_Chi_Minh",
-  "state_path": "` + filepath.Join(dir, "state.json") + `",
-  "projects": [
-    {"id": "WORK", "name": "Work", "default_classification": "DEV"},
-    {"id": "OPS", "name": "Operations"}
-  ]
 }`
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -225,7 +206,7 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 		return res.(timesheet.DaySummary)
 	}
 
-	first, err := applyStage(h, parsed, "stage", testDate, "WORK", open())
+	first, err := applyStage(h, parsed, "stage", testDate, open())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +223,7 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 		{BlockID: "work-1", Date: testDate, Start: "09:30", End: "10:30", Description: "First block", Kind: "work"},
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Second block", Kind: "work"},
 	})
-	second, err := applyStage(h, parsed, "stage", testDate, "WORK", open())
+	second, err := applyStage(h, parsed, "stage", testDate, open())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +241,7 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Second block", Kind: "work"},
 	})
-	third, err := applyStage(h, parsed, "stage", testDate, "WORK", open())
+	third, err := applyStage(h, parsed, "stage", testDate, open())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +455,7 @@ func TestConfirmSourceGateVerbatimAndSaveDurable(t *testing.T) {
 	}
 	iv := confirmed[0]
 	if iv.Date != testDate || iv.Start != "09:00" || iv.End != "10:00" ||
-		iv.Project != "WORK" || iv.Description != "Bridge work PRs: #12 acme/api" {
+		iv.Project != "" || iv.Description != "Bridge work PRs: #12 acme/api" {
 		t.Fatalf("durable interval = %+v, want the staged entry carried into Confirmed", iv)
 	}
 }
@@ -491,33 +472,6 @@ func readDayConfirmedIfAny(t *testing.T, cfg, date string) ([]timesheet.Interval
 		return nil, false
 	}
 	return day.Confirmed, len(day.Confirmed) > 0
-}
-
-// TestStageProjectResolution: with one configured project it is used without a
-// flag; with several, --project is required; an unknown project is the child's
-// "project is not configured" refusal.
-func TestStageProjectResolution(t *testing.T) {
-	one := writeTestConfig(t)
-	seedEntries(t, one, testDate, []timesheet.ReviewedBlock{timedBlock("work-1", "09:00", "10:00", "Block")})
-	receipt := runStageCapture(t, []string{"--config", one, "--date", testDate})
-	if receipt.StagedIntervals != 1 {
-		t.Fatalf("single-project stage = %+v, want 1", receipt)
-	}
-
-	two := writeTestConfigTwoProjects(t)
-	seedEntries(t, two, testDate, []timesheet.ReviewedBlock{timedBlock("work-1", "09:00", "10:00", "Block")})
-	err := runStage([]string{"--config", two, "--date", testDate})
-	if err == nil || !strings.Contains(err.Error(), "--project is required") {
-		t.Fatalf("multi-project stage without --project = %v, want the requirement error", err)
-	}
-	if err := runStage([]string{"--config", two, "--date", testDate, "--project", "NOPE"}); err == nil ||
-		!strings.Contains(err.Error(), "project is not configured") {
-		t.Fatalf("unknown project = %v, want the child's unknown-project refusal", err)
-	}
-	receipt = runStageCapture(t, []string{"--config", two, "--date", testDate, "--project", "OPS"})
-	if receipt.StagedIntervals != 1 {
-		t.Fatalf("explicit --project stage = %+v, want 1", receipt)
-	}
 }
 
 // TestFinalizeBlockedByStoreLock: the finalization commands hold the store's

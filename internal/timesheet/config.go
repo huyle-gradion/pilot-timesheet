@@ -40,6 +40,12 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	// A valid configuration that still lists a retired key (ADR 0012) is
+	// reported to the command layer, which removes the key or says it is
+	// ignored. The keys are never read either way.
+	if RetiredConfigHook != nil && (cfg.RetiredProjects != nil || (cfg.Migration != nil && cfg.Migration.RetiredProjectMap != nil)) {
+		RetiredConfigHook(path)
+	}
 	return &cfg, nil
 }
 
@@ -56,24 +62,6 @@ func (c *Config) validate() error {
 		return newError(CodeConfigInvalid, "config: state_path is required")
 	}
 	c.StatePath = filepath.Clean(c.StatePath)
-	if len(c.Projects) == 0 {
-		return newError(CodeConfigInvalid, "config: at least one project is required")
-	}
-	seen := map[string]bool{}
-	for i := range c.Projects {
-		p := &c.Projects[i]
-		p.ID = strings.TrimSpace(p.ID)
-		if !projectIDRE.MatchString(p.ID) || strings.Contains(p.ID, "/") {
-			return newError(CodeConfigInvalid, "config: project id is invalid")
-		}
-		if seen[p.ID] {
-			return newError(CodeConfigInvalid, "config: duplicate project id")
-		}
-		seen[p.ID] = true
-		if p.DefaultClassification != "" && !projectIDRE.MatchString(p.DefaultClassification) {
-			return newError(CodeConfigInvalid, "config: project default_classification is invalid")
-		}
-	}
 	envSeen := map[string]bool{}
 	for _, name := range c.RequiredEnv {
 		if !envNameRE.MatchString(name) {
@@ -185,16 +173,8 @@ func (c *Config) validateR3() error {
 				return newError(CodeConfigInvalid, "config: migration.legacy_timezone is not a recognised IANA timezone")
 			}
 		}
-		for from, to := range m.ProjectMap {
-			if strings.TrimSpace(from) == "" || !projectIDRE.MatchString(to) || strings.Contains(to, "/") {
-				return newError(CodeConfigInvalid, "config: migration.project_map is invalid")
-			}
-			if _, ok := c.project(to); !ok {
-				return newError(CodeConfigInvalid, "config: migration.project_map target is not a configured project")
-			}
-		}
 		for from, to := range m.ClassificationMap {
-			if strings.TrimSpace(from) == "" || !projectIDRE.MatchString(to) {
+			if strings.TrimSpace(from) == "" || !identifierRE.MatchString(to) {
 				return newError(CodeConfigInvalid, "config: migration.classification_map is invalid")
 			}
 		}

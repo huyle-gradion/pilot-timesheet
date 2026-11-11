@@ -77,8 +77,8 @@ func TestBuildDraftIntervalOutsideMeetingsBecomesWorkBlock(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
 		[]Segment{
-			{IntervalID: "i1", Date: "2026-10-26", Start: "09:15", End: "09:45", Project: "WORK", Description: "joined standup"},
-			{IntervalID: "i2", Date: "2026-10-26", Start: "13:00", End: "15:00", Project: "WORK", Description: "deep work"},
+			{IntervalID: "i1", Date: "2026-10-26", Start: "09:15", End: "09:45", Description: "joined standup"},
+			{IntervalID: "i2", Date: "2026-10-26", Start: "13:00", End: "15:00", Description: "deep work"},
 		},
 		nil, nil,
 	)
@@ -442,9 +442,8 @@ func TestPRsInlineCompactFitsIntervalDescriptionLimit(t *testing.T) {
 	if got := len([]rune(composed)); got > maxDescriptionRunes {
 		t.Fatalf("composed description = %d runes, want <= %d", got, maxDescriptionRunes)
 	}
-	cfg := &Config{Projects: []Project{{ID: "assignment"}}}
 	loc := time.FixedZone("ICT", 7*3600)
-	if _, err := ParseInterval("2026-10-20 10:00-11:00 assignment "+composed, "2026-10-20", cfg, loc); err != nil {
+	if _, err := ParseInterval("2026-10-20 10:00-11:00 "+composed, "2026-10-20", loc); err != nil {
 		t.Fatalf("ParseInterval rejected the composed description: %v", err)
 	}
 	// Determinism: the same input twice is byte-identical.
@@ -899,7 +898,7 @@ func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 	}
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T10:00:00+07:00", End: "2026-10-26T11:00:00+07:00", Title: "Late sync"}},
-		[]Segment{{IntervalID: "i1", Date: "2026-10-26", Start: "08:00", End: "09:00", Project: "WORK", Description: "early work"}},
+		[]Segment{{IntervalID: "i1", Date: "2026-10-26", Start: "08:00", End: "09:00", Description: "early work"}},
 		[]TopicCandidate{topic},
 		nil,
 	)
