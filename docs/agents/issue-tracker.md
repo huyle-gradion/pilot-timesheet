@@ -43,3 +43,28 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## Backlog audit
+
+Run after a redesign or a batch of merges changes what open issues describe, so
+every open issue stays an accurate map of the remaining work. Read-only until
+each outcome is decided; record every outcome as a comment on the issue.
+
+1. List the backlog: `gh issue list --state open --limit 200 --json number,title,updatedAt,labels`.
+2. Check each non-epic issue against `main`:
+   - Does the problem still exist? Search the code and merged PRs (`gh pr list --state merged --search "<terms>"`).
+   - Do its file and line references still point at the right code?
+   - Are its blockers and related issues accurate? Check each one's state and the native `blocked_by` edges.
+   - Does it conflict with an accepted ADR in `docs/adr/`?
+   - Does it duplicate another open issue?
+3. Give each issue exactly one outcome:
+   - **Close (done):** the problem no longer exists. Name the fixing commit or PR.
+   - **Close (obsolete):** the premise no longer holds. Name what replaced it.
+   - **Update:** still valid but stale. Rewrite the body to current code, with refreshed references, acceptance criteria and native blocking edges, then comment what changed.
+   - **Keep:** accurate as written. Comment that it was checked, and on which commit.
+   - **`needs-info`:** undecidable from the code (an owner decision, or a defect that needs reproduction). Label it and comment the exact question; never close by guess.
+4. Close duplicates in favor of the clearer issue, linking both ways.
+5. Audit epics and tracking issues last, so their tables and dependency graphs reflect the child outcomes.
+6. Post a summary comment on the audit issue listing every issue, its outcome and a one-line reason.
+
+Done when every issue in step 1's list has an audit comment dated after the audit started.
