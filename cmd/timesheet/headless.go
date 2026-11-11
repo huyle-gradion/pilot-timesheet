@@ -15,15 +15,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// The headless subcommands are the skill's [Script] layer. Each constructs one
-// session and drives its request dispatcher in-process for one invocation;
-// they never open a protocol surface and never touch the network beyond what
-// the configured collectors already do inside collect.
-
-// dateOptionalCommands are the commands where an omitted --date means today in
-// the configured timezone, resolved by the binary (issue #179). Every other
-// command that operates on a day still requires one. This map is the single
-// requiredness decision: the flag usage text and every parser read it.
 var dateOptionalCommands = map[string]bool{
 	"collect": true,
 	"draft":   true,
@@ -33,8 +24,6 @@ var dateOptionalCommands = map[string]bool{
 	"next":    true,
 }
 
-// dateFlagUsage is the shared --date description, so --help never disagrees
-// with the parser about whether the flag may be omitted.
 func dateFlagUsage(name string) string {
 	if dateOptionalCommands[name] {
 		return "day to operate on, YYYY-MM-DD (optional; omitted means today in the configured timezone)"
@@ -55,10 +44,6 @@ func dateSupplied(flags *flag.FlagSet) bool {
 	return supplied
 }
 
-// validateDate applies the one requiredness decision to a parsed --date. Only a
-// flag that was never given may mean today, and only for dateOptionalCommands.
-// Any supplied value, including an empty or whitespace-only one, must parse as
-// a real date; nothing is trimmed into acceptance.
 func validateDate(name, date string, supplied bool) error {
 	if !supplied {
 		if !dateOptionalCommands[name] {
@@ -102,10 +87,6 @@ func parseHeadlessFlags(name string, args []string) (*headlessFlags, error) {
 	return f, nil
 }
 
-// recordFlags carries the record subcommand's inputs: --config and --env-file,
-// --date (omitted means today in the configured timezone), exactly one input
-// mode — the recovery --file reviewed JSON, or the descriptions-only --draft +
-// --descriptions pair — and the optional --replace merge mode.
 type recordFlags struct {
 	configPath   string
 	envFile      string
@@ -116,12 +97,6 @@ type recordFlags struct {
 	replace      bool
 }
 
-// parseRecordFlags parses record's flag surface. The two input modes are
-// mutually exclusive and one is required: --file alone, or --draft AND
-// --descriptions together. --replace (issue #162) switches the merge mode:
-// the reviewed result is the day's complete content and replaces all blocks
-// for the resolved day instead of merging — for the re-collected-day case where
-// the new generation supersedes the old.
 func parseRecordFlags(args []string) (*recordFlags, error) {
 	flags := flag.NewFlagSet("record", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -159,8 +134,6 @@ func parseRecordFlags(args []string) (*recordFlags, error) {
 	return f, nil
 }
 
-// headlessSession loads config, env file and store and drives HandleLine
-// directly, one typed request at a time.
 type headlessSession struct {
 	session *timesheet.Session
 	store   *timesheet.Store
@@ -206,18 +179,11 @@ func (h *headlessSession) call(op string, req timesheet.Request) (any, error) {
 	}
 	resp, _ := h.session.HandleLine(line)
 	if resp.Error != nil {
-		// Typed errors survive: the protocol error carries the AppError's own
-		// code and message, and Error() renders the same "code: message" bytes
-		// the previous string wrap printed.
 		return nil, &timesheet.AppError{Code: resp.Error.Code, Message: resp.Error.Message}
 	}
 	return resp.Result, nil
 }
 
-// jsonBytes renders one headless result exactly as it appears on stdout:
-// indented JSON plus one trailing newline. run writes these same bytes to the
-// artifacts file, so a redirect of run's stdout and the stored artifact are
-// byte-identical by construction.
 func jsonBytes(v any) ([]byte, error) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -235,10 +201,6 @@ func printJSON(v any) error {
 	return err
 }
 
-// runCollect performs one collection attempt and prints its bounded result.
-// The fresh collection_id is printed as one stderr line (issue #162) so
-// acknowledge/decide can copy it without reading state.json; stdout stays the
-// collect JSON only.
 func runCollect(args []string) error {
 	f, err := parseHeadlessFlags("collect", args)
 	if err != nil {
@@ -267,11 +229,6 @@ func runCollect(args []string) error {
 	return printJSON(res)
 }
 
-// buildDayDraft is the shared core of the draft and run subcommands: it opens
-// the store, runs exactly one bounded collection attempt for the day, builds
-// the compact draft and closes the store. Neither caller duplicates this flow.
-// It also returns the fresh collection_id so run can print it on stderr
-// (issue #162); the draft subcommand ignores it.
 func buildDayDraft(configPath, envFile, date string) (timesheet.Draft, string, error) {
 	h, err := openHeadless(configPath, envFile)
 	if err != nil {
@@ -286,10 +243,6 @@ func buildDayDraft(configPath, envFile, date string) (timesheet.Draft, string, e
 	return draft, collectionID, nil
 }
 
-// collectDraft is the collect+review+draft flow over one held session: open
-// day, one bounded collect, review, and the compact draft with its work-hours
-// annotation. It is the run verb's core and the tui verb's run act; the
-// session must be the caller's own.
 func collectDraft(h *headlessSession, day string) (timesheet.Draft, string, error) {
 	if _, err := h.call("open_day", timesheet.Request{Day: day}); err != nil {
 		return timesheet.Draft{}, "", err
@@ -324,15 +277,8 @@ func collectDraft(h *headlessSession, day string) (timesheet.Draft, string, erro
 	return draft, collectionID, nil
 }
 
-// clockNow is the one clock the headless commands read for date resolution.
-// Tests replace it to pin "today"; production leaves time.Now. TodayIn owns the
-// timezone arithmetic and resolveDay is this clock's only caller.
 var clockNow = time.Now
 
-// resolveDay returns the day a command operates on. An explicit date always
-// wins; only an empty date, which means the flag was never given, is today in
-// the configured timezone, so a one-command daily driver never has to compute
-// the local date from the host clock.
 func resolveDay(configPath, date string) (string, error) {
 	if date != "" {
 		return date, nil
@@ -344,7 +290,6 @@ func resolveDay(configPath, date string) (string, error) {
 	return timesheet.TodayIn(cfg.Timezone, clockNow())
 }
 
-// runDraft collects the day and prints the compact draft for the judgment step.
 func runDraft(args []string) error {
 	f, err := parseHeadlessFlags("draft", args)
 	if err != nil {
@@ -361,16 +306,6 @@ func runDraft(args []string) error {
 	return printJSON(draft)
 }
 
-// runRun composes the collect and draft subcommands' single shared flow in one
-// process: one bounded collection attempt, then the compact draft. stdout
-// carries ONLY the draft JSON — the collect source report is not printed; its
-// substance is already in the draft's flags and per-block completeness. The
-// same draft bytes are also written to the deterministic artifacts directory
-// `<state dir>/days/<date>/draft.json` in the store (created as needed), and the artifacts
-// path is printed on stderr so stdout stays pure draft JSON: redirecting
-// stdout yields exactly the draft bytes. The fresh collection_id is one
-// further stderr line (issue #162), so acknowledge/decide can copy it without
-// reading state.json.
 func runRun(args []string) error {
 	f, err := parseHeadlessFlags("run", args)
 	if err != nil {
@@ -388,8 +323,6 @@ func runRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	// The artifacts directory is keyed by the RESOLVED day: with an omitted
-	// --date, f.date is empty and the draft would land in an undated path.
 	cfg, err := timesheet.LoadConfig(f.configPath)
 	if err != nil {
 		return err
@@ -413,28 +346,6 @@ func runRun(args []string) error {
 	return err
 }
 
-// runRecord validates the reviewed result and merges it into the day's
-// entries. It has two input modes:
-//
-//   - --draft <draft.json> --descriptions <desc.json>: the descriptions-only
-//     judgment step (issue #152). record loads the draft, applies the
-//     per-block descriptions and the one notes string, appends each block's
-//     prs_inline when not already contained, and runs the exact same
-//     validation and merge path as --file.
-//   - --file <reviewed.json>: the full reviewed file. Unchanged and still the
-//     recovery path.
-//
-// --date is optional (issue #179): omitted, it means today in the configured
-// timezone. --replace (issue #162) switches the merge mode for either input:
-// the reviewed result is the day's complete content, so all blocks for the
-// resolved day are replaced with the file's blocks (block ids from the file;
-// blocks absent from it are removed) instead of merged. Use it after
-// re-collecting a day:
-// the new generation supersedes the old. Without the flag the merge behavior
-// is unchanged (idempotent per block, other blocks preserved).
-//
-// It opens no store: recording never blocks on, or interferes with, a
-// store-holding process.
 func runRecord(args []string) error {
 	f, err := parseRecordFlags(args)
 	if err != nil {
@@ -454,15 +365,10 @@ func runRecord(args []string) error {
 			return fmt.Errorf("record: the reviewed draft is not valid JSON for the expected schema")
 		}
 	}
-	// Load the configuration before the date check so a bad --config reports
-	// its own root cause, not a misleading date mismatch.
 	cfg, err := timesheet.LoadConfig(f.configPath)
 	if err != nil {
 		return err
 	}
-	// The day to record is the explicit --date or, when omitted, today in the
-	// configured timezone. The reviewed draft must agree with the RESOLVED day
-	// so a wrong day is visible in the error, and the receipt carries that day.
 	day, err := resolveDay(f.configPath, f.date)
 	if err != nil {
 		return err
@@ -477,9 +383,6 @@ func runRecord(args []string) error {
 	return printJSON(receipt)
 }
 
-// composeDescriptionsOnly is the descriptions-only judgment input's core,
-// shared by the record verb and the tui verb's record act: read the draft and
-// the bound descriptions answer, and compose the reviewed draft.
 func composeDescriptionsOnly(draftPath, descriptionsPath string) (timesheet.ReviewedDraft, error) {
 	draftData, err := os.ReadFile(draftPath)
 	if err != nil {
@@ -500,11 +403,6 @@ func composeDescriptionsOnly(draftPath, descriptionsPath string) (timesheet.Revi
 	return timesheet.ComposeReviewed(draft, desc)
 }
 
-// runStatus prints the store status and the recorded entries summary for the
-// day: the explicit --date or, when omitted, today in the configured timezone.
-// The day is opened first (issue #162) so the status result carries the day's
-// per-source latest collection attempt — status and collection_id — for
-// acknowledge/decide to copy verbatim.
 func runStatus(args []string) error {
 	f, err := parseHeadlessFlags("status", args)
 	if err != nil {
@@ -556,18 +454,6 @@ func runStatus(args []string) error {
 	return printJSON(summary)
 }
 
-// --- SUBMIT-1 day finalization commands -----------------------------------------
-//
-// stage/acknowledge/decide/confirm/save drive the existing Session API (the
-// same in-process dispatcher every command drives) to carry one recorded day from its entries file to
-// a durable confirmed day. Each command is one process: open the day, run its
-// ops, close. They hold the store's exclusive single-writer lock, so they
-// cannot run while another process holds the store (unlike record, which opens
-// no store). Nothing here approves or submits anything.
-
-// finalizeFlags carries the stage/confirm/save inputs: --config/--env-file/
-// --date. Intervals carry no project (ADR 0012). classify reuses the same flag
-// set plus --file.
 type finalizeFlags struct {
 	configuredDefault bool
 	fromHistory       bool
@@ -575,10 +461,7 @@ type finalizeFlags struct {
 	envFile           string
 	date              string
 	file              string
-	// revise is stage's explicit finalized-day revision flag: the confirmed
-	// set is replaced by a fresh derivation from the entries ledger (split
-	// included) and the day is re-finalized at a new revision.
-	revise bool
+	revise            bool
 }
 
 func parseFinalizeFlags(name string, args []string) (*finalizeFlags, error) {
@@ -761,7 +644,6 @@ type StageReceipt struct {
 	CarryNote  string       `json:"carry_note,omitempty"`
 }
 
-// StageCarry is one carried segment as the stage receipt shows it.
 type StageCarry struct {
 	From        string `json:"from"`
 	To          string `json:"to"`
@@ -783,22 +665,6 @@ func stageCarries(carries []timesheet.CarrySegment) []StageCarry {
 	return out
 }
 
-// applyStage converts the day's recorded entries into staged intervals through
-// the existing add_interval/edit_interval/remove_interval session ops, using
-// the <date>.stage.json sidecar to keep the staged set exactly matching the
-// current entries file. The sidecar's edit and remove branches fire only
-// within the process that staged (whenever a mapped block's interval already
-// exists in the open day's staged set); they are not a cross-process
-// persistence mechanism.
-//
-// Because Day.Staged is session-only by design (it is never durable), every
-// command that needs the staged set re-derives it from the entries ledger
-// inside its own process; this function is that derivation, and stage, confirm
-// and save all run it. A fresh process starts from an EMPTY staged set, so a
-// cross-process re-stage re-adds via add_interval; the re-derived ids match the
-// previous ones only because nothing was yet durable (the day's NextInterval
-// counter is not saved until confirm+save). The caller must have verified via
-// openFinalizeDay that the day carries no confirmed intervals.
 func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, summary timesheet.DaySummary) (*StageReceipt, error) {
 	revision := summary.Revision
 	stagedIDs := map[string]bool{}
@@ -813,9 +679,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 	if err != nil {
 		return nil, err
 	}
-	// Segments the previous date carried into this one stage like its own
-	// entries (issue #277, ADR 0011). A carry computed in another timezone is
-	// refused: its clocks are never reinterpreted.
 	carryIn, err := timesheet.ReadCarryInto(cfg.StatePath, date)
 	if err != nil {
 		return nil, err
@@ -839,7 +702,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 		return nil, err
 	}
 
-	// Deterministic processing order: the recorded blocks sorted by block_id.
 	ids := make([]string, 0, len(entries))
 	byID := make(map[string]timesheet.EntryRecord, len(entries))
 	for _, e := range entries {
@@ -876,9 +738,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 		Skipped:     []StageSkip{},
 	}
 
-	// One staging unit per interval derivation: one overlap cluster, same-day
-	// or overnight (issue #176), under its effective id (the entry's own id for
-	// a single entry, the union-derived id for a cluster).
 	type stageUnit struct {
 		id    string
 		text  string
@@ -907,9 +766,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 			continue
 		}
 		if timesheet.EntrySpansADayOrMore(e.Start, e.End) {
-			// Its stamps are 24 hours or more apart: past more than one
-			// midnight, which no interval can express, and its clocks alone
-			// would read as a shorter span. Never truncate it (issue #176).
 			receipt.Skipped = append(receipt.Skipped, StageSkip{
 				BlockID: id,
 				Reason:  fmt.Sprintf("entry spans 24 hours or more (start %q, end %q); an interval crosses at most one midnight and is never truncated to the entry's clocks; times are never invented", e.Start, e.End),
@@ -917,10 +773,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 			continue
 		}
 		if endMin == startMin {
-			// Zero-duration entry, not an overnight span: the interval op
-			// rejects start == end ("interval duration must be positive"), so
-			// passing it through would abort the whole stage command and block
-			// every other entry of the day. Skip it with its own reason.
 			receipt.Skipped = append(receipt.Skipped, StageSkip{
 				BlockID: id,
 				Reason:  fmt.Sprintf("entry has zero duration (start %q, end %q); times are never invented", e.Start, e.End),
@@ -928,9 +780,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 			continue
 		}
 		if dayLong[id] {
-			// It overlaps other entries whose union, with an overnight span,
-			// runs 24 hours or more: no interval can hold it, and its wrapped
-			// clock span would silently lose the day (issue #176).
 			receipt.Skipped = append(receipt.Skipped, StageSkip{
 				BlockID: id,
 				Reason:  fmt.Sprintf("overlapping entries span 24 hours or more (this entry: start %q, end %q); an interval crosses at most one midnight, so they are never merged or truncated; times are never invented", e.Start, e.End),
@@ -945,13 +794,9 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 			})
 		}
 	}
-	// Head block_id order keeps the receipt in the documented order for a day
-	// that has no merge at all.
 	sort.Slice(clusters, func(i, j int) bool { return clusters[i].BlockID < clusters[j].BlockID })
 	var carries []timesheet.CarrySegment
 	for _, c := range clusters {
-		// The part a source day cannot hold within the four-hour policy is
-		// carried into the next date (issue #277, ADR 0011).
 		spans, carry := timesheet.SplitCluster(date, summary.Timezone, c)
 		if carry != nil {
 			carries = append(carries, *carry)
@@ -979,10 +824,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 		spans := u.spans
 		desired[id] = true
 		mapped := stageMap[id]
-		// Same-process restage path: the mapped chunks all exist in this
-		// process's staged set, so each is kept or edited in place. A fresh
-		// process never lands here — its staged set starts empty and the
-		// block is re-added below.
 		if len(mapped) == len(spans) && len(spans) > 0 {
 			inPlace := true
 			for _, ivID := range mapped {
@@ -1011,8 +852,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 				continue
 			}
 		}
-		// Fresh (or reshaped) derivation: drop any same-process stale chunks
-		// for this block, then add every span.
 		for _, ivID := range mapped {
 			if stagedIDs[ivID] {
 				if _, err := h.call("remove_interval", timesheet.Request{
@@ -1041,9 +880,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 		next[id] = added
 	}
 
-	// Entries removed from the file lose their staged intervals (same-process
-	// path only; a stale map entry whose interval no longer exists is simply
-	// dropped).
 	stale := make([]string, 0, len(stageMap))
 	for id := range stageMap {
 		if !desired[id] {
@@ -1067,8 +903,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 	if err := timesheet.WriteStageMap(cfg.StatePath, timesheet.AppVersion, date, next, time.Now()); err != nil {
 		return nil, err
 	}
-	// The carry record is replaced whole by every derivation, so re-staging
-	// never duplicates or leaves a stale carry; no carry removes it.
 	if err := timesheet.WriteCarry(cfg.StatePath, timesheet.AppVersion, date, carries, time.Now()); err != nil {
 		return nil, err
 	}
@@ -1082,8 +916,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 				target, target, target)
 		}
 	}
-	// Re-open the day so the receipt reports the staged set exactly as the
-	// session now sees it (open_day is idempotent within the process).
 	res, err := h.call("open_day", timesheet.Request{Day: date})
 	if err != nil {
 		return nil, err
@@ -1101,11 +933,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, su
 	return receipt, nil
 }
 
-// finalizedSummary reports whether the opened day holds confirmed intervals of
-// its own. The confirmed view also renders locked segments that spill in from
-// an interval the previous date saved across midnight; those belong to that
-// date, so they never make this day finalized (issue #277: the source day's
-// kept part crosses midnight, and the target day must still stage its carry).
 func finalizedSummary(summary timesheet.DaySummary) bool {
 	for _, seg := range summary.Confirmed.Segments {
 		if seg.OriginDate == summary.Date {
@@ -1115,11 +942,6 @@ func finalizedSummary(summary timesheet.DaySummary) bool {
 	return false
 }
 
-// openFinalizeDay opens the day for a stage/confirm/save command and refuses
-// when it already carries confirmed intervals. The staged set is derived from
-// the entries ledger, and a finalized day is never re-derived or silently
-// mutated; divergence after confirmation is detected downstream by the plan's
-// content hash (SUBMIT-3), never by restaging over confirmed work.
 func openFinalizeDay(h *headlessSession, name, date string) (timesheet.DaySummary, error) {
 	res, err := h.call("open_day", timesheet.Request{Day: date})
 	if err != nil {
@@ -1136,24 +958,12 @@ func openFinalizeDay(h *headlessSession, name, date string) (timesheet.DaySummar
 	return summary, nil
 }
 
-// noteStageSkips mirrors stage's skip list on stderr for confirm and save, so
-// the honesty of the never-invented-times rule survives into the commands that
-// consume the derived staging. Each block's own receipt reason is printed: a
-// merged contributor is not anchorless, and the caller does not assert a cause
-// it would have to guess.
 func noteStageSkips(name string, receipt *StageReceipt) {
 	for _, s := range receipt.Skipped {
 		fmt.Fprintf(os.Stderr, "%s: skipped block %s: %s\n", name, s.BlockID, s.Reason)
 	}
 }
 
-// runStage converts the day's recorded entries file into staged intervals.
-// Natural order: run --date (collect) first, then stage, then acknowledge
-// and/or decide with the collection_id from that collect receipt, then confirm,
-// then save. Holds the store's exclusive lock. On a finalized day, plain stage
-// refuses (confirmed work is never silently restaged); the explicit --revise
-// flag replaces the confirmed set with a fresh derivation from the entries
-// ledger (four-hour chunks included) and re-finalizes the day at a new revision.
 func runStage(args []string) error {
 	f, err := parseFinalizeFlags("stage", args)
 	if err != nil {
@@ -1193,21 +1003,8 @@ func runStage(args []string) error {
 	return printJSON(receipt)
 }
 
-// reviseStage is stage's explicit finalized-day revision: every staged interval
-// (the clone of the durable confirmed set the day opened with) is removed, the
-// staged set is re-derived from the CURRENT entries ledger with the four-hour
-// chunking applied, and the day is confirmed and saved in-process at a NEW
-// revision — the dispatcher's reopen → edit → confirm → save revision
-// step and classify's finalized-day pattern. Entries no longer in the ledger
-// lose their intervals; the ledger itself is never modified. Every op refusal
-// (source gate, stale revision, interval validation) passes through verbatim
-// with the durable day untouched at its saved revision.
 func reviseStage(h *headlessSession, cfg *timesheet.Config, date string, summary timesheet.DaySummary) (*StageReceipt, error) {
 	revision := summary.Revision
-	// The pre-derivation removals are the durable intervals this revision
-	// replaces; they predate the derivation, so they carry their old durable
-	// interval id and no block_id. They are reported in receipt.Removed
-	// alongside whatever the derivation itself removes (issue #173).
 	removed := make([]StageBlockRef, 0, len(summary.Staged.Segments))
 	for _, seg := range summary.Staged.Segments {
 		if seg.OriginDate != date {
@@ -1220,10 +1017,6 @@ func reviseStage(h *headlessSession, cfg *timesheet.Config, date string, summary
 		}
 		removed = append(removed, StageBlockRef{IntervalID: seg.IntervalID})
 	}
-	// Re-open the day so the derivation sees the post-removal staged set:
-	// applyStage's same-process fast path keys off the summary's staged
-	// segments, and the stale pre-removal snapshot would make it treat the
-	// removed chunks as still present and skip re-adding them.
 	res, err := h.call("open_day", timesheet.Request{Day: date})
 	if err != nil {
 		return nil, err
@@ -1320,24 +1113,6 @@ func runDecide(args []string) error {
 	return printJSON(res)
 }
 
-// --- SUBMIT-2 classification commands --------------------------------------------
-//
-// classifications and classify wire the existing classifications and
-// select_classification session ops into the one-shot headless flow. The
-// natural order is: run --date (collect) → record → stage → classifications
-// (fetch the catalog) → classify (apply selections) → confirm → save.
-
-// runClassifications wraps the classifications op: one bounded authoritative
-// catalog read against the configured Gradion workspace, whose result is
-// persisted in the store's bounded catalog cache (the most recent
-// classifications fetches; see maxStoredCatalogs). This is the one command in
-// the stage→classify flow that needs live access: it opens an MCP session and
-// performs network IO with the configured credential, so without a Gradion
-// configuration (or with a missing credential) it fails closed with the
-// op's own error and nothing is fetched or stored. The printed receipt is the
-// catalog record's choices exactly as the session returns them: catalog_id,
-// query, complete, observed_at, and the options (id, name, code,
-// activity_type) a later classify selection references by id.
 func runClassifications(args []string) error {
 	flags := flag.NewFlagSet("classifications", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -1422,41 +1197,6 @@ type ClassifyReceipt struct {
 	Note string `json:"note,omitempty"`
 }
 
-// runClassify applies the day's classification choices through the
-// select_classification op, and has two paths:
-//
-//   - Not yet finalized (the day carries no durable confirmed intervals): it
-//     re-derives the day's staged set exactly as stage/confirm/save do (same
-//     entries ledger, same sidecar-backed derivation, so interval ids match
-//     the ids a stage receipt printed for the same entries state), then
-//     applies each selection in choices.json in interval_id order, and
-//     persists the selections — each content-bound to the recorded block it
-//     was chosen for via BlockContentDigest — to the
-//     entries/<date>.classify.json sidecar so confirm and save can replay
-//     them. Selection ids must be copied verbatim from the current stage or
-//     classify receipt: an unknown or renumbered interval id fails closed
-//     with the op's own error, untouched, and the sidecar is not written. A
-//     `{}` choices file is a valid honest no-op: nothing is selected, and the
-//     sidecar is rewritten empty (clearing any earlier selections). After
-//     classify the day remains staged; nothing durable happens until confirm
-//     and save.
-//
-//   - Already finalized (a saved day that carries durable confirmed
-//     intervals, e.g. it was confirmed and saved before any classification
-//     was selected — previously this day could never become plan-ready, a
-//     deadlock): the day is opened normally (open_day semantics, so Staged is
-//     the clone of the durable confirmed intervals — never re-derived, never
-//     restaged), the selections key off the durable interval ids exactly as
-//     `status --date` prints them, and the command drives the day to a NEW
-//     durable revision inside this process — confirm then save, the
-//     dispatcher's reopen → select → confirm → save revision step — because the
-//     selections live only on Staged otherwise. No sidecar is written on this
-//     path: the selections become durable immediately. A `{}` choices file is
-//     still an honest no-op: nothing is selected and the saved day is left
-//     untouched at its current revision. A stale or unknown interval id fails
-//     closed with the op's own error before anything durable happens
-//     (select_classification mutates only the in-memory staged clone, so the
-//     saved revision is unchanged and no receipt prints).
 func runClassify(args []string) error {
 	f, err := parseClassifyFlags(args)
 	if err != nil {
@@ -1485,10 +1225,6 @@ func runClassify(args []string) error {
 	return printJSON(receipt)
 }
 
-// classifyFileDay is classify --file's whole flow over one held session: read
-// the bound answer file, open the day, and either re-finalize the durable
-// intervals or re-derive the staged set with the content-bound sidecar. The tui verb's classify act is
-// the same flow over its own held session.
 func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, answerFile string) (ClassifyReceipt, error) {
 	data, err := os.ReadFile(answerFile)
 	if err != nil {
@@ -1521,10 +1257,6 @@ func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, answerFile
 	return receipt, nil
 }
 
-// classifyFileCore is classify's not-yet-finalized core, shared by the verb
-// and the tui verb's classify act: re-derive the staged set, apply each
-// selection in interval_id order, and persist the selections content-bound to
-// the recorded blocks this derivation mapped them to.
 func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date string, summary timesheet.DaySummary, selections map[string]timesheet.ClassificationChoiceEntry) (ClassifyReceipt, error) {
 	staged, err := applyStage(h, cfg, "classify", date, summary)
 	if err != nil {
@@ -1535,11 +1267,6 @@ func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date string, su
 	if err != nil {
 		return ClassifyReceipt{}, err
 	}
-	// Content-bind each selection to the recorded block this derivation just
-	// mapped its interval to, so a later replay can prove the day still holds
-	// the exact blocks the choices were made against (staged ids re-derive
-	// sequentially; without the binding an entries shift would re-attach a
-	// selection to the wrong successor interval).
 	blocks, err := stagedBlocks(cfg, date)
 	if err != nil {
 		return ClassifyReceipt{}, err
@@ -1571,20 +1298,6 @@ func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date string, su
 	return receipt, nil
 }
 
-// runClassifyFinalized is classify's finalized-day path. The day was opened
-// via open_day, so its staged set is the clone of the durable confirmed
-// intervals — stable ids the entries ledger plays no part in — and the
-// selections apply directly against those ids at the day's current (saved)
-// revision. With at least one applied selection the day is driven to a new
-// durable revision: confirm then save within this same process, mirroring the
-// dispatcher's reopen → select_classification → confirm → save revision step
-// (staged selections are session-only, so skipping the re-finalize would
-// silently drop them). An empty applied set is an honest no-op: no confirm
-// and no save run, and the receipt says the saved day was left unchanged.
-// Every op refusal passes through verbatim, so a stale or unknown interval id
-// (unknown_interval), a catalog that is not stored (stale_catalog) or a
-// classification the catalog did not return (unknown_classification) fails
-// closed with the day untouched at its saved revision.
 func runClassifyFinalized(h *headlessSession, date, answerFile string, summary timesheet.DaySummary, selections map[string]timesheet.ClassificationChoiceEntry) (ClassifyReceipt, error) {
 	applied, err := applySelections(h, date, summary.Revision, selections)
 	if err != nil {
@@ -1630,8 +1343,6 @@ func runClassifyFinalized(h *headlessSession, date, answerFile string, summary t
 	return receipt, nil
 }
 
-// parseClassifyFlags parses classify's flag surface: the finalize flags plus
-// either a --file choices path or --configured-default.
 func parseClassifyFlags(args []string) (*finalizeFlags, error) {
 	flags := flag.NewFlagSet("classify", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -1691,7 +1402,6 @@ func applySelections(h *headlessSession, date string, revision int, selections m
 			CatalogID: sel.CatalogID, ClassificationID: sel.ClassificationID,
 		})
 		if err != nil {
-			// Name the interval, so a rejected answer says which selection.
 			var app *timesheet.AppError
 			if errors.As(err, &app) {
 				return nil, &timesheet.AppError{Code: app.Code, Message: "interval " + id + ": " + app.Message}
@@ -1711,14 +1421,6 @@ func applySelections(h *headlessSession, date string, revision int, selections m
 	return applied, nil
 }
 
-// stagedBlocks binds each staged interval id from the day's stage map to the
-// effective merged content it was derived from: the stage projection's union
-// span and joined description for a cluster, not the head entry alone. Both
-// classify (to content-bind its selections at write time) and the confirm/save
-// replay (to re-verify the binding) use it; applyStage has just rewritten the
-// stage map in both paths, so the binding reflects the derivation this process
-// actually staged. Because the digest covers the whole merged content, changing
-// any contributor of a merged interval fails the replay closed.
 func stagedBlocks(cfg *timesheet.Config, date string) (map[string]timesheet.EntryRecord, error) {
 	artifacts, err := timesheet.ReadDayArtifacts(cfg.StatePath, date)
 	if err != nil {
@@ -1752,21 +1454,6 @@ func stagedBlocks(cfg *timesheet.Config, date string) (map[string]timesheet.Entr
 	return byInterval, nil
 }
 
-// applyPersistedSelections replays the day's persisted classification choices
-// (entries/<date>.classify.json) against the freshly re-derived staged set.
-// This is how selections cross the process boundary: confirm and save call it
-// after their own re-derivation, so the intervals they confirm carry
-// remote_classification_id and save commits it durably. Only a
-// content-identical re-derivation replays: each persisted selection carries
-// the BlockContentDigest of the recorded block it was chosen for, and any
-// entries change since classify — an insertion shifting the sequential ids
-// onto different blocks, a same-count replacement, a time or description
-// edit — makes the recomputed digest differ, which fails closed naming the
-// block instead of re-attaching the selection to the wrong interval. A sidecar
-// id with no block (or no longer in the staged day) fails closed the same
-// way; the review-again wording tells the operator the fix: re-run stage +
-// classify. A missing or empty sidecar replays nothing (a day never
-// classified behaves exactly as SUBMIT-1 left it).
 func applyPersistedSelections(h *headlessSession, cfg *timesheet.Config, name, date string, revision int) (int, error) {
 	selections, err := timesheet.ReadClassificationChoices(cfg.StatePath, date)
 	if err != nil {
@@ -1809,12 +1496,6 @@ func noteClassifyReplays(name string, n int) {
 	}
 }
 
-// runConfirm derives the staged set from the entries ledger, then wraps the
-// confirm op, including its source gate: every enabled source needs a
-// collection attempt for the date, and a non-complete attempt needs an explicit
-// acknowledgment. A missing acknowledgment fails with the op's gate error
-// naming what is missing, passed through verbatim. The receipt is in-memory
-// only; save makes it durable.
 func runConfirm(args []string) error {
 	f, err := parseFinalizeFlags("confirm", args)
 	if err != nil {
@@ -1844,9 +1525,6 @@ func runConfirm(args []string) error {
 	return printJSON(receipt)
 }
 
-// stageAndReplay is confirm and save's shared prefix: derive the staged set
-// from the entries ledger, then replay the persisted classification selections
-// against it, with both receipts' honesty notes on stderr.
 func stageAndReplay(h *headlessSession, cfg *timesheet.Config, name, date string, summary timesheet.DaySummary) (*StageReceipt, int, error) {
 	staged, err := applyStage(h, cfg, name, date, summary)
 	if err != nil {
@@ -1861,9 +1539,6 @@ func stageAndReplay(h *headlessSession, cfg *timesheet.Config, name, date string
 	return staged, replayed, nil
 }
 
-// confirmAndSave runs the confirm op and, when throughSave, the durable save
-// that commits it. It is confirm and save's shared core and the tui verb's
-// save act.
 func confirmAndSave(h *headlessSession, name, date string, revision int, throughSave bool) (timesheet.ConfirmReceipt, *timesheet.SaveReceipt, error) {
 	confirmed, err := h.call("confirm", timesheet.Request{Day: date, Revision: &revision})
 	if err != nil {
@@ -1887,30 +1562,6 @@ func confirmAndSave(h *headlessSession, name, date string, revision int, through
 	return receipt, &saveReceipt, nil
 }
 
-// --- SUBMIT-3 plan & identity commands -------------------------------------------
-//
-// plan, reconcile and resolve wire the existing preview_plan, reconcile_remote
-// and resolve_remote session ops into the one-shot headless flow. The natural
-// order after save is: plan (preview what submission would write) → when the
-// plan or reconcile receipt lists identity blockers, reconcile (fresh
-// read-only observation) → the human authors resolve's decision file → plan
-// again for a clean plan_id. plan and reconcile need live access (a fresh
-// remote read through the configured Gradion workspace); resolve does not.
-
-// runPlan wraps the preview_plan op verbatim: one fresh read-only observation
-// of every affected date through the configured Gradion workspace (live
-// access, like classifications: without a Gradion configuration or credential
-// it fails closed with the op's own remote_disabled/remote_unavailable error,
-// and live remote behavior is owner-verified), then the exact PlanPreview
-// result printed as deterministic JSON — plan_id, state, operations, blockers
-// and surfaced remotes, untouched. The op persists the fresh observations and
-// the immutable plan record in one durable transaction under this process's
-// exclusive store lock, so plan cannot run while another process holds the
-// store; the durable plan record is exactly what a later approve consumes
-// after re-rendering fresh in its own process (nothing is approved here).
-// Blockers never auto-clear: each is resolved by an explicit human decision
-// (resolve), and because the plan identity includes the exact blockers, the
-// re-preview after any resolve yields a NEW plan_id — never reuse the old one.
 func runPlan(args []string) error {
 	f, err := parseHeadlessFlags("plan", args)
 	if err != nil {
@@ -1933,16 +1584,6 @@ func runPlan(args []string) error {
 	return printJSON(receipt)
 }
 
-// runReconcile wraps the reconcile_remote op: one fresh read-only observation
-// of the date (live access, like plan; fails closed with the op's own
-// remote_disabled/remote_unavailable error), then the mapped/changed/missing/
-// orphaned identities, unbound remotes and candidates exactly as the op
-// returns them. Read-only in the identity sense: the op persists the fresh
-// observation record itself (under this process's exclusive store lock, so it
-// cannot run while another process holds the store) but it NEVER binds an identity,
-// never mutates an existing mapping and never resolves a blocker — the
-// receipt's observation_id, revision and unbound/candidate lists are exactly
-// the inputs the human copies into resolve's decision file.
 func runReconcile(args []string) error {
 	f, err := parseHeadlessFlags("reconcile", args)
 	if err != nil {
@@ -1965,10 +1606,6 @@ func runReconcile(args []string) error {
 	return printJSON(receipt)
 }
 
-// resolveFlags carries the resolve inputs. The --file decision JSON is the
-// human decision gate: it must be authored by the human after reading the
-// reconcile (or plan) receipt, with observation_id, revision and remote_id
-// copied verbatim from that receipt.
 type resolveFlags struct {
 	configPath string
 	envFile    string
@@ -2007,19 +1644,6 @@ func parseResolveFlags(args []string) (*resolveFlags, error) {
 	return f, nil
 }
 
-// runResolve wraps the resolve_remote op: it records one explicit human
-// identity/content decision (adopt, accept_observed or foreign) against the
-// day's current observation. The decision file — authored by the human after
-// reading reconcile/plan output — is parsed for shape only; every op-level
-// refusal passes through verbatim: a wrong or stale observation_id
-// (stale_observation), a remote_id the observation does not carry
-// (unknown_remote), adopt without confirmed durable local work that allocates
-// onto this date (unknown_local), a decision that would steal or erase an
-// active binding (identity_conflict), and a stale day revision
-// (stale_revision). resolve performs no remote read; it needs no live access.
-// A successful adopt or accept_observed binds (or re-baselines) the mapping
-// durably; foreign records the decision without binding. Nothing here approves
-// or submits anything.
 func runResolve(args []string) error {
 	f, err := parseResolveFlags(args)
 	if err != nil {
@@ -2041,8 +1665,6 @@ func runResolve(args []string) error {
 	return printJSON(receipt)
 }
 
-// resolveFileDay is resolve's core over one held session, shared by the verb
-// and next's resolve act (an ask_human answer file is a decision file).
 func resolveFileDay(h *headlessSession, date, file string) (timesheet.ResolutionReceipt, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -2066,10 +1688,6 @@ func resolveFileDay(h *headlessSession, date, file string) (timesheet.Resolution
 	return receipt, nil
 }
 
-// runSave derives the staged set from the entries ledger, confirms it (source
-// gate included), and wraps the save op: one durable Commit of the confirmed
-// day. After a successful save the day is final; further stage/confirm/save
-// runs are refused.
 func runSave(args []string) error {
 	f, err := parseFinalizeFlags("save", args)
 	if err != nil {
@@ -2092,10 +1710,6 @@ func runSave(args []string) error {
 	return printJSON(*saved)
 }
 
-// saveDay is the save verb's whole flow over one held session: open the day
-// (refusing a finalized one), derive the staged set, replay the persisted
-// selections, confirm, and commit durably. The tui verb's save act is the
-// same flow over its own held session.
 func saveDay(h *headlessSession, cfg *timesheet.Config, name, date string) (*timesheet.SaveReceipt, error) {
 	summary, err := openFinalizeDay(h, name, date)
 	if err != nil {
@@ -2111,23 +1725,6 @@ func saveDay(h *headlessSession, cfg *timesheet.Config, name, date string) (*tim
 	return saved, nil
 }
 
-// --- SUBMIT-4 human-gate commands -------------------------------------------------
-//
-// approve, submit and resolve-write are the only commands that commit a human
-// decision against Gradion remotely: approve binds an authorization, submit
-// dispatches the approved operations, and resolve-write judges an unknown
-// write outcome. All three are structurally human-only (interactive.go): each
-// refuses unless both stdin and stdout are terminals, and each requires
-// typing an exact id at an interactive prompt, so agent shells physically
-// cannot execute them. The TTY check lives in this CLI wrapper only — the
-// Session ops stay transport-agnostic. submit-status is read-only and NOT
-// gated. Every Session op refusal passes through verbatim; receipts are
-// printed exactly as the op returns them; nothing is ever retried.
-
-// renderPlanBody renders a plan preview's operations and blockers as the
-// human-readable summary shown at the approve prompt. The prompt is the
-// decision surface, so an operation's audit reason and task — part of the
-// exact approved body approve_plan binds — are shown when non-empty.
 func renderPlanBody(p timesheet.PlanPreview) string {
 	var b strings.Builder
 	for _, op := range p.Operations {
@@ -2147,16 +1744,6 @@ func renderPlanBody(p timesheet.PlanPreview) string {
 	return b.String()
 }
 
-// runApprove renders the CURRENT plan for the date fresh through preview_plan
-// (a stored plan record is never trusted or shown — the display and the
-// approval both bind to what the remote shows right now), displays the
-// plan_id, state, operations and blockers to the human, and requires typing
-// the exact plan_id. On confirmation it calls the approve_plan op with the
-// day and plan_id; every op refusal (stale_plan, plan_not_ready, an uncertain
-// store, a missing credential, a changed catalog, ...) passes through
-// verbatim. On success the ApprovalReceipt is printed on stdout, with the
-// approval_id — the input to submit — echoed prominently on the terminal.
-// The gate fires before the store opens, so a refusal makes zero remote calls.
 func runApprove(args []string) error {
 	f, err := parseHeadlessFlags("approve", args)
 	if err != nil {
@@ -2179,8 +1766,6 @@ func runApprove(args []string) error {
 	return printJSON(receipt)
 }
 
-// approveDay previews the day's plan, requires typing its exact plan_id, and
-// approves it. It is the first half of `submit`'s terminal mode.
 func approveDay(h *headlessSession, term *interactive, date string) (timesheet.ApprovalReceipt, error) {
 	res, err := h.call("preview_plan", timesheet.Request{Day: date})
 	if err != nil {
@@ -2208,8 +1793,6 @@ func approveDay(h *headlessSession, term *interactive, date string) (timesheet.A
 	return receipt, nil
 }
 
-// submitFlags carries the submit inputs: the finalize flags plus the required
-// --approval-id copied verbatim from the approve receipt.
 type submitFlags struct {
 	configPath string
 	envFile    string
@@ -2217,8 +1800,6 @@ type submitFlags struct {
 	approvalID string
 }
 
-// parseSubmitFlags parses submit's flag surface: the finalize flags plus the
-// required --approval-id copied verbatim from the approve receipt.
 func parseSubmitFlags(args []string) (*submitFlags, error) {
 	flags := flag.NewFlagSet("submit", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -2250,13 +1831,6 @@ func parseSubmitFlags(args []string) (*submitFlags, error) {
 	return f, nil
 }
 
-// runSubmit wraps the submit_plan op: it displays the approval id and day,
-// requires typing the exact approval id to confirm, then dispatches exactly
-// what the approval bound. The SubmissionReceipt is printed faithfully — every
-// aggregate count, per-reference status, the blocked_before_dispatch and
-// durability_uncertain states, blockers and next_action — and every op
-// refusal passes through verbatim. Zero remote calls happen without a
-// persisted active approval; the receipt says so.
 func runSubmit(args []string) error {
 	f, err := parseSubmitFlags(args)
 	if err != nil {
@@ -2282,13 +1856,11 @@ func runSubmit(args []string) error {
 	return printJSON(receipt)
 }
 
-// confirmSubmission requires typing the exact approval_id before any write.
 func confirmSubmission(term *interactive, date, approvalID string) error {
 	prompt := fmt.Sprintf("About to submit day %s using approval %s\nThe submission dispatches the approved operations to Gradion; writes are never retried and unknown outcomes stay unresolved until you resolve them.", date, approvalID)
 	return term.confirm(prompt, approvalID)
 }
 
-// submitApproved dispatches exactly what a confirmed approval bound.
 func submitApproved(h *headlessSession, term *interactive, date, approvalID string) (timesheet.SubmissionReceipt, error) {
 	res, err := h.call("submit_plan", timesheet.Request{Day: date, ApprovalID: approvalID})
 	if err != nil {
@@ -2303,11 +1875,6 @@ func submitApproved(h *headlessSession, term *interactive, date, approvalID stri
 	return receipt, nil
 }
 
-// runSubmitStatus wraps the submission_status op verbatim: the date's
-// approvals, execution history, every unresolved native or migrated write
-// with its write_ref, and the next_safe_action. It is read-only (no remote
-// call, no durable write) and deliberately NOT TTY-gated: the agent may run
-// it so a human can decide recovery.
 func runSubmitStatus(args []string) error {
 	f, err := parseHeadlessFlags("submit-status", args)
 	if err != nil {
@@ -2330,8 +1897,6 @@ func runSubmitStatus(args []string) error {
 	return printJSON(receipt)
 }
 
-// parseResolveWriteFlags parses resolve-write's flag surface. There is no
-// --date: the write reference carries its own date.
 func parseResolveWriteFlags(args []string) (*resolveFlags, error) {
 	flags := flag.NewFlagSet("resolve-write", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -2356,12 +1921,6 @@ func parseResolveWriteFlags(args []string) (*resolveFlags, error) {
 	return f, nil
 }
 
-// writeResolutionDecision is the human-authored resolve-write decision file.
-// Its fields match the resolve_write op's request exactly: the write_ref copied
-// verbatim from submission_status, the observation_id of the CURRENT complete
-// observation for the write's date (run reconcile — or plan — first; a stale
-// or incomplete observation is refused by the op), the decision, and for
-// adopt the remote_id of the explicitly selected observed entry.
 type writeResolutionDecision struct {
 	WriteRef      string `json:"write_ref"`
 	ObservationID string `json:"observation_id"`
@@ -2369,9 +1928,6 @@ type writeResolutionDecision struct {
 	RemoteID      string `json:"remote_id"`
 }
 
-// parseWriteResolutionDecision parses the decision file for shape only. Unknown
-// fields are refused so a typo can never silently drop a decision; every
-// op-level refusal still passes through verbatim at resolve time.
 func parseWriteResolutionDecision(data []byte) (writeResolutionDecision, error) {
 	var d writeResolutionDecision
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -2395,17 +1951,6 @@ func parseWriteResolutionDecision(data []byte) (writeResolutionDecision, error) 
 	return d, nil
 }
 
-// runResolveWrite wraps the resolve_write op with a human-authored decision
-// file (--file) and a typed confirmation: it is a human judgment on an
-// unknown outcome, so it is TTY-gated like approve and submit. The decision
-// file is parsed for shape only; every op refusal passes through verbatim —
-// a wrong or stale observation_id (stale_observation), an unknown remote_id,
-// an adopt whose content does not match the intended operation
-// (identity_conflict), a not_applied contradicted by an observed matching
-// effect, a confirmed or already-resolved write_ref, and an uncertain store.
-// The observation prerequisite: the decision file's observation_id must name
-// the CURRENT complete observation for the write's date, which only a prior
-// reconcile (or plan) run has persisted.
 func runResolveWrite(args []string) error {
 	f, err := parseResolveWriteFlags(args)
 	if err != nil {

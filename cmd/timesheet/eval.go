@@ -13,18 +13,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// eval is the golden-day evaluation verb (issue #236):
-//
-//	timesheet eval export [--config <path>] [--out <file>]
-//	timesheet eval run --golden <file> [--out <file>] [--config <path>] [--env-file <path>]
-//	timesheet eval score --golden <file> [--candidate <file>]
-//
-// export reads the store and writes the owner's saved days as judgment input
-// plus accepted answer. The file holds personal evidence, so it is refused
-// inside any git work tree; it never carries configuration, credentials or
-// env-file contents. run replays the dataset through the configured judge
-// (eval_run.go). score rates a candidate (default: the dataset's own
-// accepted answers, the 100% self-check) with timesheet.ScoreGolden.
 func runEval(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("eval requires a subcommand: export, run or score")
@@ -180,11 +168,6 @@ func exportGolden(cfg *timesheet.Config, state *timesheet.State, now time.Time) 
 	return g
 }
 
-// goldenClassifications records the classifications judgment as next built
-// it: the staged blocks minus those decided from approved history, each naming
-// its set from the day's candidates.json. Those sets came from live catalog
-// reads at log time, so a ledger without bound candidates is skipped rather
-// than re-read: the dataset replays offline (#279).
 func goldenClassifications(cfg *timesheet.Config, date string, confirmed []timesheet.Interval, staged map[string]timesheet.EntryRecord, observed map[[2]string]*timesheet.RemoteEntry) (*timesheet.GoldenClassifications, string) {
 	digest := timesheet.StagedLedgerDigest(date, staged)
 	dir, err := dayArtifactsDir(cfg.StatePath, date)
@@ -307,13 +290,11 @@ func runEvalScore(args []string) error {
 	}
 	s := timesheet.ScoreGolden(g, candidate)
 	if s.ClassificationIntervals == 0 && s.DescriptionBlocks == 0 {
-		// Rates of 0 would read like a failed judge (#282).
 		return fmt.Errorf("eval score: the dataset %s has nothing to score (%d day(s), no accepted classification or description); log days with the current binary, then export again", *goldenFlag, s.Days)
 	}
 	return printJSON(s)
 }
 
-// readGolden reads a dataset and refuses one written under another schema.
 func readGolden(verb, path string) (timesheet.GoldenDataset, error) {
 	var g timesheet.GoldenDataset
 	if err := readJSONFile(path, &g); err != nil {

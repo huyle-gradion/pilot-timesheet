@@ -1,7 +1,5 @@
 package main
 
-// The TUI's pure reducer: model, events, update.
-
 import (
 	"errors"
 	"strings"
@@ -10,15 +8,12 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// loopSnapshot is one tick's derived view of the day; nothing survives a tick.
 type loopSnapshot struct {
 	day    string
 	action nextAction
 	status *timesheet.SubmissionStatusResult
 }
 
-// tuiEnv is the immutable process context the effects close over: one store,
-// one session, one held lock, set once before the alt screen starts.
 type tuiEnv struct {
 	cfg        *timesheet.Config
 	configPath string
@@ -28,12 +23,6 @@ type tuiEnv struct {
 	styles     uiStyles
 }
 
-// tuiModel is the Elm-architecture state; update is the only writer. busy is
-// the in-flight gate: while one op runs to completion every key is ignored (no
-// cancellation; HandleLine takes no context). err is the last failed op or
-// tick; the loop keeps the last good snapshot. closeErr is the close op's
-// failure on quit; notice is the last act or gate receipt summary; stop ends
-// the program.
 type tuiModel struct {
 	env      tuiEnv
 	snap     loopSnapshot
@@ -41,7 +30,7 @@ type tuiModel struct {
 	busy     bool
 	err      error
 	closeErr error
-	bench    benchState // the authoring or gate form; empty unless one is open
+	bench    benchState
 	notice   string
 	stop     bool
 }
@@ -50,28 +39,23 @@ type tuiModel struct {
 // height 0 (every test-constructed model, and the first frame) means unbounded.
 type viewState struct{ height int }
 
-// benchState is the TUI's only mutable domain state: operator text that has
-// not gone through a session op. On the bench screen it carries the authored
-// document with the judgment's own digest and answer path; on the gate screen,
-// the typed echo and fresh artifacts.
 type benchState struct {
 	screen     tuiScreen
-	kind       string                  // judgment kind, or the gate kind approve|submit
-	digest     string                  // draft_digest or ledger_digest, copied verbatim
-	answerFile string                  // the bench form's target path, or the gate echo prompt
-	text       string                  // authored answer document, or the typed echo
-	caret      int                     // caret within text, in runes
-	preview    *timesheet.PlanPreview  // the approve dialog's fresh preview
-	approvals  []timesheet.ApprovalRow // the submit dialog's active approvals
+	kind       string
+	digest     string
+	answerFile string
+	text       string
+	caret      int // caret within text, in runes
+	preview    *timesheet.PlanPreview
+	approvals  []timesheet.ApprovalRow
 }
 
-// tuiScreen names the screen the operator is on.
 type tuiScreen int
 
 const (
-	screenDay   tuiScreen = iota
-	screenBench           // authoring a judgment answer file
-	screenGate            // a display-before-ask gate dialog
+	screenDay tuiScreen = iota
+	screenBench
+	screenGate
 )
 
 const (
@@ -87,30 +71,20 @@ type keyEvent struct{ key string }
 // bubbletea already truncates over-wide lines.
 type sizeEvent struct{ height int }
 
-// textEvent carries the runes of one text input (typed or pasted). The driver
-// produces it from KeyRunes and KeySpace messages only, so a structural key's
-// name can never reach an open document as text.
 type textEvent struct{ runes []rune }
 
-// tickEvent carries the rebuilt snapshot; reopen reopens a judgment form
-// fresh after a stale-revision recovery.
 type tickEvent struct {
 	snap   loopSnapshot
 	reopen string
 }
 
-// closeSentEvent reports the close op was sent (the op's error, if any).
 type closeSentEvent struct{ err error }
 
-// actDoneEvent reports one act or gate op ran to completion; notice is the
-// receipt summary the day screen keeps until the next act or gate reports.
 type actDoneEvent struct {
 	err    error
 	notice string
 }
 
-// editorOpenedEvent carries what a form opens with: the bench skeleton, or
-// the gate's fresh preview or approvals.
 type editorOpenedEvent struct {
 	kind       string
 	digest     string
@@ -152,7 +126,7 @@ func update(m tuiModel, ev any) (tuiModel, effect) {
 				m.bench = benchState{screen: screenBench}
 				return m, openEditorEffect(m, e.reopen)
 			}
-			m.bench = benchState{} // the loop moved on; never a dead form
+			m.bench = benchState{}
 		}
 		return m, nil
 	case closeSentEvent:
@@ -183,10 +157,6 @@ func update(m tuiModel, ev any) (tuiModel, effect) {
 	}
 }
 
-// updateActDone finishes one act or gate op: success re-derives and keeps the
-// receipt's notice line; a stale_revision re-runs review and reopens the form
-// fresh; any other failure is reported under a cleared busy lock and an open
-// form keeps the operator's text.
 func updateActDone(m tuiModel, e actDoneEvent) (tuiModel, effect) {
 	if e.err == nil {
 		m.err, m.notice, m.bench = nil, e.notice, benchState{}
@@ -204,9 +174,6 @@ func updateActDone(m tuiModel, e actDoneEvent) (tuiModel, effect) {
 	return m, nil
 }
 
-// updateGateCheck is both gates' decision point: approve_plan only for the
-// fresh preview's exact plan_id, submit_plan only for an approval_id still
-// ACTIVE on the fresh submission_status. Any drift emits nothing.
 func updateGateCheck(m tuiModel, e gateCheckEvent) (tuiModel, effect) {
 	m.busy = false
 	echo := strings.TrimSpace(e.echo)
@@ -226,8 +193,6 @@ func updateGateCheck(m tuiModel, e gateCheckEvent) (tuiModel, effect) {
 	return m, nil
 }
 
-// updateKey maps keys to acts; while an op is in flight every key is ignored,
-// so two effects can never run on the session at once.
 func updateKey(m tuiModel, key string) (tuiModel, effect) {
 	if m.busy {
 		return m, nil
@@ -237,14 +202,9 @@ func updateKey(m tuiModel, key string) (tuiModel, effect) {
 	}
 	switch key {
 	case "q", "ctrl+c":
-		// The close op runs under the busy lock, so keys pressed while it is
-		// in flight cannot start a racing act on the unsynchronized session;
-		// closeSentEvent stops the program either way, so busy is never
-		// cleared.
 		m.busy, m.err = true, nil
 		return m, m.env.sendClose
 	case "r":
-		// A new op supersedes the last failure's report.
 		m.busy, m.err = true, nil
 		return m, tickEffect(m.env)
 	case "enter":
@@ -269,7 +229,7 @@ func updateKey(m tuiModel, key string) (tuiModel, effect) {
 			cmd = m.snap.action.Action.Cmd
 		}
 		return m, func() any { return m.env.act(step, cmd) }
-	case "s": // the submit gate; the approve gate is enter, the day screen's act key
+	case "s":
 		if stepAct(m.snap.action) != stateHumanGates {
 			return m, nil
 		}
@@ -280,7 +240,6 @@ func updateKey(m tuiModel, key string) (tuiModel, effect) {
 	}
 }
 
-// activeApprovalFor returns the approval row the echo names, if still active.
 func activeApprovalFor(approvals []timesheet.ApprovalRow, echo string) *timesheet.ApprovalRow {
 	echo = strings.TrimSpace(echo)
 	if echo == "" {
@@ -305,8 +264,6 @@ func openEditorEffect(m tuiModel, kind string) effect {
 	return func() any { return m.env.openEditor(kind, digest, answerFile, blocks) }
 }
 
-// tickEffect wraps one tick as an effect; a failed derivation lands on the
-// act failure path with its real error, a stop document is a tickEvent.
 func tickEffect(e tuiEnv) effect {
 	return func() any {
 		te, err := e.tick()
@@ -317,9 +274,6 @@ func tickEffect(e tuiEnv) effect {
 	}
 }
 
-// updateFormKey is both form screens' key map. Authored text arrives as a
-// textEvent, never through here, so every named key outside this switch is
-// ignored on a form.
 func updateFormKey(m tuiModel, key string) (tuiModel, effect) {
 	b := m.bench
 	switch key {
@@ -345,8 +299,6 @@ func updateFormKey(m tuiModel, key string) (tuiModel, effect) {
 	return m, nil
 }
 
-// updateText inserts authored text at the caret on the form screens; on the
-// day screen the act keys are plain runes, so text routes to the key map.
 func updateText(m tuiModel, e textEvent) (tuiModel, effect) {
 	if m.bench.screen == screenDay {
 		return updateKey(m, string(e.runes))
@@ -360,8 +312,6 @@ func updateText(m tuiModel, e textEvent) (tuiModel, effect) {
 	return m, nil
 }
 
-// editLine applies one structural editing key to the form's document and
-// caret; it never inserts text.
 func editLine(text string, caret int, key string) (string, int) {
 	runes := []rune(text)
 	switch key {

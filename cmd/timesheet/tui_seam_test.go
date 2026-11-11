@@ -13,12 +13,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- tui verb boundary: gate, store lock, and the loop pipeline ---------------
-//
-// The TUI's derivation pipeline is the next pipeline; the gates fire before
-// the alt screen starts; typed errors survive the in-process session call.
-
-// pretendTTY overrides the terminal gate so tests can reach preflight.
 func pretendTTY(t *testing.T) {
 	t.Helper()
 	saved := ttyGate
@@ -26,9 +20,6 @@ func pretendTTY(t *testing.T) {
 	t.Cleanup(func() { ttyGate = saved })
 }
 
-// TestTuiPipelineMatchesNextDerivation is the seam's acceptance proof: after
-// one run leaves a draft artifact, the snapshot preflightTui derives is the
-// exact document `next` prints for the same day.
 func TestTuiPipelineMatchesNextDerivation(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -64,9 +55,6 @@ func TestTuiPipelineMatchesNextDerivation(t *testing.T) {
 	_ = m.env.h.store.Close()
 }
 
-// TestTuiEventFromMsg pins the driver's text boundary: KeyRunes and KeySpace
-// with Alt unset become text, every structural or modified key stays a named
-// key event.
 func TestTuiEventFromMsg(t *testing.T) {
 	tests := []struct {
 		name string
@@ -91,8 +79,6 @@ func TestTuiEventFromMsg(t *testing.T) {
 	}
 }
 
-// TestTuiVerbRefusesNonTerminal pins the structural gate: without terminals on
-// both stdio sides the verb refuses before opening any store.
 func TestTuiVerbRefusesNonTerminal(t *testing.T) {
 	cfgPath := writeRunConfig(t)
 	_, _, runErr := captureOutput(t, func() error {
@@ -103,9 +89,6 @@ func TestTuiVerbRefusesNonTerminal(t *testing.T) {
 	}
 }
 
-// TestTuiVerbRefusesLockedStore checks the single-writer boundary: a held
-// store (a second process shape) meets the store's own store_locked refusal,
-// typed end to end, before any screen starts.
 func TestTuiVerbRefusesLockedStore(t *testing.T) {
 	pretendTTY(t)
 	cfgPath := writeRunConfig(t)
@@ -127,9 +110,26 @@ func TestTuiVerbRefusesLockedStore(t *testing.T) {
 	}
 }
 
-// TestHeadlessCallReturnsTypedError pins the call seam's contract: the error a
-// caller receives is the protocol error's own typed AppError, and its Error()
-// renders the exact "code: message" bytes every existing caller prints.
+func TestPreflightTuiHoldsTheStoreLock(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	pretendTTY(t)
+	cfgPath := writeRunConfig(t)
+	m, err := preflightTui(&nextFlags{configPath: cfgPath, date: "2026-10-20"})
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	defer func() { _ = m.env.h.store.Close() }()
+	second, err := timesheet.OpenStore(m.env.cfg.StatePath)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("a second open succeeded while the tui held the store")
+	}
+	var app *timesheet.AppError
+	if !errors.As(err, &app) || app.Code != timesheet.CodeStoreLocked {
+		t.Fatalf("second open = %v, want store_locked", err)
+	}
+}
+
 func TestHeadlessCallReturnsTypedError(t *testing.T) {
 	cfgPath := writeRunConfig(t)
 	h, err := openHeadless(cfgPath, "")

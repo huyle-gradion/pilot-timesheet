@@ -1,11 +1,5 @@
 package main
 
-// Content proofs for the `next` planner. The planner is read-only, so it cannot
-// re-stage to learn the truth: it proves freshness from the ledger's CONTENT —
-// the same projection the stage verb derives, and the same content-digest
-// binding classify and save already validate. Published timestamps are second
-// resolution and are deliberately NOT used for any prefix decision.
-
 import (
 	"crypto/sha256"
 	"encoding/hex"
@@ -18,12 +12,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// ledgerUnit is one stage-time unit: a recorded block's effective content and
-// the span(s) a fresh stage would turn into intervals. It mirrors applyStage's
-// unit selection (headless.go): each overlap-projection cluster, same-day or
-// overnight, becomes one unit under its cluster id, split by the four-hour
-// policy and cut at its carry (timesheet.SplitCluster, ADR 0011). A cluster
-// carried whole into the next date is no unit of this day.
 type ledgerUnit struct {
 	BlockID     string
 	Date        string
@@ -31,8 +19,6 @@ type ledgerUnit struct {
 	End         string
 	Description string
 	Spans       [][2]string
-	// CarriedFrom is the source date when the unit holds a segment carried
-	// in from the previous date (issue #277); review labels it.
 	CarriedFrom string `json:",omitempty"`
 }
 
@@ -51,8 +37,6 @@ func dayStageEntries(entries []timesheet.EntryRecord, carryIn []timesheet.CarryS
 	return out
 }
 
-// artifactStageEntries is dayStageEntries over a day's loaded artifacts; a day
-// without a ledger contributes only its carried segments.
 func artifactStageEntries(a timesheet.DayArtifacts) []timesheet.EntryRecord {
 	var own []timesheet.EntryRecord
 	if a.Entries != nil {
@@ -61,7 +45,6 @@ func artifactStageEntries(a timesheet.DayArtifacts) []timesheet.EntryRecord {
 	return dayStageEntries(own, a.CarryIn)
 }
 
-// clusterCarriedFrom is the source date of the first carried contributor.
 func clusterCarriedFrom(blockIDs []string) string {
 	for _, id := range blockIDs {
 		if d := timesheet.CarriedSourceDate(id); d != "" {
@@ -71,10 +54,6 @@ func clusterCarriedFrom(blockIDs []string) string {
 	return ""
 }
 
-// ledgerBlocks derives the current ledger's stage-time units without their
-// chunk spans: the content binding (stagedBlocksFrom) needs only each unit's
-// id and effective content, which do not depend on the day's timezone. A unit
-// carried whole is listed too; it is in no stage map, so nothing binds to it.
 func ledgerBlocks(entries []timesheet.EntryRecord, date string) []ledgerUnit {
 	var units []ledgerUnit
 	for _, c := range timesheet.EffectiveEntrySpansOn(date, entries) {
@@ -111,18 +90,11 @@ func deriveLedger(entries []timesheet.EntryRecord, date, timezone string) ([]led
 	return units, carries
 }
 
-// ledgerUnits is deriveLedger's units.
 func ledgerUnits(entries []timesheet.EntryRecord, date, timezone string) []ledgerUnit {
 	units, _ := deriveLedger(entries, date, timezone)
 	return units
 }
 
-// legacyUnits is the derivation before issue #176: every overnight unit staged
-// as ONE unsplit span. A day finalized under that rule (e.g. 21:00→03:00 saved
-// as one interval, a valid 180+180 remote plan) must still prove current, or
-// next/log and submit --chat would demand a `stage --revise` of work the remote
-// may already hold. It is consulted only for finalized content; a same-day unit
-// is unchanged. The units are copies; the input is not modified.
 func legacyUnits(units []ledgerUnit) []ledgerUnit {
 	out := make([]ledgerUnit, len(units))
 	for i, u := range units {
@@ -134,12 +106,6 @@ func legacyUnits(units []ledgerUnit) []ledgerUnit {
 	return out
 }
 
-// legacyDerivations are the rules a finalized day may have been saved with
-// before the carry (issue #277): the pre-#176 unsplit overnight span and the
-// #176 chunking whose crossing chunk keeps the whole after-midnight remainder.
-// Both place every entry at its clock (no next-date placement) and have no
-// carry out. The entries include any carried-in segments: a carry that reaches
-// a day saved without it must still fail the proof.
 func legacyDerivations(entries []timesheet.EntryRecord, date, timezone string) [][]ledgerUnit {
 	var chunked []ledgerUnit
 	for _, c := range timesheet.EffectiveEntrySpans(entries) {
@@ -151,9 +117,6 @@ func legacyDerivations(entries []timesheet.EntryRecord, date, timezone string) [
 	return [][]ledgerUnit{legacyUnits(chunked), chunked}
 }
 
-// ledgerDerivesSaved is the finalized-day content proof. current reports that
-// the units derive the saved intervals under today's rule; legacy that one of
-// the legacy derivations does (legacyDerivations).
 func ledgerDerivesSaved(units []ledgerUnit, legacy [][]ledgerUnit, confirmed []timesheet.Interval) (current, legacyOK bool) {
 	saved := confirmedContentSpans(confirmed)
 	if sameContent(ledgerContentSpans(units), saved) {
@@ -167,13 +130,6 @@ func ledgerDerivesSaved(units []ledgerUnit, legacy [][]ledgerUnit, confirmed []t
 	return false, false
 }
 
-// checkCarryIn proves the segments carried into date are still what their
-// source day's CURRENT ledger derives (ADR 0011). The carry record is written
-// at the source's stage, so an edit or deletion of the source ledger without
-// a re-stage would otherwise reach the target as phantom minutes. It
-// re-derives the source's carry in the carry's own timezone from the source's
-// stage input (its ledger plus anything carried into it) and requires the same
-// segments. A source with no carry record (a legacy day) has nothing to prove.
 func checkCarryIn(statePath, date string, carryIn []timesheet.CarrySegment) error {
 	if len(carryIn) == 0 {
 		return nil
@@ -198,9 +154,6 @@ func checkCarryIn(statePath, date string, carryIn []timesheet.CarrySegment) erro
 	return nil
 }
 
-// carryOutCurrent is a finalized day's own carry-record proof: a day saved
-// under today's rule carries exactly what it derives; a day saved under a
-// legacy rule carries nothing.
 func carryOutCurrent(current bool, derived, recorded []timesheet.CarrySegment) bool {
 	if !current {
 		derived = nil
@@ -208,11 +161,6 @@ func carryOutCurrent(current bool, derived, recorded []timesheet.CarrySegment) b
 	return timesheet.SameCarries(derived, recorded)
 }
 
-// stageMapMatchesUnits proves the stored stage map was derived from the current
-// ledger content. A fresh stage allocates one interval per span, in an order
-// that is a function of the unit ids, so equality of the unit-id set and each
-// unit's span count is exactly "this map is what applyStage would write now".
-// It is order-insensitive and timestamp-free.
 func stageMapMatchesUnits(stageMap map[string][]string, units []ledgerUnit) bool {
 	if len(stageMap) != len(units) {
 		return false
@@ -225,11 +173,6 @@ func stageMapMatchesUnits(stageMap map[string][]string, units []ledgerUnit) bool
 	return true
 }
 
-// stagedBlocksFrom binds each staged interval id from the stored stage map to
-// the effective content the current ledger derives for its unit. It is the
-// read-only twin of stagedBlocks (headless.go): the same binding classify and
-// the confirm/save replay validate, computed from one parse of the ledger and
-// one parse of the stage map.
 func stagedBlocksFrom(units []ledgerUnit, stageMap map[string][]string) map[string]timesheet.EntryRecord {
 	byUnit := make(map[string]timesheet.EntryRecord, len(units))
 	for _, u := range units {
@@ -250,12 +193,6 @@ func stagedBlocksFrom(units []ledgerUnit, stageMap map[string][]string) map[stri
 	return byInterval
 }
 
-// sidecarBinds reports whether every persisted classification selection is
-// content-bound to the staged interval it names, exactly as
-// applyPersistedSelections checks before replaying. A selection for an interval
-// the current content no longer derives, or one whose digest no longer matches,
-// is stale: the day must be reviewed and classified again, never silently
-// re-bound to the new content.
 func sidecarBinds(date string, selections map[string]timesheet.ClassificationChoiceEntry, blocks map[string]timesheet.EntryRecord) bool {
 	for id, sel := range selections {
 		e, ok := blocks[id]
@@ -310,8 +247,6 @@ func sortSpans(spans []contentSpan) []contentSpan {
 	return spans
 }
 
-// sameContent reports whether two span lists describe the same staged content.
-// It is the content proof that the entries ledger still derives the saved day.
 func sameContent(a, b []contentSpan) bool {
 	if len(a) != len(b) {
 		return false
@@ -324,9 +259,6 @@ func sameContent(a, b []contentSpan) bool {
 	return true
 }
 
-// draftDigest binds the descriptions judgment answer to the exact draft bytes
-// it was judged from. A re-collect that changes any draft content changes the
-// digest, so an older answer file is never merged into the new draft.
 func draftDigest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])

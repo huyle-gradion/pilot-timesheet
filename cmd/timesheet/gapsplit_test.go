@@ -8,8 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// clusterByHead indexes one day's stage clusters by the head block id the
-// stage map and the receipt name.
 func clusterByHead(t *testing.T, clusters []timesheet.EntryCluster) map[string]timesheet.EntryCluster {
 	t.Helper()
 	out := map[string]timesheet.EntryCluster{}
@@ -31,8 +29,6 @@ func clusterOf(t *testing.T, m map[string]timesheet.EntryCluster, head string) t
 	return got
 }
 
-// assertCluster pins one cluster's union span, its contributors in cluster
-// order (head first) and the joined description its intervals carry.
 func assertCluster(t *testing.T, head string, got timesheet.EntryCluster, start, end string, ids []string, desc string) {
 	t.Helper()
 	if got.Start != start || got.End != end {
@@ -51,10 +47,6 @@ func assertCluster(t *testing.T, head string, got timesheet.EntryCluster, start,
 	}
 }
 
-// TestEffectiveEntrySpansMeetingInsideEvidence is the live 2026-10-21 shape:
-// workflow training 06:40-07:15 inside evidence 02:16-10:15. The two entries
-// strictly overlap, so they are one cluster over the union span and the staged
-// interval names both instead of staging the same minutes twice.
 func TestEffectiveEntrySpansMeetingInsideEvidence(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "evidence-02:16-10:15", Start: "02:16", End: "10:15", Description: "Broad evidence"},
@@ -68,8 +60,6 @@ func TestEffectiveEntrySpansMeetingInsideEvidence(t *testing.T) {
 		[]string{"evidence-02:16-10:15", "meeting-06:40-07:15"}, "Broad evidence + Workflow training")
 }
 
-// TestEffectiveEntrySpansPartialOverlap: two entries that partly overlap merge
-// to the union span, and both descriptions are kept in one text.
 func TestEffectiveEntrySpansPartialOverlap(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "b-late", Start: "10:00", End: "12:00", Description: "Ops deploy"},
@@ -83,9 +73,6 @@ func TestEffectiveEntrySpansPartialOverlap(t *testing.T) {
 		[]string{"a-early", "b-late"}, "Bridge PRs + Ops deploy")
 }
 
-// TestEffectiveEntrySpansDuplicateMerges: a duplicate span is an overlap, so
-// the two entries are one cluster under the lowest block id. The merged-away
-// id is reported by the caller, never silently dropped.
 func TestEffectiveEntrySpansDuplicateMerges(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "dup-b", Start: "06:40", End: "07:15", Description: "Same work"},
@@ -99,10 +86,6 @@ func TestEffectiveEntrySpansDuplicateMerges(t *testing.T) {
 		[]string{"dup-a", "dup-b"}, "Same work")
 }
 
-// TestEffectiveEntrySpansExcludesUnusableEntries: a zero-duration entry is not
-// a cluster candidate; the caller owns its skip reason, so it may not leak into
-// a cluster. An overnight entry is a candidate (issue #176): its cluster ends
-// on the next day's clock.
 func TestEffectiveEntrySpansExcludesUnusableEntries(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "zero-1", Start: "09:00", End: "09:00", Description: "No duration"},
@@ -119,11 +102,6 @@ func TestEffectiveEntrySpansExcludesUnusableEntries(t *testing.T) {
 		[]string{"night-1"}, "Overnight watch")
 }
 
-// TestStageDay21ShapeEndToEnd is the live 2026-10-21 ledger shape rewritten
-// to the merged reading: evidence 02:16-13:00 and the two meetings inside it
-// are one connected cluster (issue #183 rule 6), so the day stages as ONE
-// interval set over the union span, chunked to the four-hour policy, and
-// confirm plus save keep the day gap-free and non-overlapping.
 func TestStageDay21ShapeEndToEnd(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -149,8 +127,6 @@ func TestStageDay21ShapeEndToEnd(t *testing.T) {
 		}
 		t.Fatalf("confirmed spans = %v, want the three chunks of 02:16-13:00", spans)
 	}
-	// Chunk-ceiling, non-overlap and contiguity: the confirmed minutes must
-	// cover the union span exactly, with nothing lost, doubled or bridged.
 	type bound struct{ start, end, minutes int }
 	clock := func(s string) int {
 		m, ok := 0, false
@@ -201,8 +177,6 @@ func TestStageDay21ShapeEndToEnd(t *testing.T) {
 	}
 }
 
-// TestEffectiveEntrySpansTouchingUnchanged: end == start merely touches, so
-// the two entries keep their own clusters (nothing is bridged).
 func TestEffectiveEntrySpansTouchingUnchanged(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "a", Start: "09:00", End: "10:00", Description: "First"},
@@ -216,8 +190,6 @@ func TestEffectiveEntrySpansTouchingUnchanged(t *testing.T) {
 	assertCluster(t, "b", clusterOf(t, m, "b"), "10:00", "11:00", []string{"b"}, "Second")
 }
 
-// TestEffectiveEntrySpansDisjointUnchanged: entries that do not overlap keep
-// their single spans (the bridge adds nothing on clean days).
 func TestEffectiveEntrySpansDisjointUnchanged(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "a", Start: "09:00", End: "10:00", Description: "First"},
@@ -231,10 +203,6 @@ func TestEffectiveEntrySpansDisjointUnchanged(t *testing.T) {
 	assertCluster(t, "b", clusterOf(t, m, "b"), "11:00", "11:15", []string{"b"}, "Second")
 }
 
-// TestStageUnparsableTimesSkipReason: an entry whose anchors are not times the
-// review carries is skipped with its OWN reason naming the bad times — never
-// with the fully-claimed reason, which only genuine duplicates may carry
-// (issue #173). The day's other entries still stage.
 func TestStageUnparsableTimesSkipReason(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -257,11 +225,6 @@ func TestStageUnparsableTimesSkipReason(t *testing.T) {
 	}
 }
 
-// TestStageZeroDurationEntrySkipReason: a 09:00→09:00 entry is NOT an overnight
-// span — it has zero duration, and the interval op refuses start == end. Passing
-// it through the overnight branch aborted the whole stage command with
-// `invalid_interval` and blocked every other entry of the day (issue #173). It is
-// skipped with its own reason, and a valid block on the same day still stages.
 func TestStageZeroDurationEntrySkipReason(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -287,12 +250,6 @@ func TestStageZeroDurationEntrySkipReason(t *testing.T) {
 	}
 }
 
-// TestStageOvernightBlockEndToEnd is the issue #173 regression: the gap-aware
-// resolver excludes a span whose end is not after its start, and the derivation
-// then reported the block as "fully claimed by more specific entries" and
-// dropped it — silent loss of a real overnight block. A 23:00→01:00 block must
-// stage as ONE overnight interval, survive confirm and save, and never carry
-// the false fully-claimed reason.
 func TestStageOvernightBlockEndToEnd(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -326,9 +283,6 @@ func TestStageOvernightBlockEndToEnd(t *testing.T) {
 	if iv := day.Confirmed[0]; iv.Start != "23:00" || iv.End != "01:00" {
 		t.Fatalf("confirmed interval = %s-%s, want the recorded span 23:00-01:00", iv.Start, iv.End)
 	}
-	// The saved revision's view counts only the part on the starting local day
-	// (23:00-24:00); the 01:00 tail is the next day's allocation — the same
-	// cross-midnight split every overnight interval gets.
 	if n := len(day.History); n == 0 || day.History[n-1].TotalMinutes != 60 {
 		t.Fatalf("history = %+v, want the saved revision's 60 minutes on the starting day", day.History)
 	}

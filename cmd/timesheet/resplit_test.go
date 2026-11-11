@@ -10,21 +10,17 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// TestSplitEntrySpansArithmetic pins the four-hour chunk arithmetic (issue
-// #167): greedy left-to-right chunks of at most maxRemoteEntryMinutes, the
-// remainder last; spans that need no split and unparsable/inverted ranges
-// return the single original span for honest op validation.
 func TestSplitEntrySpansArithmetic(t *testing.T) {
 	cases := []struct {
 		start, end string
 		want       [][2]string
 	}{
-		{"03:12", "11:11", [][2]string{{"03:12", "07:12"}, {"07:12", "11:11"}}}, // 479 → 240 + 235
-		{"09:00", "13:00", [][2]string{{"09:00", "13:00"}}},                     // exactly 240 → single
-		{"09:00", "13:01", [][2]string{{"09:00", "13:00"}, {"13:00", "13:01"}}}, // 241 → 240 + 1
-		{"09:00", "10:00", [][2]string{{"09:00", "10:00"}}},                     // under the policy
-		{"23:00", "22:00", [][2]string{{"23:00", "22:00"}}},                     // inverted → single, op refuses
-		{"", "10:00", [][2]string{{"", "10:00"}}},                               // unparsable → single
+		{"03:12", "11:11", [][2]string{{"03:12", "07:12"}, {"07:12", "11:11"}}},
+		{"09:00", "13:00", [][2]string{{"09:00", "13:00"}}},
+		{"09:00", "13:01", [][2]string{{"09:00", "13:00"}, {"13:00", "13:01"}}},
+		{"09:00", "10:00", [][2]string{{"09:00", "10:00"}}},
+		{"23:00", "22:00", [][2]string{{"23:00", "22:00"}}},
+		{"", "10:00", [][2]string{{"", "10:00"}}},
 	}
 	for _, c := range cases {
 		got := timesheet.SplitEntrySpans(c.start, c.end)
@@ -39,10 +35,6 @@ func TestSplitEntrySpansArithmetic(t *testing.T) {
 	}
 }
 
-// TestStageSplitsFourHourBlocks: a 479-minute recorded entry stages as two
-// contiguous chunk intervals (chunk 1/2 and 2/2 in the receipt), a normal
-// entry stays single, the sidecar maps the split block to both interval ids,
-// and the entries ledger is byte-unchanged by the split.
 func TestStageSplitsFourHourBlocks(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -89,9 +81,6 @@ func TestStageSplitsFourHourBlocks(t *testing.T) {
 	}
 }
 
-// seedOverlongConfirmedDay writes a finalized day whose single confirmed
-// interval (300 minutes) bypassed stage's split — the exact shape the owner's
-// live 2026-10-20 day had — directly into the store.
 func seedOverlongConfirmedDay(t *testing.T, cfg string) int {
 	t.Helper()
 	store, err := timesheet.OpenStore(statePathFor(cfg))
@@ -113,10 +102,6 @@ func seedOverlongConfirmedDay(t *testing.T, cfg string) int {
 	return 1
 }
 
-// TestStageReviseReplacesFinalizedDayWithChunks: plain stage refuses on the
-// finalized day (naming --revise); stage --revise replaces the over-long
-// confirmed interval with the ledger's chunked derivation and re-finalizes at
-// a new revision; a ledger entry removed before the revise loses its interval.
 func TestStageReviseReplacesFinalizedDayWithChunks(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -134,9 +119,6 @@ func TestStageReviseReplacesFinalizedDayWithChunks(t *testing.T) {
 	if !receipt.Refinalized || receipt.Replaced != 1 {
 		t.Fatalf("revise receipt = %+v, want refinalized with 1 replaced interval", receipt)
 	}
-	// The pre-derivation removals are reported: the old durable interval this
-	// revision replaced appears in receipt.Removed by its durable id even though
-	// no derivation of this run removed it (issue #173).
 	if len(receipt.Removed) != 1 || receipt.Removed[0].IntervalID != "iv-overlong-1" {
 		t.Fatalf("revise removed = %+v, want the replaced durable interval iv-overlong-1", receipt.Removed)
 	}
@@ -158,8 +140,6 @@ func TestStageReviseReplacesFinalizedDayWithChunks(t *testing.T) {
 		t.Fatalf("confirmed spans = %v, want the 240/235 chunks and the meeting", spans)
 	}
 
-	// A ledger entry removed before a further revise loses its intervals
-	// (record --replace semantics: the file is the day's complete content).
 	if _, err := timesheet.RecordEntries(statePathFor(cfg), timesheet.AppVersion,
 		timesheet.ReviewedDraft{Date: testDate, Blocks: []timesheet.ReviewedBlock{
 			timedBlock("evidence-1", "03:12", "11:11", "Long evidence block"),
@@ -167,8 +147,6 @@ func TestStageReviseReplacesFinalizedDayWithChunks(t *testing.T) {
 		t.Fatalf("re-record ledger without the meeting: %v", err)
 	}
 	second := runStageCapture(t, []string{"--config", cfg, "--date", testDate, "--revise"})
-	// Every pre-derivation removal of the second revise is the durable set the
-	// first revise saved, reported by its own ids.
 	removed := map[string]bool{}
 	for _, ref := range second.Removed {
 		removed[ref.IntervalID] = true
@@ -184,10 +162,6 @@ func TestStageReviseReplacesFinalizedDayWithChunks(t *testing.T) {
 	}
 }
 
-// TestPlanBlocksOverlongOperation: defense in depth — an operation longer than
-// the four-hour policy blocks the preview with remote_entry_too_long naming
-// the interval, its minutes and the policy, however it reached the confirmed
-// set.
 func TestPlanBlocksOverlongOperation(t *testing.T) {
 	stub := &stubRemote{entries: map[string][]map[string]any{}}
 	server := httptest.NewServer(stub)
@@ -217,7 +191,6 @@ func TestPlanBlocksOverlongOperation(t *testing.T) {
 	}
 }
 
-// TestSplitDeterminism: the same entries derive the same chunks twice.
 func TestSplitDeterminism(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		got := timesheet.SplitEntrySpans("03:12", "11:11")

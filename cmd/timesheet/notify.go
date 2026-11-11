@@ -50,10 +50,6 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 	return clipNotice(day + " is at " + r.State + "; run: timesheet log --date " + day), true
 }
 
-// dayLedgerTotals counts the day's stage input (its own entries plus segments
-// carried in from the previous date) and the real minutes it stages: the part
-// an overnight entry carries into the next date is counted there, not here
-// (ADR 0011), so "ready to submit" matches what the day's plan submits.
 func dayLedgerTotals(cfg *timesheet.Config, day string) (int, int) {
 	a, err := timesheet.ReadDayArtifacts(cfg.StatePath, day)
 	if err != nil || (a.Entries == nil && len(a.CarryIn) == 0) {
@@ -91,8 +87,6 @@ func clipRunes(s string, n int) string {
 
 func clipNotice(s string) string { return clipRunes(s, notifyRuneLimit) }
 
-// sendNotification delivers msg to every configured channel and reports the
-// first failure; a channel that is not configured is skipped.
 func sendNotification(policy timesheet.DailyConfig, envFile, msg string) error {
 	var errs []error
 	if *policy.Desktop {

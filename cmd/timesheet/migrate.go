@@ -15,11 +15,6 @@ import (
 // huge list.
 const maxMigrateRangeDays = 366
 
-// runMigrate is explicit legacy migration as two stateless commands (issue
-// #272). preview prints the candidate and its migration_id; apply rebuilds
-// the candidate for the same dates from the store and the legacy source and
-// activates it only when the rebuilt migration_id equals --migration-id. The
-// id is a content binding, not a grant: nothing is kept between the two runs.
 func runMigrate(args []string) error {
 	if len(args) == 0 || (args[0] != "preview" && args[0] != "apply") {
 		return fmt.Errorf("migrate takes a subcommand: `timesheet migrate preview --date <day>` or `timesheet migrate apply --date <day> --migration-id <id>`")
@@ -69,7 +64,6 @@ func runMigrate(args []string) error {
 	return printJSON(res)
 }
 
-// dateList collects repeated --date values, expanding FROM..TO inclusively.
 type dateList []string
 
 func (d *dateList) String() string { return strings.Join(*d, ",") }

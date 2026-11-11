@@ -10,9 +10,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// TestRunStatusReportsEnvironmentNames (issue #272): status carries what the
-// retired serve-only check_environment op reported, the required variable
-// NAMES and which are missing, never a value.
 func TestRunStatusReportsEnvironmentNames(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.json")

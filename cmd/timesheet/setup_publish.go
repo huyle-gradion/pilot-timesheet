@@ -7,10 +7,6 @@ package main
 // crash cannot leave a half-written final file: the final path holds either
 // fully-synced content or nothing. The temporary file is always removed after
 // the attempt; no other path is ever deleted.
-//
-// Reporting an existing final path never follows a symlink, never parses an env
-// file, and never changes a mode. The config is loaded read-only only so an
-// invalid one can be named verbatim.
 
 import (
 	"errors"
@@ -23,8 +19,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// setupTempMarker separates a final name from its staging suffix:
-// .<leaf>.tmp-<pid>-<unixnano>.
 const setupTempMarker = ".tmp-"
 
 // setupTargetExists reports whether a final path exists, without following a
@@ -75,9 +69,6 @@ func publishSetupFile(dir, leaf string, data []byte) (bool, error) {
 	return true, nil
 }
 
-// presentSetupFile reports an existing final path without modifying it. Config
-// files are loaded read-only so an invalid one is reported verbatim; env files
-// are never parsed. Modes are reported as found, including unsafe ones.
 func presentSetupFile(path string, isConfig bool) (string, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {

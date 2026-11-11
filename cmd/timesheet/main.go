@@ -37,13 +37,10 @@ classifications, classify, save, plan, acknowledge, decide, reconcile, resolve)
 stay callable but are internal.
 `
 
-// printSynopsis is the clean help surface: the command list, no prose.
 func printSynopsis(w io.Writer) {
 	fmt.Fprint(w, commandSynopsis)
 }
 
-// printNoCommand keeps a bare invocation two lines long, so a caller that runs
-// the binary with no arguments cannot pull the command list into context.
 func printNoCommand(w io.Writer) {
 	fmt.Fprintln(w, "timesheet: no command given; start with `timesheet log`")
 	fmt.Fprintln(w, "  also: timesheet tui, timesheet version, timesheet help")

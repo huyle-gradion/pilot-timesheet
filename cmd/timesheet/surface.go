@@ -10,14 +10,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// The public command surface (issue #245): init, log, status, submit (with
-// its status, resolve and revoke subcommands), migrate, tui, daily, judge,
-// eval and version.
-// The deterministic verbs next derives (run, record, stage, classify, save,
-// plan, ...) stay callable as its printed actions but are not documented as
-// public. A retired command prints one line naming its replacement.
-
-// retiredCommands maps a removed command to the one that replaces it.
 var retiredCommands = map[string]string{
 	"setup":         "timesheet init",
 	"approve":       "timesheet submit --date <day> (it approves, then submits, in the terminal)",
@@ -34,31 +26,20 @@ func retiredCommandError(name string) error {
 	return fmt.Errorf("`%s` was removed; use `%s`", name, retiredCommands[name])
 }
 
-// retiredFlags maps a removed flag to what replaces it. Like a retired
-// command, a retired flag fails with one line instead of being ignored, so a
-// script or skill that still passes it learns to drop it.
 var retiredFlags = map[string]string{
 	"project": "intervals no longer carry a project (ADR 0012); drop the flag, classification comes from gradion.default_classification or the classification judgment",
 }
 
-// retiredFlagCommands are the commands that took --project before ADR 0012.
-// Any other command leaves an unknown flag to its own parser.
 var retiredFlagCommands = map[string]bool{
 	"init": true, "log": true, "next": true, "tui": true, "judge": true,
 	"stage": true, "classify": true, "save": true, "confirm": true,
 }
 
-// boolFlags are those commands' flags that take no value, so the argument
-// after one is the next flag rather than its value.
 var boolFlags = map[string]bool{
 	"do": true, "auto": true, "revise": true, "configured-default": true,
 	"from-history": true, "h": true, "help": true,
 }
 
-// retiredFlagError reports the first retired flag in args, in any of the
-// flag package's spellings (-name, --name, --name=value), for a command that
-// had it. The value of a value-taking flag is skipped even when it starts
-// with '-', and arguments after a bare "--" are not flags.
 func retiredFlagError(command string, args []string) error {
 	if !retiredFlagCommands[command] {
 		return nil
@@ -84,12 +65,6 @@ func retiredFlagError(command string, args []string) error {
 	return nil
 }
 
-// retiredConfigHook is what main installs as timesheet.RetiredConfigHook: on
-// the first load of a configuration that still lists a retired key, it removes
-// the keys from the file (keeping a one-time <config>.bak) and says so on one
-// line. When the file cannot be rewritten safely, nothing is changed and one
-// line says the keys are ignored and can be removed by hand. Each path is
-// reported once per run.
 func retiredConfigHook(notice func(string)) func(string) {
 	seen := map[string]bool{}
 	return func(path string) {
@@ -103,8 +78,6 @@ func retiredConfigHook(notice func(string)) func(string) {
 			return
 		}
 		if len(removed) == 0 {
-			// The loader saw a retired key the editor could not find: never
-			// stay silent about it.
 			notice(fmt.Sprintf("config %s: the retired keys projects / migration.project_map are ignored and can be removed by hand (ADR 0012)", path))
 			return
 		}
@@ -112,9 +85,6 @@ func retiredConfigHook(notice func(string)) func(string) {
 	}
 }
 
-// runLog logs a day end to end: next --do, answering judgments with the
-// configured judge when there is one. Without a judge it stops at the first
-// judgment for the agent path, exactly as next --do does.
 func runLog(args []string) error {
 	f, err := parseNextFlags("log", args)
 	if err != nil {
@@ -135,12 +105,6 @@ func runLog(args []string) error {
 	return runNextFlags(f)
 }
 
-// runSubmitCommand is the one submission gate. Terminal mode (default)
-// approves the plan and submits it, each step behind its own typed
-// confirmation; --approval-id resumes an approval made earlier; --chat is the
-// chat-confirmed mode the /submit skill drives (ADR 0009). status and resolve
-// are its read-only report and its human write resolution; revoke withdraws a
-// kept approval in the terminal and is never reachable through --chat.
 func runSubmitCommand(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
@@ -163,8 +127,6 @@ func runSubmitCommand(args []string) error {
 	return runSubmitTerminal(args)
 }
 
-// runSubmitTerminal approves the day's current plan (type its plan_id) and
-// submits that approval (type its approval_id) in one terminal session.
 func runSubmitTerminal(args []string) error {
 	f, err := parseHeadlessFlags("submit", args)
 	if err != nil {
@@ -201,12 +163,6 @@ func runSubmitTerminal(args []string) error {
 	}{approval, receipt})
 }
 
-// runSubmitRevoke revokes one kept (active, undispatched) approval for a day
-// behind a typed confirmation of its approval_id (issue #272). Without
-// --approval-id it takes the day's single active approval, and refuses,
-// listing them, when there are several. The TTY gate fires before the store
-// opens; revoke_approval's own refusals (unknown, already consumed or revoked)
-// pass through verbatim. Revocation never undoes a remote effect.
 func runSubmitRevoke(args []string) error {
 	flags := flag.NewFlagSet("submit revoke", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -267,8 +223,6 @@ func runSubmitRevoke(args []string) error {
 				date, len(active), strings.Join(ids, ", "))
 		}
 	} else {
-		// Refuse an unknown or no-longer-active id before asking the operator
-		// to type it, with the same codes and messages revoke_approval uses.
 		state := ""
 		for _, a := range status.Approvals {
 			if a.ApprovalID == approvalID {

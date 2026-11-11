@@ -16,9 +16,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// TestMigrateCLIDispatch drives `timesheet migrate` through main() in a child
-// process, like the serve CLI test it replaces (#267): top-level dispatch,
-// stdout carrying only the JSON result, and exit codes.
 func TestMigrateCLIDispatch(t *testing.T) {
 	if os.Getenv("TIMESHEET_MIGRATE_CLI_CHILD") == "1" {
 		separator := slices.Index(os.Args, "--")
@@ -79,7 +76,6 @@ func TestMigrateCLIDispatch(t *testing.T) {
 	}
 }
 
-// legacyRecord is a minimal synthetic legacy workflow file for one date.
 const legacyRecord = `{
   "schema_version": 1,
   "date": "2026-10-20",
@@ -90,8 +86,6 @@ const legacyRecord = `{
   ]
 }`
 
-// migrationConfig writes a config whose migration section is enabled (or
-// not) over a legacy root holding one synthetic 2026-10-20 record.
 func migrationConfig(t *testing.T, enabled bool) (cfgPath, statePath string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -143,10 +137,6 @@ func fileBytes(t *testing.T, path string) string {
 	return string(data)
 }
 
-// TestMigrateCommandsAreStateless ports the serve CLI test (#267) to the
-// commands that replaced serve's migration ops (issue #272): each invocation
-// is its own process over the store, the preview's migration_id is the only
-// thing carried to apply, and a mismatch is migration_stale with no write.
 func TestMigrateCommandsAreStateless(t *testing.T) {
 	disabled, _ := migrationConfig(t, false)
 	var appErr *timesheet.AppError
@@ -193,8 +183,6 @@ func TestMigrateCommandsAreStateless(t *testing.T) {
 	}
 }
 
-// TestMigrateDateRangeExpands pins the inclusive FROM..TO selection: a range
-// and the equivalent repeated --date flags preview the same candidate.
 func TestMigrateDateRangeExpands(t *testing.T) {
 	cfg, _ := migrationConfig(t, true)
 	var ranged, listed timesheet.MigrationPreview

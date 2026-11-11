@@ -1,41 +1,5 @@
 package main
 
-// next is the deterministic regular-Pi progression planner (issue #195). It
-// derives the day's next action from observations that already exist — the
-// store's durable day, evidence and remote records, plus the artifact files the
-// binary already owns — and prints ONE typed action. Without --do it writes
-// nothing, carries no state between invocations and never executes anything;
-// with --do it executes each deterministic action the derivation licenses and
-// stops at the first judgment, stop or human gate.
-//
-// The predicate order below IS the pipeline. It is grounded in what the binary
-// actually persists, which differs from the design sketch in two places:
-//
-//   - A finalized day is derived FIRST. The draft is a working file, so its
-//     absence says nothing about a saved day; re-running the collect flow after
-//     save would be refused by the verbs anyway.
-//   - A recorded day is monotone: once entries exist, the draft/descriptions
-//     judgment is over even if the day folder no longer holds the artifacts.
-//     Re-judging a recorded day would re-run a paid judgment for no progress.
-//
-// Day.Staged and Day.SavedRevision are session-only fields (model.go), so the
-// planner never reads them.
-//
-// Freshness is proven from CONTENT, not from published timestamps (which are
-// second resolution and cannot distinguish a same-second ledger edit):
-//
-//   - staging is current when the stored stage map matches the ledger's own
-//     stage-time projection (unit ids and per-unit span counts);
-//   - classification is current when every persisted selection's
-//     BlockContentDigest binds to the block that projection derives — the same
-//     check save performs before it replays;
-//   - a judgment answer is only consumed when it carries the digest this
-//     report published (draft_digest for descriptions, ledger_digest for
-//     classifications), so a stale answer file is never handed to a verb.
-//
-// Durables timestamps are used only where ordering genuinely is the fact: the
-// plan tail's plan/observation/resolution relation.
-
 import (
 	"strings"
 	"time"
@@ -43,7 +7,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// The exhaustive state set. The switch in deriveDayNext is total over it.
 const (
 	stateAction     = "action"      // executable argv; the caller runs it verbatim
 	stateJudgment   = "judgment"    // model-owned; never executed by next
@@ -53,13 +16,11 @@ const (
 	// agent relays it and never answers it.
 )
 
-// The judgment kinds, anchored to the two existing file contracts.
 const (
 	judgmentBlockDescriptions = "block_descriptions"
 	judgmentClassifications   = "classifications"
 )
 
-// nextAction is the one JSON document `next` prints.
 type nextAction struct {
 	Day      string          `json:"day"`
 	State    string          `json:"state"`
@@ -68,46 +29,28 @@ type nextAction struct {
 	Judgment *nextJudgment   `json:"judgment,omitempty"`
 	Reason   string          `json:"reason,omitempty"`
 	Human    *nextHumanGates `json:"human,omitempty"`
-	// Ask is the typed human question of the ask_human state (issue #239).
-	Ask *askHuman `json:"ask,omitempty"`
+	Ask      *askHuman       `json:"ask,omitempty"`
 }
 
-// nextArgv is one exact executable argv plus the observation that selected it.
 type nextArgv struct {
 	Cmd []string `json:"cmd"`
 	Why string   `json:"why"`
 }
 
-// nextJudgment names the model-owned decision and the file it writes. The
-// answer file is bound to the content it was judged from (draft_digest or
-// ledger_digest), so next only advances when the file matches the current
-// content; the consuming verb still re-validates fail-closed as today.
 type nextJudgment struct {
-	Kind         string      `json:"kind"`
-	Day          string      `json:"day"`
-	AnswerFile   string      `json:"answer_file"`
-	Protocol     string      `json:"protocol"`
-	DraftDigest  string      `json:"draft_digest,omitempty"`
-	LedgerDigest string      `json:"ledger_digest,omitempty"`
-	Blocks       []nextBlock `json:"blocks,omitempty"`
-	// Candidates are the prefetched catalog option lists the classifications
-	// answer picks from; each block names its set by ref (issue #234).
-	Candidates []nextCandidateSet `json:"candidates,omitempty"`
-	// CandidatesNote reports intervals left without candidates by the bound.
-	CandidatesNote string `json:"candidates_note,omitempty"`
-	// Draft is the exact document a descriptions answer must judge: the same
-	// parse record consumes, embedded instead of re-rendered, so the model
-	// never reads draft.json and no second read can disagree with the digest.
-	// Absent for the classifications judgment.
-	Draft *timesheet.Draft `json:"draft,omitempty"`
-	// LastError is the one-line reason the previous answer for this same
-	// content was rejected (issue #240); absent when no answer has failed.
-	LastError string `json:"last_error,omitempty"`
+	Kind           string             `json:"kind"`
+	Day            string             `json:"day"`
+	AnswerFile     string             `json:"answer_file"`
+	Protocol       string             `json:"protocol"`
+	DraftDigest    string             `json:"draft_digest,omitempty"`
+	LedgerDigest   string             `json:"ledger_digest,omitempty"`
+	Blocks         []nextBlock        `json:"blocks,omitempty"`
+	Candidates     []nextCandidateSet `json:"candidates,omitempty"`
+	CandidatesNote string             `json:"candidates_note,omitempty"`
+	Draft          *timesheet.Draft   `json:"draft,omitempty"`
+	LastError      string             `json:"last_error,omitempty"`
 }
 
-// nextBlock is one staged interval's current recorded content, so the
-// classification judgment can be made from any cwd even when the day's draft
-// and descriptions artifacts are gone.
 type nextBlock struct {
 	IntervalID  string `json:"interval_id"`
 	BlockID     string `json:"block_id"`
@@ -116,8 +59,7 @@ type nextBlock struct {
 	Description string `json:"description"`
 	// Candidates is the ref of this interval's set in judgment.candidates;
 	// empty when the interval has no candidates.
-	Candidates string `json:"candidates"`
-	// CarriedFrom labels a block carried in from that date (ADR 0011).
+	Candidates  string `json:"candidates"`
 	CarriedFrom string `json:"carried_from,omitempty"`
 }
 
@@ -132,18 +74,12 @@ type nextHumanGates struct {
 	StatusCommand  string `json:"status_command"`
 	// Unresolved counts legacy write outcomes; NativeUnresolved counts native
 	// write intents. Both are global, never day-scoped.
-	Unresolved       int `json:"unresolved_writes"`
-	NativeUnresolved int `json:"native_unresolved_writes"`
-	// Status is the read-only submission_status result, attached only when
-	// `next --do` reaches the gates so the caller needs no extra turn.
-	Status *timesheet.SubmissionStatusResult `json:"status,omitempty"`
-	// Carried lists the day's overnight carry for review (ADR 0011): segments
-	// carried in from the previous date and out into the next one.
-	Carried []nextCarried `json:"carried,omitempty"`
+	Unresolved       int                               `json:"unresolved_writes"`
+	NativeUnresolved int                               `json:"native_unresolved_writes"`
+	Status           *timesheet.SubmissionStatusResult `json:"status,omitempty"`
+	Carried          []nextCarried                     `json:"carried,omitempty"`
 }
 
-// nextCarried is one carried segment as review shows it: carried from one date
-// into the next, with its clocks on the target date and its real minutes.
 type nextCarried struct {
 	From        string `json:"from"`
 	To          string `json:"to"`
@@ -167,79 +103,47 @@ func carriedView(carries ...[]timesheet.CarrySegment) []nextCarried {
 	return out
 }
 
-// nextObservation is every fact the derivation may read. Each field is
-// measured from an existing artifact, sidecar or durable store field; nothing
-// here is inferred, and no decision uses a second-resolution timestamp.
 type nextObservation struct {
 	Day string
 
-	// Absolute addressing so any cwd works for every derived command.
 	Exe        string
 	ConfigPath string
 	EnvFile    string
 
-	DraftPath        string
-	DescriptionsPath string
-	ChoicesPath      string
-	CandidatesPath   string
-	// SidecarPath is the durable classification sidecar the verbs replay.
-	SidecarPath string
-	// DraftPresent/DraftValid report the draft artifact and whether it parses
-	// as the exact timesheet.Draft type record consumes. A present but invalid
-	// draft is re-collected, never judged or recorded against. DraftBlocks is
-	// the parsed block count: record refuses a day with no blocks, so zero is
-	// an unrecordable day, not a judgment to re-ask.
-	DraftPresent bool
-	DraftValid   bool
-	DraftBlocks  int
-	// DraftDigest is the SHA-256 of the current draft bytes; the descriptions
-	// answer must carry it to be accepted.
-	DraftDigest string
-	// Draft is the parsed draft artifact, kept so the descriptions judgment can
-	// embed the exact document record will consume.
-	Draft *timesheet.Draft
-	// DescriptionsPresent/ChoicesPresent report the answer artifacts; the
-	// bindings are the digests those files carry ("" when absent/unbound).
+	DraftPath           string
+	DescriptionsPath    string
+	ChoicesPath         string
+	CandidatesPath      string
+	SidecarPath         string
+	DraftPresent        bool
+	DraftValid          bool
+	DraftBlocks         int
+	DraftDigest         string
+	Draft               *timesheet.Draft
 	DescriptionsPresent bool
 	DescriptionsBinding string
 	ChoicesPresent      bool
 	ChoicesBinding      string
 	Choices             map[string]timesheet.ClassificationChoiceEntry
 	ChoicesError        error
-	// DescriptionsSHA/ChoicesSHA identify the exact answer bytes, so the
-	// repair policy can tell a rewritten answer from the rejected one.
-	DescriptionsSHA string
-	ChoicesSHA      string
-	// JudgmentFailure is the day's saved rejected-answer record, if any.
-	JudgmentFailure *judgmentFailure
-	// Candidates is the parsed candidates.json (nil when absent); it is used
-	// only when its ledger_digest binds to the current staged ledger.
-	Candidates *candidatesFile
+	DescriptionsSHA     string
+	ChoicesSHA          string
+	JudgmentFailure     *judgmentFailure
+	Candidates          *candidatesFile
 	// History is the parsed history.json (nil when absent); used only when
 	// its ledger_digest binds to the current staged ledger (issue #235).
 	History *historyFile
 
-	// Artifacts is the ledger and its sidecars, one validated parse each.
-	Artifacts timesheet.DayArtifacts
-	// Units is the current ledger's stage-time content projection, including
-	// the segments carried in from the previous date (ADR 0011).
-	Units []ledgerUnit
-	// LegacyUnits are the pre-carry derivations a finalized day may have been
-	// saved with (legacyDerivations); CarryDerived is the carry into the next
-	// date the current derivation makes, compared with Artifacts.CarryOut.
+	Artifacts    timesheet.DayArtifacts
+	Units        []ledgerUnit
 	LegacyUnits  [][]ledgerUnit
 	CarryDerived []timesheet.CarrySegment
 	Workflow     timesheet.WorkflowSnapshot
 
-	// Asks are the day folder's human answer files, keyed by file name.
 	Asks map[string]askAnswer
 
-	// GradionEnabled is the configuration's live remote boundary: classification
-	// and planning both read the remote, and their verbs fail closed without it.
 	GradionEnabled bool
 }
-
-// --- typed constructors ------------------------------------------------------
 
 func (n nextAction) withAction(step string, cmd []string, why string) nextAction {
 	n.State, n.Step = stateAction, step
@@ -269,8 +173,6 @@ func (n nextAction) withHuman(h nextHumanGates) nextAction {
 	return n
 }
 
-// --- shared formatting helpers ----------------------------------------------
-
 func blockerCodes(blockers []timesheet.Blocker) string {
 	codes := make([]string, 0, len(blockers))
 	for _, b := range blockers {
@@ -286,14 +188,10 @@ func blockerCodes(blockers []timesheet.Blocker) string {
 	return strings.Join(codes, ", ")
 }
 
-// quote renders one value for a human-readable reason without inventing shell
-// syntax; the executable form of every irreversible step stays an argv.
 func quote(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 }
 
-// safeToken is the shell-safe alphabet for shellJoin: a value made only of
-// these runes can be pasted into a POSIX shell without quoting.
 func safeToken(s string) bool {
 	if s == "" {
 		return false
@@ -324,7 +222,6 @@ func shellJoin(cmd []string) string {
 	return strings.Join(parts, " ")
 }
 
-// sameInstant reports whether two RFC3339 stamps name the same instant.
 func sameInstant(a, b string) bool {
 	at, err := time.Parse(time.RFC3339, a)
 	if err != nil {
@@ -334,8 +231,6 @@ func sameInstant(a, b string) bool {
 	return err == nil && at.Equal(bt)
 }
 
-// timestampAfter parses two RFC3339 stamps and reports whether a is strictly
-// later than b. It never compares timestamp strings lexicographically.
 func timestampAfter(a, b string) (bool, error) {
 	at, err := time.Parse(time.RFC3339, a)
 	if err != nil {

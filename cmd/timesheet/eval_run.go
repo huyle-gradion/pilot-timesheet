@@ -14,23 +14,10 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// eval run (issue #279) replays every golden day through the configured judge
-// and writes a candidate file for eval score:
-//
-//	timesheet eval run --golden <file> [--out <file>] [--config <path>] [--env-file <path>]
-//
-// It uses the production judge path unchanged: the same owned prompts
-// (llm.DescribePrompt, llm.ClassifyPrompt), the same parsers, one retry,
-// the response cache and the per-day token cap (askCached). Only the folder
-// those two live in differs: an eval cache next to --out, never the store's
-// day folders, so a replay neither spends a real day's cap nor writes state.
 // The usage ledger is reset per replayed day, so the cap applies to each day
-// of this run; cached replies are kept across runs. A cached reply's original
-// cost is written back into that day's ledger, so a rerun counts the same
-// tokens per day and hits the cap where the first run did.
+// of this run; cached replies are kept across runs.
 const evalCacheDir = "judge-cache"
 
-// errEvalInput marks a dataset part the judge cannot be asked about.
 var errEvalInput = errors.New("the dataset part cannot be replayed")
 
 type evalRunReceipt struct {
@@ -80,8 +67,6 @@ func runEvalRun(args []string) error {
 		return err
 	}
 	if !slices.ContainsFunc(g.Days, replayableDay) {
-		// A receipt of zeros would read like a failed judge or a pass on the
-		// cap (#282), so the run refuses before any judge call.
 		return fmt.Errorf("eval run: the dataset %s has no replayable days (%d day(s), none with a draft block or a recorded interval and candidate set); log days with the current binary, then export again", *goldenFlag, len(g.Days))
 	}
 	out := *outFlag
@@ -130,11 +115,6 @@ func runEvalRun(args []string) error {
 	return runErr
 }
 
-// replayGolden asks the judge for every day part in the dataset. A reply that
-// does not validate after the retry skips that part (it then scores as
-// missing). The cap or a backend failure stops the run: the answers so far
-// are returned with the stop error, so a dead or rate-limited judge never
-// turns days into misses blamed on the judge.
 func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.GoldenDataset, backend llm.Backend, cacheRoot string, now time.Time) (evalRunReceipt, timesheet.GoldenCandidate, error) {
 	r := evalRunReceipt{CacheDir: cacheRoot, Skipped: []timesheet.GoldenSkip{}, Days: []evalDayRun{}, DailyTokenCap: cfg.Judge.DailyTokenCap}
 	r.Usage.Exact = true
@@ -169,8 +149,6 @@ func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.Golden
 			if jr.Cached {
 				dr.Cached = append(dr.Cached, part)
 				cached++
-				// The ledger counts the reply's original cost, so the cap
-				// sees this day's real spend on the next part.
 				dr.Tokens += jr.CachedUsage.Total()
 				rec := judgeUsageRecord{At: now.UTC().Format(time.RFC3339), Kind: kind, OK: true, Usage: jr.CachedUsage}
 				if appendErr := appendJudgeUsage(dir, rec); appendErr != nil && err == nil {
@@ -227,8 +205,6 @@ func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.Golden
 	return r, cand, nil
 }
 
-// replayableDay reports whether some part of day reaches the judge: the
-// inputs evalDescribe and evalClassify refuse with errEvalInput are absent.
 func replayableDay(day timesheet.GoldenDay) bool {
 	if d := day.Descriptions; d != nil && len(d.Input.Blocks) > 0 {
 		return true
@@ -237,9 +213,6 @@ func replayableDay(day timesheet.GoldenDay) bool {
 	return c != nil && len(c.Input) > 0 && len(c.Candidates) > 0
 }
 
-// evalDescribe answers one draft and returns each block's text as record
-// would store it (the inline PRs list appended), which is what the dataset's
-// truth holds.
 func evalDescribe(ctx context.Context, cfg *timesheet.Config, dir, day string, draft timesheet.Draft, backend llm.Backend, now time.Time, jr *judgeReceipt) (map[string]string, error) {
 	if len(draft.Blocks) == 0 {
 		return nil, fmt.Errorf("%w: the draft has no blocks", errEvalInput)
@@ -264,8 +237,6 @@ func evalDescribe(ctx context.Context, cfg *timesheet.Config, dir, day string, d
 	return out, nil
 }
 
-// evalClassify answers the recorded intervals against their recorded
-// candidate sets, as judgeIntervals builds them from a live judgment.
 func evalClassify(ctx context.Context, cfg *timesheet.Config, dir, day string, c *timesheet.GoldenClassifications, backend llm.Backend, now time.Time, jr *judgeReceipt) (map[string]string, error) {
 	intervals := make([]llm.Interval, 0, len(c.Input))
 	for _, b := range c.Input {

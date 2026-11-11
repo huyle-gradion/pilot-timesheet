@@ -8,21 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- CLASSIFY-FINAL-1 synthetic acceptance tests --------------------------------
-//
-// The deadlock this slice fixes: a day finalized (confirmed + saved) WITHOUT a
-// classification could never become plan-ready — plan blocked on
-// classification_unselected while classify refused finalized days via
-// openFinalizeDay. These tests cover classify's finalized-day path: the
-// selections key off the durable interval ids, the command re-finalizes the
-// day at a new revision (confirm + save in-process), `{}` is an honest no-op,
-// and a stale or unknown interval id fails closed with the revision unchanged.
-// No network: the catalog is seeded directly into the store's persisted
-// catalog cache and the plan observation runs against the SUBMIT-3 loopback
-// stub; every command runs as its own one-shot process would against a fresh
-// temporary store.
-
-// readDurableDay opens the store read-only and returns the persisted day.
 func readDurableDay(t *testing.T, cfg, date string) *timesheet.Day {
 	t.Helper()
 	store, err := timesheet.OpenStore(statePathFor(cfg))
@@ -37,11 +22,6 @@ func readDurableDay(t *testing.T, cfg, date string) *timesheet.Day {
 	return day
 }
 
-// finalizedUnclassifiedDay runs the SUBMIT-1 flow through confirm and save
-// WITHOUT any classification: three timed blocks become three durable
-// confirmed intervals with empty remote_classification_id, and a catalog with
-// two options is seeded for the finalized-path selections. It returns the
-// config path, the durable interval ids in block order and the saved revision.
 func finalizedUnclassifiedDay(t *testing.T) (string, []string, int) {
 	t.Helper()
 	cfg := writeTestConfig(t)
@@ -78,11 +58,6 @@ func finalizedUnclassifiedDay(t *testing.T) (string, []string, int) {
 	return cfg, ids, readDurableDay(t, cfg, testDate).Revision
 }
 
-// TestClassifyFinalizedDayRefinalizesAtNewRevision: a saved unclassified day
-// classifies against its durable interval ids; the command confirms and saves
-// in-process and the receipt reports the re-finalize at the new revision; the
-// store's confirmed intervals at that revision carry the chosen remote
-// classification and catalog ids, and no classification sidecar is written.
 func TestClassifyFinalizedDayRefinalizesAtNewRevision(t *testing.T) {
 	cfg, ids, before := finalizedUnclassifiedDay(t)
 	choices := `{"selections": {` +
@@ -140,9 +115,6 @@ func TestClassifyFinalizedDayRefinalizesAtNewRevision(t *testing.T) {
 	}
 }
 
-// TestClassifyFinalizedDayEmptyChoicesIsNoOp: `{}` on a finalized day applies
-// nothing, runs no confirm and no save, and leaves the saved revision and the
-// confirmed intervals untouched.
 func TestClassifyFinalizedDayEmptyChoicesIsNoOp(t *testing.T) {
 	cfg, _, before := finalizedUnclassifiedDay(t)
 	empty := writeChoicesFile(t, cfg, `{}`)
@@ -170,11 +142,6 @@ func TestClassifyFinalizedDayEmptyChoicesIsNoOp(t *testing.T) {
 	}
 }
 
-// TestClassifyFinalizedDayStaleIntervalIDFailsClosed: an unknown interval id —
-// even a plausible-shaped one that a later entries generation could have
-// minted — fails closed with the op's own verbatim error; when it follows a
-// valid selection, that earlier in-memory selection must not leak into the
-// durable day either.
 func TestClassifyFinalizedDayStaleIntervalIDFailsClosed(t *testing.T) {
 	cfg, ids, before := finalizedUnclassifiedDay(t)
 	choices := `{"selections": {` +
@@ -204,10 +171,6 @@ func TestClassifyFinalizedDayStaleIntervalIDFailsClosed(t *testing.T) {
 	}
 }
 
-// TestClassifyFinalizedDayPlanBecomesReady: the full deadlock and its fix
-// against the SUBMIT-3 loopback stub — a saved unclassified day plans blocked
-// with classification_unselected; the finalized-day classify re-finalizes at a
-// new revision; the re-preview is ready with no blockers and a new plan_id.
 func TestClassifyFinalizedDayPlanBecomesReady(t *testing.T) {
 	stub := &stubRemote{entries: map[string][]map[string]any{testDate: {}}}
 	server := httptest.NewServer(stub)
@@ -231,7 +194,6 @@ func TestClassifyFinalizedDayPlanBecomesReady(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	// The deadlock, reproduced: the saved day can never pass plan.
 	first := runPlanCapture(t, []string{"--config", cfg, "--date", testDate})
 	if first.State != "blocked" || !hasBlocker(first.Blockers, "classification_unselected", "") {
 		t.Fatalf("first plan = %+v, want blocked on classification_unselected", first)

@@ -21,10 +21,6 @@ func runClassifyDefault(f *finalizeFlags) error {
 	return printJSON(receipt)
 }
 
-// classifyDefaultDay is classify --configured-default's whole flow over one
-// held session: open the day, refuse a finalized one, and fill unselected
-// unsaved intervals with the configured cached default. The tui verb's
-// classify act is the same flow over its own held session.
 func classifyDefaultDay(h *headlessSession, date string) (ClassifyReceipt, error) {
 	res, err := h.call("open_day", timesheet.Request{Day: date})
 	if err != nil {
@@ -40,10 +36,6 @@ func classifyDefaultDay(h *headlessSession, date string) (ClassifyReceipt, error
 	return classifyDefaultCore(h, h.cfg, date, summary)
 }
 
-// classifyDefaultCore is classify --configured-default's core, shared by the
-// verb and the tui verb's classify act: unselected intervals take the
-// configured cached default, existing explicit selections are preserved, and
-// the sidecar is rewritten with every selection content-bound.
 func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date string, summary timesheet.DaySummary) (ClassifyReceipt, error) {
 	choice, err := h.session.ConfiguredDefault()
 	if err != nil {

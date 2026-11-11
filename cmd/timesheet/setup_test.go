@@ -1,11 +1,5 @@
 package main
 
-// Setup and discovery acceptance tests. Every case is hermetic: HOME points at
-// a TempDir, the cwd is a TempDir, and no test touches the invoking machine's
-// real ~/.timesheet. They pin the two properties that matter most: setup
-// validates before it creates anything, and it never replaces, deletes,
-// repairs or chmods an existing final path — including an invalid config.
-
 import (
 	"bytes"
 	"errors"
@@ -52,8 +46,6 @@ func readSetupBytes(t *testing.T, path string) []byte {
 	return data
 }
 
-// TestSetupNeedsNoProject: since ADR 0012 init writes a loadable configuration
-// with no arguments at all, and never a project.
 func TestSetupNeedsNoProject(t *testing.T) {
 	_, dir := pinSetupHome(t)
 	t.Setenv("TZ", "UTC")
@@ -117,7 +109,6 @@ func TestSetupHappyPath(t *testing.T) {
 			t.Fatalf("stdout %q lacks %q", out, want)
 		}
 	}
-	// The next step names the public daily command, never an internal verb.
 	if !strings.Contains(out, "then run 'timesheet log'") || strings.Contains(out, "'timesheet run'") {
 		t.Fatalf("stdout %q does not point at 'timesheet log'", out)
 	}
@@ -504,8 +495,6 @@ func TestSetupEnvTemplateNeverCarriesValues(t *testing.T) {
 	}
 }
 
-// hostTimezoneFrom is testable without touching /etc: exercise the three-tier
-// resolution against fixture files.
 func TestHostTimezoneFrom(t *testing.T) {
 	dir := t.TempDir()
 	etcTimezone := filepath.Join(dir, "timezone")
@@ -524,27 +513,66 @@ func TestHostTimezoneFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// TZ wins and may carry the POSIX-style leading colon.
 	if got, err := hostTimezoneFrom(":Europe/Amsterdam", etcTimezone, localtime); err != nil || got != "Europe/Amsterdam" {
 		t.Fatalf("TZ tier: got %q, err %v", got, err)
 	}
-	// /etc/timezone is the next reliable source (Omarchy/Debian-style).
 	if got, err := hostTimezoneFrom("", etcTimezone, localtime); err != nil || got != "Asia/Tokyo" {
 		t.Fatalf("timezone-file tier: got %q, err %v", got, err)
 	}
-	// The /etc/localtime symlink names the zone when the file is absent.
 	if got, err := hostTimezoneFrom("", filepath.Join(dir, "missing"), localtime); err != nil || got != "Europe/Amsterdam" {
 		t.Fatalf("localtime tier: got %q, err %v", got, err)
 	}
-	// Nothing reliable: an error naming the fix, never a guessed zone.
 	if _, err := hostTimezoneFrom("", filepath.Join(dir, "missing"), filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("unresolvable host zone returned no error")
 	}
-	// "Local" and the empty name are not zones a generated config may bake.
 	if _, err := hostTimezoneFrom("Local", filepath.Join(dir, "missing"), filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("TZ=Local was accepted as a host zone")
 	}
 	if _, err := hostTimezoneFrom(":", filepath.Join(dir, "missing"), filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("an empty TZ value was accepted as a host zone")
+	}
+}
+
+func TestSetupRemovesStagingFiles(t *testing.T) {
+	_, dir := pinSetupHome(t)
+	if _, err := runSetupOutput(t, "--tz", "UTC"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), setupTempMarker) {
+			t.Fatalf("setup left the staging file %s behind", e.Name())
+		}
+	}
+}
+
+func TestSetupRepeatIgnoresSeedConfig(t *testing.T) {
+	_, dir := pinSetupHome(t)
+	if _, err := runSetupOutput(t, "--tz", "UTC"); err != nil {
+		t.Fatalf("first setup: %v", err)
+	}
+	if _, err := runSetupOutput(t, "--seed-config", filepath.Join(dir, "missing-seed.json")); err != nil {
+		t.Fatalf("repeat setup read the seed: %v", err)
+	}
+}
+
+func TestSetupLeavesPresentEnvUnreadWhenCreatingConfig(t *testing.T) {
+	_, dir := pinSetupHome(t)
+	envPath := filepath.Join(dir, ".env.local")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envPath, []byte("A=b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runSetupOutput(t, "--tz", "UTC")
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if !strings.Contains(out, "present "+envPath+" (mode 0600; present, not read;") {
+		t.Fatalf("stdout %q does not report the env file as present and unread", out)
 	}
 }

@@ -13,12 +13,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Issue #176: an overnight entry (end clock before its start clock) is
-// resolved at stage to the same non-overlapping, policy-compliant interval set
-// a same-day entry gets. The local interval model is unchanged: every staged
-// interval starts on the day it is staged under, and an end clock at or before
-// the start clock resolves onto the next local date.
-
 const overnightTZ = "Asia/Ho_Chi_Minh"
 
 func writeTestConfigTZ(t *testing.T, tz string) string {
@@ -43,12 +37,6 @@ func overnightEntry(id, kind, start, end, desc string) timesheet.EntryRecord {
 	}
 }
 
-// TestStageSpansOvernightArithmetic pins the midnight-aware chunker. A chunk
-// never starts after midnight (the interval model stages it under the
-// starting date), so the last chunk is the one that crosses midnight, and it
-// is at most 240 minutes whenever the model can express that. The pre-midnight
-// remainder is chunked greedily left to right. A same-day span is exactly
-// SplitEntrySpans; anything unresolvable returns the single original span.
 func TestStageSpansOvernightArithmetic(t *testing.T) {
 	cases := []struct {
 		name, date, tz, start, end string
@@ -68,14 +56,8 @@ func TestStageSpansOvernightArithmetic(t *testing.T) {
 			[][2]string{{"19:00", "23:00"}, {"23:00", "00:00"}}},
 		{"pre-midnight part over the policy", testDate, overnightTZ, "18:00", "02:00",
 			[][2]string{{"18:00", "22:00"}, {"22:00", "02:00"}}},
-		// 240 minutes after midnight: no interval that starts on the staged
-		// date can reach 04:00 in 240 minutes, so the crossing chunk keeps its
-		// whole span; each local-day allocation (the remote entry) is <= 240.
 		{"post-midnight part at the policy", testDate, overnightTZ, "22:00", "04:00",
 			[][2]string{{"22:00", "04:00"}}},
-		// More than 240 minutes after midnight: the crossing chunk runs a full
-		// 240 minutes and the rest (03:00→05:00) is carried into the next date
-		// (issue #277, ADR 0011; TestSplitClusterCarry pins the carry).
 		{"post-midnight part beyond the policy", testDate, overnightTZ, "15:00", "05:00",
 			[][2]string{{"15:00", "19:00"}, {"19:00", "23:00"}, {"23:00", "03:00"}}},
 		// Europe/Berlin springs forward at 02:00 on 2026-03-29: 21:00→04:00 is
@@ -104,10 +86,6 @@ func TestStageSpansOvernightArithmetic(t *testing.T) {
 	}
 }
 
-// TestEffectiveEntrySpansOvernightClaims: an overnight entry participates in
-// the overlap projection on a timeline that runs past midnight. A block inside
-// it (before or across midnight) joins its cluster instead of colliding at
-// save; an early-morning block of the same date does not overlap it.
 func TestEffectiveEntrySpansOvernightClaims(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		overnightEntry("evidence-22:00-02:00", "work", "22:00", "02:00", "Release night"),
@@ -128,10 +106,6 @@ func TestEffectiveEntrySpansOvernightClaims(t *testing.T) {
 		[]string{"work-00:30-01:00"}, "Early morning")
 }
 
-// TestEffectiveEntrySpansExcludesMultiDaySpan: an entry whose RFC3339 anchors
-// are a day or more apart crosses more than one midnight. An interval covers
-// at most one, and its clocks alone would read as a short span, so it is never
-// projected (the caller reports it).
 func TestEffectiveEntrySpansExcludesMultiDaySpan(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		overnightEntry("marathon-1", "work", "2026-10-26T22:00:00+07:00", "2026-10-28T02:00:00+07:00", "Two-night migration"),
@@ -144,8 +118,6 @@ func TestEffectiveEntrySpansExcludesMultiDaySpan(t *testing.T) {
 	clusterOf(t, m, "good-1")
 }
 
-// writeLedger writes a raw recorded ledger (an edited entries file, the only
-// path an overnight entry reaches) under date.
 func writeLedger(t *testing.T, cfg, date string, entries []timesheet.EntryRecord) {
 	t.Helper()
 	for i := range entries {
@@ -157,8 +129,6 @@ func writeLedger(t *testing.T, cfg, date string, entries []timesheet.EntryRecord
 	writeEntriesFile(t, cfg, date, entries)
 }
 
-// stageAndSave runs stage then save on the raw ledger and returns the stage
-// receipt and the durable day.
 func stageAndSave(t *testing.T, cfg, date string, entries []timesheet.EntryRecord) (StageReceipt, *timesheet.Day) {
 	t.Helper()
 	writeLedger(t, cfg, date, entries)
@@ -169,8 +139,6 @@ func stageAndSave(t *testing.T, cfg, date string, entries []timesheet.EntryRecor
 	return receipt, readDurableDay(t, cfg, date)
 }
 
-// absoluteSpan resolves one confirmed interval's endpoints in loc: the start
-// on the interval's date, an end clock at or before the start on the next.
 func absoluteSpan(t *testing.T, iv timesheet.Interval, loc *time.Location) (time.Time, time.Time) {
 	t.Helper()
 	start, err := time.ParseInLocation("2006-01-02 15:04", iv.Date+" "+iv.Start, loc)
@@ -189,10 +157,6 @@ func absoluteSpan(t *testing.T, iv timesheet.Interval, loc *time.Location) (time
 	return start, end
 }
 
-// assertCovers pins the durable set: contiguous, non-overlapping intervals
-// that cover [from, to] exactly (no minute lost, doubled or invented), each at
-// most maxInterval real minutes, and every local-day allocation (one remote
-// entry) at most 240 minutes. It returns the confirmed spans in order.
 func assertCovers(t *testing.T, day *timesheet.Day, tz, from, to string, maxInterval int) []string {
 	t.Helper()
 	loc, err := time.LoadLocation(tz)
@@ -260,13 +224,6 @@ func assertSpans(t *testing.T, got []string, want ...string) {
 	}
 }
 
-// TestStageOvernightFourHourBoundaries: overnight entries at both ends of the
-// four-hour policy. 23:00→03:00 is exactly 240 minutes and stays one interval;
-// 20:00→03:00 (420 minutes) chunks into 180 + 240 with the crossing chunk
-// last; 18:00→02:00 had a 360-minute first-day allocation and now chunks too.
-// 22:00→04:00 has 240 minutes after midnight, which no interval starting on
-// the staged date can cover within 240 minutes, so it stays one interval whose
-// two allocations (the remote entries) are 120 and 240 minutes.
 func TestStageOvernightFourHourBoundaries(t *testing.T) {
 	cases := []struct {
 		start, end  string
@@ -295,10 +252,6 @@ func TestStageOvernightFourHourBoundaries(t *testing.T) {
 	}
 }
 
-// TestStageOvernightInteriorMeeting: a meeting inside an overnight evidence
-// block (one across midnight, one before it) joins the evidence cluster at
-// stage, so save no longer fails `overlap`; the merged contributors are
-// reported, and the union span chunks to the policy.
 func TestStageOvernightInteriorMeeting(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	receipt, day := stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -336,10 +289,6 @@ func TestStageOvernightInteriorMeeting(t *testing.T) {
 	}
 }
 
-// TestStageMultiMidnightSpanSkipped: an entry spanning two midnights cannot be
-// one interval, and its clocks alone (22:00→02:00) would silently drop a day.
-// It keeps an honest skip; the day's other entries still stage and save, and
-// the ledger is untouched.
 func TestStageMultiMidnightSpanSkipped(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	entries := []timesheet.EntryRecord{
@@ -384,9 +333,6 @@ func TestStageOvernightDSTAdjacentDay(t *testing.T) {
 	assertSpans(t, assertCovers(t, day, tz, "21:00", "04:00", 240), "21:00-23:00", "23:00-04:00")
 }
 
-// TestNextUnitsMatchOvernightStage: `next`/`log` derive the same units, chunk
-// counts and content spans applyStage staged and save confirmed, so an
-// overnight day is not reported stale after staging (ledgerUnits).
 func TestNextUnitsMatchOvernightStage(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	entries := []timesheet.EntryRecord{
@@ -409,10 +355,6 @@ func TestNextUnitsMatchOvernightStage(t *testing.T) {
 	}
 }
 
-// TestPlanAcceptsChunkedOvernightDay: the 18:00→02:00 shape used to save one
-// interval with a 360-minute first-day allocation that `plan` blocked as
-// remote_entry_too_long; it now stages as compliant chunks and plan raises
-// neither that blocker nor an overlap.
 func TestPlanAcceptsChunkedOvernightDay(t *testing.T) {
 	stub := &stubRemote{entries: map[string][]map[string]any{}}
 	server := httptest.NewServer(stub)
@@ -434,9 +376,6 @@ func TestPlanAcceptsChunkedOvernightDay(t *testing.T) {
 	}
 }
 
-// TestStageControlDayByteIdentical: a same-day ledger (a merged cluster that
-// chunks, a plain block, a zero-duration skip, a block ending 23:59) stages,
-// saves and projects byte for byte as before the overnight change.
 func TestStageControlDayByteIdentical(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -478,11 +417,6 @@ func TestStageControlDayByteIdentical(t *testing.T) {
 	}
 }
 
-// TestStageOvernightUnionOverADaySkipped: an overnight entry chained with a
-// same-day block can form a union of 24 hours or more. An interval crosses at
-// most one midnight, so the union's wrapped clock span (26h → 2h, or a bare
-// 24h start == end) would silently lose the day or abort stage. Both
-// contributors keep their own skip; the day's other entries stage and save.
 func TestStageOvernightUnionOverADaySkipped(t *testing.T) {
 	cases := []struct {
 		name string
@@ -530,8 +464,6 @@ func TestStageOvernightUnionOverADaySkipped(t *testing.T) {
 	}
 }
 
-// legacySavedOvernightDay writes the state main saved for a 21:00→03:00 entry
-// before #176: one unsplit 360-minute interval (a valid 180+180 remote plan).
 func legacySavedOvernightDay(t *testing.T, cfg string, entries []timesheet.EntryRecord) {
 	t.Helper()
 	writeLedger(t, cfg, testDate, entries)
@@ -553,9 +485,6 @@ func legacySavedOvernightDay(t *testing.T, cfg string, entries []timesheet.Entry
 	}
 }
 
-// TestFinalizedLegacyOvernightDayStaysCurrent: a day saved by the old unsplit
-// overnight rule still proves current for next/log and submit --chat; it is
-// never sent to `stage --revise`. A real ledger change still stops.
 func TestFinalizedLegacyOvernightDayStaysCurrent(t *testing.T) {
 	entries := []timesheet.EntryRecord{overnightEntry("night-1", "work", "21:00", "03:00", "Release night")}
 	cfg := writeTestConfigTZ(t, overnightTZ)

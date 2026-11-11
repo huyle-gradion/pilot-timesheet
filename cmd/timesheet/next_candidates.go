@@ -12,13 +12,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Catalog candidates for the classifications judgment (issue #234). The
-// deterministic `candidates` step reads the live catalog once per distinct
-// topic and writes candidates.json into the day folder, bound to the staged
-// ledger digest. The judgment then embeds those closed lists, so the model
-// picks from them with no tool call of its own. Each read goes through the
-// session's classifications handler, which caches the catalog in state, so
-// classify validates the answer against the same catalog_id.
 const (
 	// maxCandidateQueries bounds the catalog reads per day. It stays below the
 	// store's catalog cache size so no prefetched catalog is pruned before
@@ -31,10 +24,6 @@ const (
 	maxQueryRunes       = 80
 )
 
-// candidateQuery is the catalog search text for one staged block: the
-// recorded description without its inline "PRs:" list, first line only,
-// whitespace-collapsed and capped. It is the one place to change the query
-// policy.
 func candidateQuery(e timesheet.EntryRecord) string {
 	q := e.Description
 	if i := strings.Index(q, "PRs:"); i >= 0 {
@@ -96,8 +85,6 @@ func readCandidatesFile(path string) (*candidatesFile, error) {
 	return &f, nil
 }
 
-// stagedDayBlocks is the day's staged block content and its ledger digest, by
-// the same projection the planner's classification judgment binds to.
 func stagedDayBlocks(statePath, day string) (map[string]timesheet.EntryRecord, string, error) {
 	ledger, err := timesheet.ReadDayArtifacts(statePath, day)
 	if err != nil {
@@ -215,7 +202,6 @@ func (d actDispatcher) candidatesStep(h *headlessSession) (string, error) {
 	return candidatesNotice(f), nil
 }
 
-// candidatesReceipt is `classifications --candidates`'s stdout.
 type candidatesReceipt struct {
 	Date         string `json:"date"`
 	File         string `json:"file"`
@@ -223,8 +209,6 @@ type candidatesReceipt struct {
 	Notice       string `json:"notice"`
 }
 
-// runCandidates is the verb form of the candidates step, so the derived argv
-// is executable outside `next --do`.
 func runCandidates(configPath, envFile, date string) error {
 	cfg, err := timesheet.LoadConfig(configPath)
 	if err != nil {
@@ -247,8 +231,6 @@ func runCandidates(configPath, envFile, date string) error {
 	return printJSON(candidatesReceipt{Date: day, File: path, LedgerDigest: f.LedgerDigest, Notice: candidatesNotice(f)})
 }
 
-// judgmentCandidates attaches each block's candidate ref and returns the sets
-// the judgment embeds. Only sets some block references are returned.
 func judgmentCandidates(f *candidatesFile, blocks []nextBlock) []nextCandidateSet {
 	used := map[string]bool{}
 	for i := range blocks {

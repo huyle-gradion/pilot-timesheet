@@ -34,17 +34,11 @@ func isTerminal(f *os.File) bool {
 	return f != nil && term.IsTerminal(int(f.Fd()))
 }
 
-// interactive is the operator channel of the human-gate commands.
 type interactive struct {
 	in  *bufio.Reader
 	out io.Writer
 }
 
-// interactiveFactory is the test seam: the human-gate commands build their
-// operator channel through it, so the tests can inject a scripted fake
-// terminal (see testInteractive in submit4_test.go) and exercise the
-// interactive happy paths without a pty, while the gate-refusal tests leave
-// the production factory in place and rely on go test's non-terminal stdio.
 var interactiveFactory = newInteractive
 
 // newInteractive builds the production operator channel and enforces the
@@ -58,10 +52,6 @@ func newInteractive(name, verb string) (*interactive, error) {
 	return &interactive{in: bufio.NewReader(os.Stdin), out: os.Stderr}, nil
 }
 
-// confirm writes the prompt to the operator, reads one line, and requires the
-// expectation typed back: leading/trailing whitespace on the typed line is
-// tolerated, but the content must match exactly. An empty line — or EOF —
-// aborts with no state change and no remote call, as does any other content.
 func (t *interactive) confirm(prompt, expect string) error {
 	fmt.Fprintf(t.out, "%s\nType %q to confirm, anything else (or Ctrl-D) to abort: ", prompt, expect)
 	line, err := t.in.ReadString('\n')

@@ -14,18 +14,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// daily is the scheduled log (issue #243):
-//
-//	timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
-//
-// It is what the systemd user timer or launchd agent runs, at a fixed time on
-// working days and at login. Each run logs the previous working day (so a
-// machine that was off in the evening catches up) and, after daily.log_after,
-// today; a run before log_after never saves a half-finished day. Each day
-// goes through next --do --auto, then one notification says where the day
-// stands. Approval stays in the terminal: a notification only carries the
-// command to run. A second run while one is active exits at once, and a day
-// whose result has not changed is not notified again.
 const (
 	dailyLockFile   = "daily.lock"
 	dailyNoticeFile = "notified.sha256"
@@ -135,8 +123,6 @@ func runDaily(args []string) error {
 	return firstErr
 }
 
-// dailyTargets is the previous working day, plus today once it is a working
-// day and the local time is at or after log_after.
 func dailyTargets(tz string, policy timesheet.DailyConfig, now time.Time) ([]string, error) {
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
@@ -162,8 +148,6 @@ func dailyTargets(tz string, policy timesheet.DailyConfig, now time.Time) ([]str
 	return days, nil
 }
 
-// dailyToday is the local date now, and whether the local time is at or after
-// log_after (a day is never logged half-finished before it).
 func dailyToday(tz string, policy timesheet.DailyConfig, now time.Time) (string, bool, error) {
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
@@ -178,10 +162,6 @@ func dailyToday(tz string, policy timesheet.DailyConfig, now time.Time) (string,
 	return local.Format("2006-01-02"), !local.Before(cutoff), nil
 }
 
-// carryFollowUp returns the date after day when day carried segments into it
-// (hasCarry) and it is not already a target: any day, working or not, before
-// today, or today once log_after has passed (ADR 0011; the owner chose to
-// carry automatically, including into non-working days).
 func carryFollowUp(day, today string, afterCutoff bool, targets []string, hasCarry func(string) bool) (string, bool) {
 	t, err := time.Parse("2006-01-02", day)
 	if err != nil {

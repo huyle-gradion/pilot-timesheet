@@ -14,25 +14,10 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- SUBMIT-3 synthetic acceptance tests ---------------------------------------
-//
-// plan and reconcile's live observation is exercised at full depth against a
-// loopback MCP provider (the same fixture approach as the internal plan and
-// submission tests): a synthetic server that declares ONLY the two read tools
-// and serves synthetic week documents, with the Gradion configuration pointed
-// at it and the credential resolved from the process environment. No network
-// beyond the loopback. Every command runs as its own one-shot process would
-// against a fresh temporary store; resolve's decision files are authored the
-// way the runbook prescribes, from the printed reconcile receipts.
-
-// stubRemote is a loopback MCP provider serving the two read tools. It is a
-// test fixture, not a product path.
 type stubRemote struct {
-	mu      sync.Mutex
-	entries map[string][]map[string]any
-	calls   []string
-	// classifications is the get_classifications text content; with
-	// classificationsError the tool returns a tool-level error instead.
+	mu                   sync.Mutex
+	entries              map[string][]map[string]any
+	calls                []string
 	classifications      string
 	classificationsError bool
 }
@@ -132,10 +117,6 @@ func writeTestConfigWithGradion(t *testing.T, endpoint string) string {
 	return cfg
 }
 
-// classifiedSavedDay builds the full SUBMIT-1+2 flow up to save against a
-// synthetic remote: one recorded timed block, one seeded catalog, one classify
-// selection, confirm, save. It returns the config path, the saved local
-// interval id and the stub.
 func classifiedSavedDay(t *testing.T, desc string, remote []map[string]any) (string, string, *stubRemote) {
 	t.Helper()
 	stub := &stubRemote{entries: map[string][]map[string]any{testDate: remote}}
@@ -252,11 +233,6 @@ func hasBlocker(list []timesheet.Blocker, code, remoteID string) bool {
 	return false
 }
 
-// TestPlanBlockedThenAdoptYieldsNewReadyPlan: plan on a saved classified day
-// with a synthetic overlapping unbound remote is blocked (unresolved_identity)
-// with no operations; reconcile surfaces the unbound remote and the overlap
-// candidate read-only; the human-authored adopt decision binds the identity;
-// the re-preview is ready, carries the edit operation and a NEW plan_id.
 func TestPlanBlockedThenAdoptYieldsNewReadyPlan(t *testing.T) {
 	cfg, localID, _ := classifiedSavedDay(t, "Build the bridge",
 		[]map[string]any{remoteWeekEntry("r-1", "09:00", "10:00", "cat-1", "Someone else's work")})
@@ -272,8 +248,6 @@ func TestPlanBlockedThenAdoptYieldsNewReadyPlan(t *testing.T) {
 		t.Fatalf("first plan operations = %+v, want none while the identity is unresolved", first.Operations)
 	}
 
-	// Reconcile is read-only: the fresh observation is persisted but the
-	// mapping state is untouched.
 	before := bindingsJSON(t, cfg)
 	rec := runReconcileCapture(t, []string{"--config", cfg, "--date", testDate})
 	if after := bindingsJSON(t, cfg); after != before {
@@ -318,11 +292,6 @@ func TestPlanBlockedThenAdoptYieldsNewReadyPlan(t *testing.T) {
 	}
 }
 
-// TestForeignDecisionYieldsReadyCreatePlan: an unbound remote entry that
-// repeats a local description but does not overlap blocks the plan
-// (unresolved_identity); the human's foreign decision records the judgment
-// without binding anything; the re-preview is ready with the create operation
-// and a new plan_id.
 func TestForeignDecisionYieldsReadyCreatePlan(t *testing.T) {
 	cfg, localID, _ := classifiedSavedDay(t, "Build the bridge",
 		[]map[string]any{remoteWeekEntry("r-2", "13:00", "14:00", "cat-1", "Build the bridge")})
@@ -355,10 +324,6 @@ func TestForeignDecisionYieldsReadyCreatePlan(t *testing.T) {
 	}
 }
 
-// TestAcceptObservedRebaselinesChangedRemote: after adoption, remote content
-// drift marks the mapping changed (remote_changed blocker); the human's
-// accept_observed decision re-baselines it and the next reconcile reports it
-// mapped and unchanged.
 func TestAcceptObservedRebaselinesChangedRemote(t *testing.T) {
 	cfg, localID, stub := classifiedSavedDay(t, "Build the bridge",
 		[]map[string]any{remoteWeekEntry("r-1", "09:00", "10:00", "cat-1", "Someone else's work")})
@@ -392,10 +357,6 @@ func TestAcceptObservedRebaselinesChangedRemote(t *testing.T) {
 	}
 }
 
-// TestResolveFailClosedRefusals: a wrong observation_id, an unknown remote_id,
-// an adopt naming work that is not confirmed durable local work, a foreign
-// decision carrying a local_id and a stale revision are each the op's own
-// verbatim refusal, and none of them changes the mapping state.
 func TestResolveFailClosedRefusals(t *testing.T) {
 	cfg, localID, _ := classifiedSavedDay(t, "Build the bridge",
 		[]map[string]any{remoteWeekEntry("r-1", "09:00", "10:00", "cat-1", "Someone else's work")})
@@ -436,7 +397,6 @@ func TestResolveFailClosedRefusals(t *testing.T) {
 		t.Fatalf("bindings after refusals = %+v, want none", bindings)
 	}
 
-	// Decision-file shape errors.
 	if err := runResolve([]string{"--config", cfg, "--date", testDate, "--file", filepath.Join(filepath.Dir(cfg), "missing.json")}); err == nil ||
 		!strings.Contains(err.Error(), "cannot be read") {
 		t.Fatalf("missing decision file = %v, want a read error", err)
@@ -454,11 +414,6 @@ func TestResolveFailClosedRefusals(t *testing.T) {
 	}
 }
 
-// TestPlanReconcileWithoutRemoteFailsClosed: without a Gradion configuration
-// plan and reconcile fail with the op's own remote_disabled error — the live
-// observation path is owner-verified; this proves the wiring fails closed.
-// The op checks for saved confirmed work first, so the day is saved through
-// the ordinary local flow before the remote boundary is reached.
 func TestPlanReconcileWithoutRemoteFailsClosed(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -481,7 +436,6 @@ func TestPlanReconcileWithoutRemoteFailsClosed(t *testing.T) {
 	}
 }
 
-// TestPlanRefusedWithoutSavedWork: plan previews only durable confirmed work.
 func TestPlanRefusedWithoutSavedWork(t *testing.T) {
 	stub := &stubRemote{entries: map[string][]map[string]any{}}
 	server := httptest.NewServer(stub)
@@ -494,10 +448,7 @@ func TestPlanRefusedWithoutSavedWork(t *testing.T) {
 	}
 }
 
-// TestSubmit3FlagErrors: the new commands' flag surface.
 func TestSubmit3FlagErrors(t *testing.T) {
-	// The missing-config case resolves the $HOME default; pin it to an empty
-	// directory so the default config never exists and the test is hermetic.
 	t.Setenv("HOME", t.TempDir())
 	cfg := writeTestConfig(t)
 	cases := []struct {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,13 +12,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/llm"
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// fakeChat is an OpenAI-compatible endpoint: answer builds the reply content
-// from the prompt the binary sent.
 type fakeChat struct {
 	mu      sync.Mutex
 	calls   int
@@ -58,7 +58,6 @@ func describeAll(prompt string) string {
 	return string(out)
 }
 
-// addJudge writes a judge section into an existing test configuration.
 func addJudge(t *testing.T, cfg string, judge map[string]any) {
 	t.Helper()
 	data, err := os.ReadFile(cfg)
@@ -239,6 +238,83 @@ func TestJudgeCommandBackendNeverSeesPipelineSecrets(t *testing.T) {
 	for _, kv := range cb.Env {
 		if strings.HasPrefix(kv, "GITHUB_TOKEN=") || strings.Contains(kv, "synthetic-secret") {
 			t.Fatalf("the harness environment carries %q", kv)
+		}
+	}
+}
+
+func TestJudgeReceiptNeverPrintsCachedUsage(t *testing.T) {
+	out, err := json.Marshal(judgeReceipt{Cached: true, CachedUsage: llm.Usage{Calls: 1, InputTokens: 4321}})
+	if err != nil || strings.Contains(string(out), "4321") {
+		t.Fatalf("receipt = %s, %v; want the cached usage left out", out, err)
+	}
+}
+
+func TestJudgeTokensSpentSkipsCachedRecords(t *testing.T) {
+	dir := t.TempDir()
+	writeAnswerFile(t, filepath.Join(dir, judgeUsageFile),
+		`{"cached":true,"usage":{"input_tokens":500}}`+"\n"+`{"usage":{"input_tokens":30,"output_tokens":5}}`+"\n")
+	if spent, err := judgeTokensSpent(dir); err != nil || spent != 35 {
+		t.Fatalf("spent = %d, %v; want 35 from the non-cached record only", spent, err)
+	}
+}
+
+type promptRecorder struct{ prompts []string }
+
+func (b *promptRecorder) Identity() string { return "recorder" }
+
+func (b *promptRecorder) Complete(_ context.Context, prompt string) (string, llm.Usage, error) {
+	b.prompts = append(b.prompts, prompt)
+	return "fresh", llm.Usage{Calls: 1}, nil
+}
+
+func TestAskCachedSkipsTheStoredReplyAfterARejection(t *testing.T) {
+	dir := t.TempDir()
+	p := llm.Prompt{Text: "describe", Key: strings.Repeat("a", 64)}
+	if err := os.MkdirAll(filepath.Join(dir, judgeResponsesDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(filepath.Join(dir, judgeResponsesDir, "kind-"+p.Key[:16]+".json"), judgeResponse{Key: p.Key, Reply: "stale"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &timesheet.Config{Judge: &timesheet.JudgeConfig{DailyTokenCap: 10000}}
+	backend := &promptRecorder{}
+	identity := func(s string) (string, error) { return s, nil }
+	got, err := askCached(context.Background(), cfg, dir, testDate, "kind", p, "synthetic rejection", backend, identity, time.Now(), &judgeReceipt{})
+	if err != nil || got != "fresh" || len(backend.prompts) != 1 || !strings.Contains(backend.prompts[0], "synthetic rejection") {
+		t.Fatalf("askCached = %q, %v after prompts %q; want a fresh call naming the rejection", got, err, backend.prompts)
+	}
+}
+
+func TestNewJudgeBackendCommandEnvIsNeverNil(t *testing.T) {
+	secrets := []string{"GITHUB_TOKEN", "GCAL_ICS_URL", timesheet.DefaultGradionTokenEnv,
+		"SYNTHETIC_GRADION_CRED", "SYNTHETIC_JUDGE_CRED", "SYNTHETIC_REQUIRED_CRED"}
+	for _, name := range secrets {
+		t.Setenv(name, "synthetic-secret")
+	}
+	for _, backend := range []string{timesheet.JudgeBackendCommand, ""} {
+		c := &timesheet.Config{
+			Gradion:     &timesheet.GradionConfig{TokenEnv: "SYNTHETIC_GRADION_CRED"},
+			RequiredEnv: []string{"SYNTHETIC_REQUIRED_CRED"},
+			Judge: &timesheet.JudgeConfig{Backend: backend, Command: []string{"sh", "-c", "true"}, TimeoutSeconds: 1,
+				APIKeyEnv: "SYNTHETIC_JUDGE_CRED"},
+		}
+		b, err := newJudgeBackend(c, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cb, ok := b.(llm.CommandBackend)
+		if !ok {
+			t.Fatalf("backend %q = %T, want the command backend", backend, b)
+		}
+		if cb.Env == nil {
+			t.Fatalf("backend %q has a nil Env and would inherit the parent environment", backend)
+		}
+		for _, kv := range cb.Env {
+			for _, name := range secrets {
+				if strings.HasPrefix(kv, name+"=") {
+					t.Fatalf("backend %q environment carries %q", backend, kv)
+				}
+			}
 		}
 	}
 }
