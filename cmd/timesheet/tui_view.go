@@ -35,7 +35,10 @@ func sanitizeContent(s string) string {
 
 // recorded composes one stretch of frame text: format is the UI's own literal
 // text with one %s per value, and every value is recorded content, sanitized
-// here. A format never carries recorded content.
+// here. A format never carries recorded content. A literal '%' in the format
+// must be written "%%", and the number of %s verbs must equal len(values):
+// go vet cannot check either, since values is ...string and labelRow and
+// approvalRow build their formats at runtime.
 func recorded(format string, values ...string) string {
 	args := make([]any, len(values))
 	for i, v := range values {
