@@ -2,7 +2,7 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
-## Unreleased
+## 0.4.0
 
 - `timesheet answer --date <day> [--kind <kind>] <answer>` and a TUI answer
   form let you answer an `ask_human` question without an agent (#288). Both
