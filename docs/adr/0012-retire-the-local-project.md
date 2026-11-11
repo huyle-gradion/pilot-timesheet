@@ -64,10 +64,16 @@ the change.
    `applied_at` is stamped at that write. A store that never had a file gets
    no receipt.
 
-   The upgrade is one-way. Before the activating write, the binary copies the
-   older file once to `<state>.schema<N>.bak` (for example
-   `state.json.schema3.bak`, mode 0600, never overwritten). If the copy fails,
-   the write fails and nothing changes. When the write activates, it prints
+   The upgrade is one-way. Before the activating write, the binary keeps a
+   complete copy of the older file at `<state>.schema<N>.bak` (for example
+   `state.json.schema3.bak`, mode 0600). The copy is written to a temporary
+   file, synced and hard-linked into place, so a backup name is either absent
+   or complete. An existing name is reused only when it is a regular file with
+   exactly these bytes. Anything else there, such as a stale backup from an
+   earlier rollback, a dangling symlink or an unrelated file, is left alone,
+   and the copy goes to the next free `.bak.1`, `.bak.2` and so on. The
+   notice names the file actually used. If the copy fails, the write fails and
+   nothing changes. When the write activates, it prints
    one stderr line that names the backup and says the upgrade is one-way. A
    write that fails before activation leaves the older file as it was and the
    receipt unstamped; the backup may remain. A 0.2.0 build reading a schema 4
@@ -91,15 +97,21 @@ the change.
    that lists them still loads (owner, 2026-11-11). On the first load in a run,
    every command except `init` removes them from the file: a token-level edit
    that keeps every other key, its order, values and formatting, and that is
-   checked to change nothing else. The original is kept once as
-   `<config>.bak` (0600, never overwritten). The new bytes replace the file
-   atomically (temporary file in the same directory, the original mode,
-   rename), and one stderr line names what was removed and the backup. If the
-   file cannot be rewritten safely (read-only file or directory, a symlink,
-   or a shape the edit cannot prove), nothing changes and one stderr line
-   says the keys are ignored and can be removed by hand. The env file is never
-   touched. `init` neither writes the keys nor edits a seed. Every other
-   unknown key still fails closed.
+   checked to change nothing else. Key names match without regard to case,
+   as the loader does. The original is kept as `<config>.bak` (0600), by the
+   same complete-or-absent, never-trust-a-foreign-file rule as the state
+   backup (decision 4), so it may be `.bak.1` and so on. The new bytes replace
+   the file atomically (temporary file in the same directory, the original
+   mode, rename), and one stderr line names what was removed and the backup.
+   If the file cannot be rewritten safely (read-only file or directory, a
+   symlink, a file with other hard links, or a shape the edit cannot prove),
+   nothing changes and one stderr line says the keys are ignored and can be
+   removed by hand. A retired key the loader saw but the edit could not find
+   gets the same line, never silence. Read-only commands such as `status` and
+   `plan`, and the scheduled `daily` run, also do this rewrite. Under the
+   systemd or launchd timer, the line lands in the service's journal or log.
+   The env file is never touched. `init` neither writes the keys nor edits a
+   seed. Every other unknown key still fails closed.
 
 7. **Legacy migration stops mapping projects.** `migrate preview|apply` no
    longer requires a legacy project to name a configured project, so an

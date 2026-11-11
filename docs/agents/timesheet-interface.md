@@ -624,9 +624,14 @@ legacy label appears in review, day or segment output, including history
 snapshots.
 
 The upgrade is **one-way**. Before the activating write the older file is
-copied once to `<state>.schema<N>.bak` (for example `state.json.schema3.bak`,
-`0600`, never overwritten); if that copy fails, the write fails and nothing
-changes. The activating write prints one stderr line naming the backup. A
+kept at `<state>.schema<N>.bak` (for example `state.json.schema3.bak`,
+`0600`). The copy is written to a temporary file, synced and hard-linked into
+place, so a backup name is complete or absent. An existing name counts only
+when it is a regular file with exactly those bytes; otherwise (a stale backup,
+a dangling symlink, an unrelated file) the copy goes to the next free
+`.bak.1`, `.bak.2`, and so on. If that copy fails, the write fails and nothing
+changes. The activating write prints one stderr line naming the file it
+actually used. A
 write that fails before activation leaves the older file unchanged (the backup
 may remain). A `0.2.0` build reading a schema `4` file fails closed, leaving
 it intact, with `state_invalid: local state file is not valid JSON for the
@@ -1131,7 +1136,7 @@ echoing file contents.
 | --- | --- | --- |
 | `timezone` | yes | IANA timezone for newly opened day records. Saved days keep their recorded timezone. |
 | `state_path` | yes | Private local state file. Parent directories are created `0700`. |
-| `projects` | retired | Still loads ([ADR 0012](../adr/0012-retire-the-local-project.md)). Every command except `init` removes it from the file on its first load (one-time `<config>.bak`, one stderr line); a file it cannot rewrite safely keeps it, ignored, with one stderr line. `init` never writes it. |
+| `projects` | retired | Still loads, matched without regard to case like every key ([ADR 0012](../adr/0012-retire-the-local-project.md)). Every command except `init`, including `status`, `plan` and the `daily` timer, removes it from the file on its first load: the original goes to `<config>.bak` (or the next free `.bak.N`), and one stderr line names it (under the timer, in the service journal). A file it cannot rewrite safely (read-only, a symlink, other hard links) keeps it, ignored, with one stderr line. `init` never writes it. |
 | `required_env` | no | Credential variable **names** for collection. R1-era local operations still do not require them. |
 | `sources` | no | Optional collection source config. Omitting `sources` entirely reproduces exact R1 behavior (`no_sources` collection, no gate). |
 | `sources.enabled` | yes if present | Master switch; when false, collection reports per-source `disabled` and no gate applies. |

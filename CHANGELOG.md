@@ -24,8 +24,9 @@ interval no longer carries one.
   schema, build version, days, intervals, legacy project labels,
   `applied_at`).
 - **Breaking, one-way upgrade:** before that first write, the schema 1-3 file
-  is copied once to `state.json.schema<N>.bak` (0600, never overwritten), and
-  the write prints one stderr line naming it. `0.2.0` cannot read a schema `4`
+  is kept at `state.json.schema<N>.bak` (0600; complete or absent; the next
+  free `.bak.1`, `.bak.2`, ... when that name holds anything but these exact
+  bytes), and the write prints one stderr line naming the file used. `0.2.0` cannot read a schema `4`
   file: it fails closed with `state_invalid: local state file is not valid
   JSON for the supported schema`. To downgrade, restore the backup over
   `state.json` and put `projects` back in the configuration (the old build
@@ -36,9 +37,12 @@ interval no longer carries one.
 - The configuration keys `projects` and `migration.project_map` are retired.
   A configuration that lists them still loads. On the first load, every
   command except `init` removes them from the file with an edit that keeps
-  every other key and its formatting, keeps the original once as
-  `<config>.bak`, and prints one stderr line. A file it cannot rewrite
-  safely (read-only, a symlink) keeps them, ignored, with one stderr line.
+  every other key and its formatting (names matched without regard to case),
+  keeps the original as `<config>.bak` (or the next free `.bak.N`), and prints
+  one stderr line. This includes `status`, `plan` and the `daily` timer, whose
+  line lands in the service journal. A file it cannot rewrite safely
+  (read-only, a symlink, other hard links) keeps them, ignored, with one
+  stderr line.
 - Review, day and segment output no longer show an interval's legacy
   `project` or local `classification` label. Both stay inert in state.
 - Classification comes from `gradion.default_classification` when configured

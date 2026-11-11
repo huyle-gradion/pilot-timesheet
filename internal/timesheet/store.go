@@ -840,16 +840,18 @@ func (s *Store) write() (bool, error) {
 // state schema upgrade reports. The command layer prints it on stderr.
 var UpgradeNotice func(line string)
 
-// backupOlderSchema copies the on-disk file of the older schema to
-// <state>.schema<N>.bak (0600) unless that backup already exists. The store's
-// lock is held, so the file is still the one that was loaded.
+// backupOlderSchema keeps a complete copy of the on-disk file of the older
+// schema at <state>.schema<N>.bak (0600), or at the next free .bak.M when that
+// name holds anything but these exact bytes (keepBackup), and returns the
+// name used. The store's lock is held, so the file is still the one that was
+// loaded.
 func (s *Store) backupOlderSchema() (string, error) {
-	backup := fmt.Sprintf("%s.schema%d.bak", s.path, s.durableSchema)
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return "", newError(CodeWriteFailed, "local state cannot be backed up before its schema upgrade")
 	}
-	if err := writeOnce(backup, data); err != nil {
+	backup, err := keepBackup(fmt.Sprintf("%s.schema%d.bak", s.path, s.durableSchema), data)
+	if err != nil {
 		return "", newError(CodeWriteFailed, "local state cannot be backed up before its schema upgrade")
 	}
 	return backup, nil

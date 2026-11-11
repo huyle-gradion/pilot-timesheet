@@ -102,9 +102,13 @@ func retiredConfigHook(notice func(string)) func(string) {
 			notice(fmt.Sprintf("config %s: the retired keys projects / migration.project_map are ignored and can be removed by hand (ADR 0012; not rewritten: %v)", path, err))
 			return
 		}
-		if len(removed) > 0 {
-			notice(fmt.Sprintf("config %s: removed the retired %s (ADR 0012); the previous file is kept at %s", path, strings.Join(removed, " and "), backup))
+		if len(removed) == 0 {
+			// The loader saw a retired key the editor could not find: never
+			// stay silent about it.
+			notice(fmt.Sprintf("config %s: the retired keys projects / migration.project_map are ignored and can be removed by hand (ADR 0012)", path))
+			return
 		}
+		notice(fmt.Sprintf("config %s: removed the retired %s (ADR 0012); the previous file is kept at %s", path, strings.Join(removed, " and "), backup))
 	}
 }
 

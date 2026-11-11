@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -18,19 +20,31 @@ import (
 // nil in the library, so loading never writes by itself.
 var RetiredConfigHook func(path string)
 
-// retiredConfigKeys are the retired keys, by the object that holds them.
+// retiredConfigKeys are the retired keys, by the object that holds them. Like
+// the configuration loader, matching ignores case.
 var retiredConfigKeys = map[string][]string{
 	"":          {"projects"},
 	"migration": {"project_map"},
 }
 
+func isRetiredKey(object, key string) bool {
+	for _, k := range retiredConfigKeys[object] {
+		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
+}
+
 // RemoveRetiredConfigKeys deletes the retired keys from the configuration
 // file at path by a token-level edit: every other key keeps its order, values
-// and formatting. The original bytes are kept once in path+".bak" (0600, never
-// overwritten), then the new bytes replace the file atomically (a temporary
-// file in the same directory, the original mode, fsync, rename). It refuses a
-// symlink and a file it cannot write, and changes nothing then. removed lists
-// the dotted names it deleted; an empty list means there was nothing to do.
+// and formatting. The original bytes are first kept as a complete backup
+// (path+".bak", or the next free .bak.N when that name holds anything else;
+// see keepBackup), then the new bytes replace the file atomically (a
+// temporary file in the same directory, the original mode, fsync, rename). It
+// refuses a symlink, a hard-linked file and a file it cannot write, and
+// changes nothing then. removed lists the names it deleted; an empty list
+// means there was nothing it could find to remove.
 func RemoveRetiredConfigKeys(path string) (removed []string, backup string, err error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -38,6 +52,10 @@ func RemoveRetiredConfigKeys(path string) (removed []string, backup string, err 
 	}
 	if !info.Mode().IsRegular() {
 		return nil, "", fmt.Errorf("%s is not a regular file", path)
+	}
+	// Replacing a file with other hard links would split it from them.
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
+		return nil, "", fmt.Errorf("%s has other hard links", path)
 	}
 	// 2 is W_OK: the file and its directory must both be writable.
 	if err := syscall.Access(path, 2); err != nil {
@@ -55,8 +73,8 @@ func RemoveRetiredConfigKeys(path string) (removed []string, backup string, err 
 	if err != nil || len(removed) == 0 {
 		return nil, "", err
 	}
-	backup = path + ".bak"
-	if err := writeOnce(backup, data); err != nil {
+	backup, err = keepBackup(path+".bak", data)
+	if err != nil {
 		return nil, "", err
 	}
 	if err := replaceFile(path, edited, info.Mode().Perm()); err != nil {
@@ -65,21 +83,109 @@ func RemoveRetiredConfigKeys(path string) (removed []string, backup string, err 
 	return removed, backup, nil
 }
 
+// member is one object member's byte positions in its object: where its key
+// starts and where its value ends.
+type member struct {
+	keyStart, valueEnd int
+	key                string
+}
+
+// objectMembers lists the members of the JSON object obj, plus the offsets
+// just after its '{' and of its '}'.
+func objectMembers(obj []byte) ([]member, int, int, error) {
+	dec := json.NewDecoder(bytes.NewReader(obj))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, 0, 0, errors.New("configuration is not a JSON object")
+	}
+	open := int(dec.InputOffset())
+	var members []member
+	for dec.More() {
+		start := skipSpace(obj, int(dec.InputOffset()))
+		if start < len(obj) && obj[start] == ',' {
+			start = skipSpace(obj, start+1)
+		}
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		key, _ := keyTok.(string)
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, 0, 0, err
+		}
+		members = append(members, member{keyStart: start, valueEnd: int(dec.InputOffset()), key: key})
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return nil, 0, 0, errors.New("configuration object is not closed")
+	}
+	return members, open, int(dec.InputOffset()) - 1, nil
+}
+
+// cutSpans returns the byte spans of obj (offset by base) that remove the
+// members drop selects, with their separators. A run of removed members after
+// a kept one is cut from that member's value end, taking the leading commas;
+// a run at the start is cut up to the next kept key; removing every member
+// cuts from after '{' to before '}', so no stray indentation is left.
+func cutSpans(members []member, open, end, base int, drop func(member) bool) [][2]int {
+	var spans [][2]int
+	lastKept := -1
+	for i := 0; i < len(members); {
+		if !drop(members[i]) {
+			lastKept = i
+			i++
+			continue
+		}
+		j := i
+		for j < len(members) && drop(members[j]) {
+			j++
+		}
+		switch {
+		case lastKept >= 0:
+			spans = append(spans, [2]int{base + members[lastKept].valueEnd, base + members[j-1].valueEnd})
+		case j < len(members):
+			spans = append(spans, [2]int{base + members[i].keyStart, base + members[j].keyStart})
+		default:
+			spans = append(spans, [2]int{base + open, base + end})
+		}
+		i = j
+	}
+	return spans
+}
+
 // withoutRetiredKeys returns data with the retired members cut out, and
 // proves that nothing else changed: the edited document decodes to the
 // original minus exactly those members.
 func withoutRetiredKeys(data []byte) ([]byte, []string, error) {
-	spans, removed, err := memberSpans(data, 0, retiredConfigKeys[""], "")
+	members, open, end, err := objectMembers(data)
 	if err != nil {
 		return nil, nil, err
 	}
-	if start, raw, ok := migrationValue(data); ok && len(raw) > 0 && raw[0] == '{' {
-		nested, names, err := memberSpans(raw, start, retiredConfigKeys["migration"], "migration.")
+	var removed []string
+	spans := cutSpans(members, open, end, 0, func(m member) bool { return isRetiredKey("", m.key) })
+	for _, m := range members {
+		if isRetiredKey("", m.key) {
+			removed = append(removed, m.key)
+			continue
+		}
+		if !strings.EqualFold(m.key, "migration") {
+			continue
+		}
+		// The member's value is the bytes before valueEnd that decode as one
+		// JSON value; re-find it from the key.
+		start, raw, ok := memberValue(data, m)
+		if !ok || len(raw) == 0 || raw[0] != '{' {
+			continue
+		}
+		nested, nOpen, nClose, err := objectMembers(raw)
 		if err != nil {
 			return nil, nil, err
 		}
-		spans = append(spans, nested...)
-		removed = append(removed, names...)
+		spans = append(spans, cutSpans(nested, nOpen, nClose, start, func(n member) bool { return isRetiredKey("migration", n.key) })...)
+		for _, n := range nested {
+			if isRetiredKey("migration", n.key) {
+				removed = append(removed, m.key+"."+n.key)
+			}
+		}
 	}
 	if len(spans) == 0 {
 		return data, nil, nil
@@ -95,72 +201,19 @@ func withoutRetiredKeys(data []byte) ([]byte, []string, error) {
 	return out, removed, nil
 }
 
-// migrationValue is the top-level "migration" value and its byte offset.
-func migrationValue(data []byte) (int, []byte, bool) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+// memberValue returns the value bytes of member m and their offset in data.
+func memberValue(data []byte, m member) (int, []byte, bool) {
+	dec := json.NewDecoder(bytes.NewReader(data[m.keyStart:m.valueEnd]))
+	var key string
+	if err := dec.Decode(&key); err != nil {
 		return 0, nil, false
 	}
-	for dec.More() {
-		key, err := dec.Token()
-		if err != nil {
-			return 0, nil, false
-		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			return 0, nil, false
-		}
-		if key == "migration" {
-			return int(dec.InputOffset()) - len(raw), raw, true
-		}
+	i := skipSpace(data, m.keyStart+int(dec.InputOffset()))
+	if i >= m.valueEnd || data[i] != ':' {
+		return 0, nil, false
 	}
-	return 0, nil, false
-}
-
-// memberSpans finds, in the JSON object obj (which starts at base in the whole
-// document), the byte span of each member named in targets. A span that is
-// not the object's first member starts right after the previous value, so it
-// takes its own leading comma. A first member's span starts at its key and
-// runs through the following comma and whitespace, so the next member moves
-// into its place.
-func memberSpans(obj []byte, base int, targets []string, prefix string) ([][2]int, []string, error) {
-	dec := json.NewDecoder(bytes.NewReader(obj))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return nil, nil, errors.New("configuration is not a JSON object")
-	}
-	var spans [][2]int
-	var names []string
-	first := true
-	for dec.More() {
-		before := int(dec.InputOffset())
-		keyTok, err := dec.Token()
-		if err != nil {
-			return nil, nil, err
-		}
-		key, _ := keyTok.(string)
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
-			return nil, nil, err
-		}
-		end := int(dec.InputOffset())
-		for _, target := range targets {
-			if key != target {
-				continue
-			}
-			start := before
-			if first {
-				start = skipSpace(obj, before)
-				end = skipSpace(obj, end)
-				if end < len(obj) && obj[end] == ',' {
-					end = skipSpace(obj, end+1)
-				}
-			}
-			spans = append(spans, [2]int{base + start, base + end})
-			names = append(names, prefix+key)
-		}
-		first = false
-	}
-	return spans, names, nil
+	start := skipSpace(data, i+1)
+	return start, data[start:m.valueEnd], true
 }
 
 func skipSpace(b []byte, i int) int {
@@ -179,12 +232,17 @@ func sameExceptRetired(before, after []byte) error {
 	if err := json.Unmarshal(after, &b); err != nil {
 		return errors.New("the edited configuration is not valid JSON")
 	}
-	for _, key := range retiredConfigKeys[""] {
-		delete(a, key)
-	}
-	if m, ok := a["migration"].(map[string]any); ok {
-		for _, key := range retiredConfigKeys["migration"] {
-			delete(m, key)
+	for key, value := range a {
+		if isRetiredKey("", key) {
+			delete(a, key)
+			continue
+		}
+		if m, ok := value.(map[string]any); ok && strings.EqualFold(key, "migration") {
+			for nested := range m {
+				if isRetiredKey("migration", nested) {
+					delete(m, nested)
+				}
+			}
 		}
 	}
 	if !reflect.DeepEqual(a, b) {
@@ -193,27 +251,63 @@ func sameExceptRetired(before, after []byte) error {
 	return nil
 }
 
-// writeOnce creates path with data at mode 0600 unless it already exists,
-// in which case the existing file is kept as it is.
-func writeOnce(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return nil
-	}
+// keepBackup makes sure a complete copy of data exists at name, or at the
+// first free name.N after it, and returns the name it used. The copy is
+// written to a temporary file, synced and then hard-linked into place, so a
+// backup name is either absent or complete. An existing name counts as the
+// backup only when it is a regular file holding exactly data; anything else
+// (an unrelated file, a stale backup, a dangling symlink) is left alone and
+// the next name is tried.
+func keepBackup(name string, data []byte) (string, error) {
+	dir := filepath.Dir(name)
+	tmp, err := os.CreateTemp(dir, ".timesheet-backup-*.tmp")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return err
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return "", err
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return err
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return "", err
 	}
-	return f.Close()
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	for i := 0; i < 100; i++ {
+		candidate := name
+		if i > 0 {
+			candidate = name + "." + strconv.Itoa(i)
+		}
+		err := os.Link(tmpName, candidate)
+		if err == nil {
+			syncDir(dir)
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+		if info, lerr := os.Lstat(candidate); lerr == nil && info.Mode().IsRegular() {
+			if existing, rerr := os.ReadFile(candidate); rerr == nil && bytes.Equal(existing, data) {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no free backup name next to %s", name)
+}
+
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 }
 
 // replaceFile atomically replaces path with data at mode perm.
@@ -245,9 +339,6 @@ func replaceFile(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(name)
 		return err
 	}
-	if d, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
+	syncDir(filepath.Dir(path))
 	return nil
 }
