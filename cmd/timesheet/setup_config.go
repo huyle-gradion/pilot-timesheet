@@ -92,7 +92,7 @@ func defaultSetupEnvNames() []string {
 func setupEnvTemplate(names []string) []byte {
 	var b strings.Builder
 	b.WriteString("# timesheet credentials\n#\n")
-	b.WriteString("# Values are yours to add: setup never reads, writes or prints them.\n")
+	b.WriteString("# Values are yours to add: init never reads, writes or prints them.\n")
 	b.WriteString("# Add one line per name below: the name, an equals sign, then the value.\n")
 	b.WriteString("# Only the compiled binary reads this file (via --env-file).\n")
 	for _, name := range names {

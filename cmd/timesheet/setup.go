@@ -262,9 +262,9 @@ func executeSetup(opts setupOptions, out io.Writer) error {
 
 	if createdFiles > 0 {
 		if needEnv {
-			lines = append(lines, "next: credential values are yours to add, then run 'timesheet run'")
+			lines = append(lines, "next: credential values are yours to add, then run 'timesheet log'")
 		} else {
-			lines = append(lines, "next: run 'timesheet run'")
+			lines = append(lines, "next: run 'timesheet log'")
 		}
 	}
 

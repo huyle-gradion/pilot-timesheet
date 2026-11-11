@@ -61,7 +61,7 @@ func resolveConfigChoice(name, explicit string) (configChoice, error) {
 		return configChoice{}, fmt.Errorf("%s: %v", name, err)
 	}
 	if _, err := os.Stat(def); err != nil {
-		return configChoice{}, fmt.Errorf("%s: no configuration at %s or %s; pass --config <path> or run 'timesheet setup'", name, projectLocalConfigPath, def)
+		return configChoice{}, fmt.Errorf("%s: no configuration at %s or %s; pass --config <path> or run 'timesheet init'", name, projectLocalConfigPath, def)
 	}
 	return configChoice{path: def, tier: "home"}, nil
 }

@@ -36,7 +36,7 @@ type PreflightChecker interface {
     CheckPreflight(ctx context.Context) PreflightStatus
 }
 ```
-- In interactive CLI mode: Prompts user to input missing values and optionally stores them in macOS Keychain or `.env`.
+- In interactive CLI mode: Prompts user to input missing values and optionally stores them in macOS Keychain or `.env`. *(Amended 2026-11-11 by #194: credentials are env-file only; no Keychain storage. See [Amendments](#amendments).)*
 - In headless/CI mode: Emits structured error with the resolution guide and exit code `EXIT_USAGE (64)`.
 - In AI Skill (`workflow.md`): Step 0 runs pre-flight checks and provides human-readable guidance before starting collection.
 
@@ -64,3 +64,17 @@ The timesheet client in Milestone M3 will support dual reconciliation paths:
 - Eliminates onboarding hurdles and confusing crashes for new users.
 - Produces clean, readable timesheets with zero micro-block clutter for supervisor review.
 - Establishes a standard contract for all future plugins (Jira, Slack, etc.).
+
+## Amendments
+
+### 2026-11-11 — credentials are env-file only (#194)
+
+The Keychain half of the interactive-prompt decision above no longer holds.
+Credential values live only in the owner-authored env file
+(`~/.timesheet/.env.local` by default, or `--env-file`), which only the compiled
+binary reads; the Keychain resolver was retired and no Keychain storage or
+fallback exists on any platform. `timesheet init` creates that file with
+commented variable names and no values, and nothing in the product prompts for,
+stores or writes a credential value. The active policy is
+[credentials](../agents/credentials.md). The rest of this ADR stands as
+written, as superseded historical context.
