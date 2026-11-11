@@ -4,6 +4,15 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- Security: the calendar collector no longer sends the private feed URL
+  (`GCAL_ICS_URL`) to a redirect target (#302). Go's HTTP client set the
+  previous URL, path and query included, as the `Referer` of a followed
+  redirect, so a feed that redirected to another host disclosed the
+  credential to it. The `Referer` is now stripped; the 10-redirect limit is
+  unchanged. New tests pin that the feed URL never appears in the collect
+  result, source detail, stored evidence, state file, stderr or a redirect
+  target's request for an unreachable host, a non-200 status, an oversized
+  body, malformed ICS, a timeout and followed redirects.
 - `timesheet answer --date <day> [--kind <kind>] <answer>` and a TUI answer
   form let you answer an `ask_human` question without an agent (#288). Both
   write the same digest-bound answer file the agent path writes, checked
