@@ -28,6 +28,7 @@ const commandSynopsis = `Usage:
   timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
   timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet eval export [--config <path>] [--out <file outside any repository>]
+  timesheet eval run --golden <file> [--out <file outside any repository>] [--config <path>] [--env-file <path>]
   timesheet eval score --golden <file> [--candidate <file>]
   timesheet version
 

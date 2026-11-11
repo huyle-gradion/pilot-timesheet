@@ -2,6 +2,20 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- Add `timesheet eval run --golden <file> [--out <file>]` (#279): replays
+  every golden day through the configured judge with the same owned prompts,
+  response cache and per-day token cap as `log`, and writes a candidate file
+  `eval score --candidate` reads unchanged. It reports total and per-day tokens
+  against the cap, lists unparseable replies as skipped (scored as missing),
+  keeps the partial candidate on a cap hit, writes no store state and refuses
+  an `--out` inside a repository.
+- `eval export` writes golden schema 2: the classifications part records the
+  catalog candidate sets the judgment picked from, and leaves out intervals
+  decided from approved history. A day without bound candidates is skipped
+  with a reason. Schema 1 datasets are refused; export them again.
+
 ## 0.2.0
 
 The first final release of the `0.2.0` line. It includes everything in the

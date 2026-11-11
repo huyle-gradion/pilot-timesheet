@@ -218,6 +218,32 @@ and review the binding, or use `--file`. Stale sidecars require reviewed `--file
 repair. Changing the default never rewrites existing choices or saved days.
 Approval and submission retain their live semantic verification.
 
+### Measuring the judge
+
+Three commands measure the configured judge against your own saved days. Keep
+every file outside any repository (the commands refuse a path inside one):
+
+```bash
+bin/timesheet eval export --out ~/timesheet-eval/golden.json
+bin/timesheet eval run --golden ~/timesheet-eval/golden.json --out ~/timesheet-eval/candidate.json
+bin/timesheet eval score --golden ~/timesheet-eval/golden.json --candidate ~/timesheet-eval/candidate.json
+```
+
+`export` records each saved day's judgment inputs and accepted answers,
+including the catalog candidates the classifications judgment picked from (a
+day without recorded candidates is skipped with a reason). `run` sends every
+day through the same owned prompts, cache and per-day token cap as `log`, and
+calls nothing but the judge; it writes no store state. `score` prints the
+classification exact-match rate and the description coverage and similarity.
+A reply that does not validate is listed in `run`'s `skipped` and scores as
+missing.
+
+For tokens, compare `run`'s `max_day_tokens` (and each entry of `days`) with
+`daily_token_cap` (default 10,000, ADR 0010). Replies are cached in
+`judge-cache/` next to the candidate file, so a second run reports no new
+tokens for unchanged prompts; delete that folder to measure again. A cap hit
+stops the run, keeps the partial candidate and exits non-zero.
+
 ## Native TUI operator flow
 
 `bin/timesheet tui` is the keyboard-first operator surface: a native Go terminal

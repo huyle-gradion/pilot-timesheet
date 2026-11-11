@@ -11,7 +11,9 @@ import (
 // gate for prompt and model changes; the binary's own LLM judgments (#241)
 // call ScoreGolden directly.
 
-const GoldenSchema = 1
+// GoldenSchema 2 (#279) records the catalog candidates each classifications
+// input was judged against, so eval run can replay it offline.
+const GoldenSchema = 2
 
 // GoldenDataset is the exported file. It holds the owner's evidence and stays
 // on the owner's machine: never commit it.
@@ -48,14 +50,34 @@ type GoldenBlock struct {
 	Start       string `json:"start"`
 	End         string `json:"end"`
 	Description string `json:"description"`
+	// Candidates is the ref of this interval's set in
+	// GoldenClassifications.Candidates; empty when it had none.
+	Candidates string `json:"candidates,omitempty"`
 }
 
-// GoldenClassifications pairs the staged blocks with the accepted
-// classification_id per interval_id.
+// GoldenClassifications pairs the intervals the classifications judgment saw
+// (the staged blocks minus those decided from approved history) and the
+// catalog candidate sets it picked from with the accepted classification_id
+// per interval_id.
 type GoldenClassifications struct {
-	Input       []GoldenBlock     `json:"input"`
-	Truth       map[string]string `json:"truth"`
-	RemoteTruth []string          `json:"remote_truth,omitempty"`
+	Input       []GoldenBlock        `json:"input"`
+	Candidates  []GoldenCandidateSet `json:"candidates"`
+	Truth       map[string]string    `json:"truth"`
+	RemoteTruth []string             `json:"remote_truth,omitempty"`
+}
+
+// GoldenCandidateSet is one prefetched catalog option list, as recorded in
+// the day's candidates.json when the day was judged.
+type GoldenCandidateSet struct {
+	Ref       string         `json:"ref"`
+	CatalogID string         `json:"catalog_id"`
+	Options   []GoldenOption `json:"options"`
+}
+
+type GoldenOption struct {
+	ClassificationID string `json:"classification_id"`
+	Label            string `json:"label"`
+	Code             string `json:"code,omitempty"`
 }
 
 // GoldenSkip is one day part left out of the dataset. Skipped parts never

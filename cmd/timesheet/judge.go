@@ -247,7 +247,7 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 		return zero, err
 	}
 	if limit := cfg.Judge.DailyTokenCap; spent+llm.EstimateTokens(p.Text) > limit {
-		return zero, fmt.Errorf("judge: the daily token cap (%d) is reached for %s (%d spent); the judgment stays open for the agent path", limit, day, spent)
+		return zero, judgeCapError{limit: limit, day: day, spent: spent}
 	}
 	v, reply, usage, askErr := llm.Ask(ctx, backend, p, parse)
 	r.Usage = usage
@@ -255,12 +255,22 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 		return zero, err
 	}
 	if askErr != nil {
-		return zero, fmt.Errorf("judge: %s failed after one retry: %s; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr.Error())
+		return zero, fmt.Errorf("judge: %s failed after one retry: %w; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr)
 	}
 	if err := writeJSONFile(cachePath, judgeResponse{Key: p.Key, Kind: kind, Reply: reply, Usage: usage, At: now.UTC().Format(time.RFC3339)}); err != nil {
 		return zero, err
 	}
 	return v, nil
+}
+
+// judgeCapError is the daily token cap refusal; eval run stops on it.
+type judgeCapError struct {
+	limit, spent int
+	day          string
+}
+
+func (e judgeCapError) Error() string {
+	return fmt.Sprintf("judge: the daily token cap (%d) is reached for %s (%d spent); the judgment stays open for the agent path", e.limit, e.day, e.spent)
 }
 
 func appendJudgeUsage(dir string, rec judgeUsageRecord) error {

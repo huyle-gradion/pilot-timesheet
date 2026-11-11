@@ -16,24 +16,28 @@ import (
 // eval is the golden-day evaluation verb (issue #236):
 //
 //	timesheet eval export [--config <path>] [--out <file>]
+//	timesheet eval run --golden <file> [--out <file>] [--config <path>] [--env-file <path>]
 //	timesheet eval score --golden <file> [--candidate <file>]
 //
 // export reads the store and writes the owner's saved days as judgment input
 // plus accepted answer. The file holds personal evidence, so it is refused
 // inside any git work tree; it never carries configuration, credentials or
-// env-file contents. score rates a candidate (default: the dataset's own
+// env-file contents. run replays the dataset through the configured judge
+// (eval_run.go). score rates a candidate (default: the dataset's own
 // accepted answers, the 100% self-check) with timesheet.ScoreGolden.
 func runEval(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("eval requires a subcommand: export or score")
+		return fmt.Errorf("eval requires a subcommand: export, run or score")
 	}
 	switch args[0] {
 	case "export":
 		return runEvalExport(args[1:])
+	case "run":
+		return runEvalRun(args[1:])
 	case "score":
 		return runEvalScore(args[1:])
 	}
-	return fmt.Errorf("eval: unknown subcommand %q; use export or score", args[0])
+	return fmt.Errorf("eval: unknown subcommand %q; use export, run or score", args[0])
 }
 
 type evalExportReceipt struct {
@@ -147,7 +151,7 @@ func exportGolden(cfg *timesheet.Config, state *timesheet.State, now time.Time) 
 
 		if staged == nil {
 			skip(date, "classifications", "the stage map no longer matches the entries ledger")
-		} else if c, reason := goldenClassifications(date, state.Days[date].Confirmed, staged, observed); c == nil {
+		} else if c, reason := goldenClassifications(cfg, date, state.Days[date].Confirmed, staged, observed); c == nil {
 			skip(date, "classifications", reason)
 		} else {
 			day.Classifications = c
@@ -168,15 +172,47 @@ func exportGolden(cfg *timesheet.Config, state *timesheet.State, now time.Time) 
 	return g
 }
 
-func goldenClassifications(date string, confirmed []timesheet.Interval, staged map[string]timesheet.EntryRecord, observed map[[2]string]*timesheet.RemoteEntry) (*timesheet.GoldenClassifications, string) {
-	c := &timesheet.GoldenClassifications{Truth: map[string]string{}}
-	for _, b := range judgmentBlocks(staged) {
+// goldenClassifications records the classifications judgment as next built
+// it: the staged blocks minus those decided from approved history, each naming
+// its set from the day's candidates.json. Those sets came from live catalog
+// reads at log time, so a ledger without bound candidates is skipped rather
+// than re-read: the dataset replays offline (#279).
+func goldenClassifications(cfg *timesheet.Config, date string, confirmed []timesheet.Interval, staged map[string]timesheet.EntryRecord, observed map[[2]string]*timesheet.RemoteEntry) (*timesheet.GoldenClassifications, string) {
+	digest := timesheet.StagedLedgerDigest(date, staged)
+	dir, err := dayArtifactsDir(cfg.StatePath, date)
+	if err != nil {
+		return nil, "the day folder cannot be resolved"
+	}
+	cands, err := readCandidatesFile(filepath.Join(dir, "candidates.json"))
+	if err != nil || cands == nil || cands.LedgerDigest != digest {
+		return nil, "no catalog candidates are recorded for this ledger (candidates.json is missing or stale), so the judgment cannot be replayed"
+	}
+	picked := boundHistory(cfg.StatePath, date, digest)
+	judged := make(map[string]timesheet.EntryRecord, len(staged))
+	for id, e := range staged {
+		if _, ok := picked[id]; !ok {
+			judged[id] = e
+		}
+	}
+	if len(judged) == 0 {
+		return nil, "every staged interval was classified from approved history, so the judge had nothing to pick"
+	}
+	blocks := judgmentBlocks(judged)
+	c := &timesheet.GoldenClassifications{Candidates: []timesheet.GoldenCandidateSet{}, Truth: map[string]string{}}
+	for _, s := range judgmentCandidates(cands, blocks) {
+		set := timesheet.GoldenCandidateSet{Ref: s.Ref, CatalogID: s.CatalogID, Options: []timesheet.GoldenOption{}}
+		for _, o := range s.Options {
+			set.Options = append(set.Options, timesheet.GoldenOption{ClassificationID: o.ClassificationID, Label: o.Label, Code: o.Code})
+		}
+		c.Candidates = append(c.Candidates, set)
+	}
+	for _, b := range blocks {
 		c.Input = append(c.Input, timesheet.GoldenBlock{
-			IntervalID: b.IntervalID, BlockID: b.BlockID, Start: b.Start, End: b.End, Description: b.Description,
+			IntervalID: b.IntervalID, BlockID: b.BlockID, Start: b.Start, End: b.End, Description: b.Description, Candidates: b.Candidates,
 		})
 	}
 	for _, iv := range confirmed {
-		if _, ok := staged[iv.ID]; !ok {
+		if _, ok := judged[iv.ID]; !ok {
 			continue
 		}
 		if obs := observed[[2]string{date, iv.ID}]; obs != nil && obs.ClassificationID != "" {
@@ -247,12 +283,9 @@ func runEvalScore(args []string) error {
 	if *goldenFlag == "" {
 		return fmt.Errorf("eval score requires --golden")
 	}
-	var g timesheet.GoldenDataset
-	if err := readJSONFile(*goldenFlag, &g); err != nil {
-		return fmt.Errorf("eval score: the dataset %s: %w", *goldenFlag, err)
-	}
-	if g.Schema != timesheet.GoldenSchema {
-		return fmt.Errorf("eval score: the dataset %s has schema %d, want %d; export it again", *goldenFlag, g.Schema, timesheet.GoldenSchema)
+	g, err := readGolden("eval score", *goldenFlag)
+	if err != nil {
+		return err
 	}
 	candidate := timesheet.AcceptedCandidate(g)
 	if *candidateFlag != "" {
@@ -262,6 +295,18 @@ func runEvalScore(args []string) error {
 		}
 	}
 	return printJSON(timesheet.ScoreGolden(g, candidate))
+}
+
+// readGolden reads a dataset and refuses one written under another schema.
+func readGolden(verb, path string) (timesheet.GoldenDataset, error) {
+	var g timesheet.GoldenDataset
+	if err := readJSONFile(path, &g); err != nil {
+		return g, fmt.Errorf("%s: the dataset %s: %w", verb, path, err)
+	}
+	if g.Schema != timesheet.GoldenSchema {
+		return g, fmt.Errorf("%s: the dataset %s has schema %d, want %d; export it again", verb, path, g.Schema, timesheet.GoldenSchema)
+	}
+	return g, nil
 }
 
 func readJSONFile(path string, v any) error {
