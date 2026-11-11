@@ -22,7 +22,7 @@ The supplied Antigravity transcript is the baseline: 30 tool calls before the fi
 2. The binary loads non-secret configuration and credentials internally, collects GitHub and calendar evidence, and groups related activity.
 3. Pi renders the review locally. Scrolling, detail inspection, typed changes, source acknowledgment, local confirmation, and submission approval do not require model calls.
 4. The user supplies working intervals and explicitly confirms attendance for proposed calendar intervals. GitHub activity timestamps never establish working duration.
-5. The user chooses save-local, revise, cancel, or review-submission. Save-local persists reviewed work without remote writes. Cancel discards unapplied review changes and preserves prior confirmed work.
+5. The user chooses save-local, revise, discard, or review-submission. Save-local persists reviewed work without remote writes. Discarding (leaving without saving) drops unapplied review changes and preserves prior confirmed work.
 6. Review-submission shows the exact remote creates/edits and total. Approval authorizes only that exact Submission Plan. Approval may then lead to execution without asking the model to rediscover another command.
 7. The binary reports verified outcomes. Uncertain writes remain unresolved and block blind replay.
 
@@ -116,12 +116,12 @@ Public compatibility includes CLI flags/exit behavior, typed review input, the P
 - Before 1.0, increment the minor version for incompatible public-interface changes and the patch version for compatible fixes; document changes and required migrations.
 - `1.0.0` declares the complete accepted public interface stable. After that, breaking public changes increment MAJOR, compatible additions MINOR, and compatible fixes PATCH.
 - Tags use `v` plus the version. Released artifacts/tags are immutable. Release creation/publication requires separate owner authority.
-- The binary identifies its application version and negotiates a separate integer protocol schema. Schema mismatch fails closed with a compact error. (The bundled Pi adapter that once paired its own stamp with these retired with the launcher in `0.2.0-dev.10`.)
+- The binary identifies its application version (`timesheet version`). The separate integer protocol schema it once negotiated retired with `serve` (issue #272): no process speaks a wire protocol to the binary, and the state schema still fails closed on mismatch.
 - Maintain `CHANGELOG.md`. An Unreleased entry is not proof of implementation or a published release.
 
 ## Completion evidence
 
-the application is complete only when the real executable and Pi UI demonstrate GitHub/calendar collection, manual interval entry, explicit attendance and incomplete-source decisions, local save/revise/cancel, restart-safe durable state, repeat-safe migration, remote reconciliation, exact-plan approval, verified submission outcomes, and restricted model tools. Use hermetic sources for ordinary development; live proof requires separately authorized credentials and service scope.
+the application is complete only when the real executable and Pi UI demonstrate GitHub/calendar collection, manual interval entry, explicit attendance and incomplete-source decisions, local save/revise/discard, restart-safe durable state, repeat-safe migration, remote reconciliation, exact-plan approval, verified submission outcomes, and restricted model tools. Use hermetic sources for ordinary development; live proof requires separately authorized credentials and service scope.
 
 Show the actual review surface and receipt, not only unit results. Measure the daily model-visible workflow against the transcript baseline without claiming an unmeasured reduction. The macOS runtime and chosen model/subscription path must be exercised before support is claimed.
 

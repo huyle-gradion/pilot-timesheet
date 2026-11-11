@@ -17,10 +17,11 @@ fairly.
 Anything on this list is in scope:
 
 - **Binaries.** The compiled `timesheet` binary — argument handling, exit
-  codes, stream/state handling of `serve`, and any path that spills data
+  codes, store/state handling, and any path that spills data
   outside the documented surface.
-- **Protocol.** The JSON protocol between an agent/adapter and the binary —
-  schema confusion, unvalidated input, digest-binding or replay issues.
+- **Command interface.** The JSON the commands read and print (decision and
+  answer files, receipts) — schema confusion, unvalidated input,
+  digest-binding or replay issues.
 - **Credential handling.** How the binary reads the `.env.local` env file;
   any path where a credential value could be echoed into diagnostics,
   errors, receipts, state, reports or logs.

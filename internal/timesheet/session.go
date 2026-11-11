@@ -1,21 +1,18 @@
 package timesheet
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-const maxRequestBytes = 1 << 20
-
-// Request is the strict line-delimited JSON request envelope. Unknown fields
+// Request is the strict JSON request envelope of the in-process dispatcher
+// (HandleLine) that the commands and the TUI drive. Unknown fields
 // are rejected. Paths are never request fields: the caller supplies them as flags.
 type Request struct {
 	ID           string   `json:"id"`
@@ -109,17 +106,6 @@ type SaveReceipt struct {
 	Confirmed     View   `json:"confirmed"`
 }
 
-// CancelResult confirms that staged edits were discarded and prior confirmed
-// work is unchanged.
-type CancelResult struct {
-	Date          string `json:"date"`
-	Revision      int    `json:"revision"`
-	SavedRevision int    `json:"saved_revision"`
-	Dirty         bool   `json:"dirty"`
-	Discarded     int    `json:"discarded"`
-	Confirmed     View   `json:"confirmed"`
-}
-
 // CrossMidnight explains where both dates' minutes are recorded.
 type CrossMidnight struct {
 	IntervalID   string       `json:"interval_id"`
@@ -179,11 +165,10 @@ type DayStatus struct {
 	Sources            []DaySourceStatus `json:"sources,omitempty"`
 }
 
-// StatusResult reports loaded days and the protocol identity. It exposes no
+// StatusResult reports loaded days and the build and store identity. It exposes no
 // configuration values, credential state or remote endpoint.
 type StatusResult struct {
 	AppVersion          string      `json:"app_version"`
-	ProtocolSchema      int         `json:"protocol_schema"`
 	StoreSchema         int         `json:"store_schema"`
 	DurableSchema       int         `json:"durable_schema"`
 	DurabilityUncertain bool        `json:"durability_uncertain"`
@@ -214,54 +199,14 @@ type Session struct {
 	env   map[string]string
 	store *Store
 	days  map[string]*Day
-	// pending holds the exact preview candidates produced in this process.
-	// Applying requires the preview identity, and the candidate is re-read and
-	// re-verified before activation. A preview grants no standing authority and
-	// does not survive a restart.
-	pending map[string]*migrationCandidate
 }
 
 // NewSession creates a session over an opened store.
 func NewSession(cfg *Config, env map[string]string, store *Store) *Session {
 	return &Session{
 		cfg: cfg, env: env, store: store,
-		days:    map[string]*Day{},
-		pending: map[string]*migrationCandidate{},
+		days: map[string]*Day{},
 	}
-}
-
-// Serve reads line-delimited requests until close or EOF. Stdout carries only
-// protocol responses; callers keep diagnostics on stderr.
-func (s *Session) Serve(in io.Reader, out io.Writer) error {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 64*1024), maxRequestBytes)
-	writer := bufio.NewWriter(out)
-	for scanner.Scan() {
-		resp, closeSession := s.HandleLine(scanner.Bytes())
-		if err := writeResponse(writer, resp); err != nil {
-			return err
-		}
-		if closeSession {
-			return nil
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		_ = writeResponse(writer, errorResponse("", newError(CodeBadRequest,
-			"request line exceeds the 1048576-byte limit or cannot be read")))
-		return newError(CodeBadRequest, "request stream cannot be read")
-	}
-	return nil
-}
-
-func writeResponse(w *bufio.Writer, resp Response) error {
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return newError(CodeInternal, "response cannot be encoded")
-	}
-	if _, err := w.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	return w.Flush()
 }
 
 func errorResponse(id string, err error) Response {
@@ -354,16 +299,6 @@ func (s *Session) HandleLine(line []byte) (Response, bool) {
 		}
 		return successResponse(req.ID, result), false
 
-	case "cancel":
-		if err := rejectFields(req, "day", "revision"); err != nil {
-			return errorResponse(req.ID, err), false
-		}
-		result, err := s.cancel(req)
-		if err != nil {
-			return errorResponse(req.ID, err), false
-		}
-		return successResponse(req.ID, result), false
-
 	case "status":
 		if err := rejectFields(req); err != nil {
 			return errorResponse(req.ID, err), false
@@ -427,7 +362,7 @@ func (s *Session) HandleLine(line []byte) (Response, bool) {
 		return successResponse(req.ID, result), false
 
 	case "migration_apply":
-		if err := rejectFields(req, "migration_id"); err != nil {
+		if err := rejectFields(req, "dates", "migration_id"); err != nil {
 			return errorResponse(req.ID, err), false
 		}
 		result, err := s.migrationApply(req)
@@ -1030,38 +965,6 @@ func (s *Session) save(req Request) (SaveReceipt, error) {
 	}, nil
 }
 
-func (s *Session) cancel(req Request) (CancelResult, error) {
-	date, err := requiredDay(req)
-	if err != nil {
-		return CancelResult{}, err
-	}
-	revision, err := requiredRevision(req)
-	if err != nil {
-		return CancelResult{}, err
-	}
-	day, err := s.loadedDay(date)
-	if err != nil {
-		return CancelResult{}, err
-	}
-	if err := checkRevision(day, revision); err != nil {
-		return CancelResult{}, err
-	}
-	discarded := len(day.Staged)
-	day.Staged = cloneIntervals(day.Confirmed)
-	view, err := s.viewFor(day, day.Confirmed)
-	if err != nil {
-		return CancelResult{}, err
-	}
-	return CancelResult{
-		Date:          day.Date,
-		Revision:      day.Revision,
-		SavedRevision: day.SavedRevision,
-		Dirty:         false,
-		Discarded:     discarded,
-		Confirmed:     view,
-	}, nil
-}
-
 func (s *Session) status() (StatusResult, error) {
 	dates := make([]string, 0, len(s.days))
 	for date := range s.days {
@@ -1113,7 +1016,6 @@ func (s *Session) status() (StatusResult, error) {
 	}
 	return StatusResult{
 		AppVersion:          AppVersion,
-		ProtocolSchema:      ProtocolSchema,
 		StoreSchema:         st.Schema,
 		DurableSchema:       s.store.DurableSchema(),
 		DurabilityUncertain: s.store.Uncertain(),
@@ -1891,7 +1793,8 @@ func (s *Session) checkSourceGate(date string) error {
 
 // migrationPreview validates a complete explicit date selection without
 // activating anything. It returns bounded counts and conflicts; a conflicted or
-// already-imported candidate is never applied.
+// already-imported candidate is never applied. It stores nothing: the
+// migration_id it returns is a content binding, not a grant.
 func (s *Session) migrationPreview(req Request) (MigrationPreview, error) {
 	dates, err := normalizeMigrationDates(req.Dates)
 	if err != nil {
@@ -1901,8 +1804,6 @@ func (s *Session) migrationPreview(req Request) (MigrationPreview, error) {
 	if err != nil {
 		return MigrationPreview{}, err
 	}
-	s.prunePending()
-	s.pending[cand.MigrationID] = cand
 	return MigrationPreview{
 		MigrationID:        cand.MigrationID,
 		Dates:              cand.Dates,
@@ -1918,50 +1819,40 @@ func (s *Session) migrationPreview(req Request) (MigrationPreview, error) {
 	}, nil
 }
 
-func (s *Session) prunePending() {
-	if len(s.pending) < 8 {
-		return
-	}
-	for id := range s.pending {
-		delete(s.pending, id)
-	}
-}
-
-// migrationApply re-reads and re-verifies the exact preview inputs, then
-// atomically activates the whole candidate through the existing durable write
-// path. It requires no opened day, so it can never discard a draft or leave a
-// session pointer stale, and it never writes into the legacy root.
+// migrationApply rebuilds the candidate for the same explicit date selection
+// from the store and the legacy source, and activates it only when the rebuilt
+// migration_id equals the one the caller reviewed (issue #272). The id hashes
+// the selected dates, the legacy timezone, every source file's bytes and the
+// durable target fingerprint, so it is a content binding like submit --chat's
+// plan and review ids (ADR 0009), not a stored grant: a preview grants no
+// standing authority, and any change to the selection, the source or the
+// target since the preview is migration_stale with nothing written. It
+// requires no opened day, so it can never discard a draft, and it never
+// writes into the legacy root.
 func (s *Session) migrationApply(req Request) (MigrationApplyReceipt, error) {
 	id := strings.TrimSpace(req.MigrationID)
 	if !validMigrationID(id) {
 		return MigrationApplyReceipt{}, newError(CodeBadRequest, "migration_id is required")
 	}
-	cand := s.pending[id]
-	if cand == nil {
-		return MigrationApplyReceipt{}, newError(CodeMigrationStale,
-			"migration_id is not a preview from this process; preview this selection again (a preview never grants standing authority and does not survive a restart)")
+	dates, err := normalizeMigrationDates(req.Dates)
+	if err != nil {
+		return MigrationApplyReceipt{}, err
 	}
 	if len(s.days) > 0 {
 		return MigrationApplyReceipt{}, newError(CodeSessionOpen,
 			"no day may be open during migration activation; run migration before open_day in a fresh process")
 	}
-	// Revalidation always precedes a successful no-change return: the preview
-	// inputs are re-read and compared against the fresh exact identity and
-	// durable target, so a stale or conflicting source/target produces a
-	// structured failure instead of a false exact-preview success. Only after
-	// the fresh candidate clears identity, target and conflict checks may a
-	// no-change receipt restate the previously imported result.
-	fresh, err := buildMigrationCandidate(s.cfg, s.store.State(), cand.Dates)
+	// Revalidation always precedes a successful no-change return: the fresh
+	// candidate must reproduce the reviewed id exactly and clear the conflict
+	// check before a no-change receipt may restate the previously imported
+	// result.
+	fresh, err := buildMigrationCandidate(s.cfg, s.store.State(), dates)
 	if err != nil {
 		return MigrationApplyReceipt{}, err
 	}
-	if fresh.SourceIdentity != cand.SourceIdentity {
-		return MigrationApplyReceipt{}, newError(CodeMigrationStale,
-			"the legacy source or its declared interpretation changed since the preview; nothing was activated")
-	}
 	if fresh.MigrationID != id {
 		return MigrationApplyReceipt{}, newError(CodeMigrationStale,
-			"the durable target state changed since the preview; nothing was activated")
+			"migration_id does not match a fresh preview of this date selection: the selection, the legacy source or the durable target changed since the preview; preview again (nothing was activated)")
 	}
 	if len(fresh.Conflicts) > 0 {
 		return MigrationApplyReceipt{}, newError(CodeMigrationConflict,
@@ -1977,7 +1868,6 @@ func (s *Session) migrationApply(req Request) (MigrationApplyReceipt, error) {
 	if err := s.store.CommitState(next); err != nil {
 		return MigrationApplyReceipt{}, err
 	}
-	delete(s.pending, id)
 	return MigrationApplyReceipt{
 		MigrationID: id, Status: MigrationApplied, ReceiptID: id,
 		Dates: fresh.Dates, Counts: fresh.Counts, Unresolved: fresh.Counts.Unresolved,

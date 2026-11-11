@@ -880,7 +880,7 @@ func EntriesPath(statePath, date string) string {
 // identical. Before merging it re-attaches each block's
 // audit-only source references from the day's durable evidence (the
 // AI-visible draft no longer carries them); recording never writes state and
-// never blocks on a running serve.
+// never blocks on a store-holding process.
 func RecordEntries(statePath, appVersion string, reviewed ReviewedDraft, replace bool, now time.Time) (RecordReceipt, error) {
 	if _, err := time.Parse("2006-01-02", reviewed.Date); err != nil {
 		return RecordReceipt{}, newError(CodeInvalidDate, "record: date must be YYYY-MM-DD")
@@ -1026,7 +1026,7 @@ func ReadEntries(statePath, date string) (*EntriesFile, error) {
 // entries ledger and re-adds it; the interval ids that re-derivation produces
 // are stable in practice only while nothing is saved. Like the entries file
 // the sidecar lives under the entries directory, carries no state-schema
-// weight, and is never read by serve or the plan builder.
+// weight, and is never read by the session dispatcher or the plan builder.
 
 // StagePath returns the per-day stage-map sidecar path derived from the state
 // path: entries/<date>.stage.json, next to the day's entries file.
@@ -1384,8 +1384,8 @@ func WriteStageMap(statePath, appVersion, date string, mapping map[string][]stri
 // content-bound to the recorded block it was chosen for (BlockContentDigest),
 // so confirm and save can replay it against a provably identical re-derived
 // staged set and fail closed on any entries drift. It is the same pattern as
-// the stage map, carries no state-schema weight, and is never read by serve
-// or the plan builder.
+// the stage map, carries no state-schema weight, and is never read by the
+// session dispatcher or the plan builder.
 
 // ChoicesPath returns the per-day classification-choices sidecar path derived
 // from the state path: entries/<date>.classify.json, next to the day's entries
@@ -1748,7 +1748,7 @@ type stateEvidenceView struct {
 // confirmed intervals, so a previous day's cross-midnight spill appears here
 // exactly as it appears in the reviewed draft. It never takes the store's
 // single-writer lock and never writes state, so recording still never blocks
-// on, or interferes with, a running serve process (the state file is replaced
+// on, or interferes with, a store-holding process (the state file is replaced
 // atomically, so a lock-free read sees one complete version). A missing,
 // unreadable, or invalid state file yields nil evidence: re-attachment is audit
 // parity, never a record precondition, and the day still records.

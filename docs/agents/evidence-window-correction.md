@@ -1,5 +1,9 @@
 # Evidence-window correction (`EVIDENCE-WINDOW-CORRECTION-1`)
 
+> **Historical.** The `internal/run` and `internal/evidence` code and commands this
+> procedure cites were removed in the CLI cut-over (f2c80880); the current flow is
+> `timesheet log` (see the [README](../../README.md)).
+
 This note is the owner-gated, owner-run procedure for correcting **one day**
 whose git evidence was collected under the pre-`4e50ae6` day window. It reflects
 the current CLI (`go run ./cmd/timesheet help`) and the code it names; every

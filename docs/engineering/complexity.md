@@ -6,6 +6,10 @@ commit: 340f7c2
 
 # Complexity and space analysis
 
+> **Historical.** A dated snapshot at commit 340f7c2. The `internal/run` and
+> `internal/evidence` paths it cites were removed in the CLI cut-over (f2c80880);
+> the current flow is `timesheet log` (see the [README](../../README.md)).
+
 ## Changelog
 
 | version | date | commit | change |

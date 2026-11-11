@@ -15,9 +15,9 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// The headless subcommands are the skill's [Script] layer. They construct the
-// same session serve uses and drive its request dispatcher in-process; they
-// never open a second protocol surface and never touch the network beyond what
+// The headless subcommands are the skill's [Script] layer. Each constructs one
+// session and drives its request dispatcher in-process for one invocation;
+// they never open a protocol surface and never touch the network beyond what
 // the configured collectors already do inside collect.
 
 // dateOptionalCommands are the commands where an omitted --date means today in
@@ -159,7 +159,7 @@ func parseRecordFlags(args []string) (*recordFlags, error) {
 	return f, nil
 }
 
-// headlessSession mirrors runServe's loading path and drives HandleLine
+// headlessSession loads config, env file and store and drives HandleLine
 // directly, one typed request at a time.
 type headlessSession struct {
 	session *timesheet.Session
@@ -433,8 +433,8 @@ func runRun(args []string) error {
 // the new generation supersedes the old. Without the flag the merge behavior
 // is unchanged (idempotent per block, other blocks preserved).
 //
-// It opens no store: recording never blocks on, or interferes with, a running
-// serve process.
+// It opens no store: recording never blocks on, or interferes with, a
+// store-holding process.
 func runRecord(args []string) error {
 	f, err := parseRecordFlags(args)
 	if err != nil {
@@ -526,15 +526,20 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
+	env, err := h.call("check_environment", timesheet.Request{})
+	if err != nil {
+		return err
+	}
 	_, _ = h.call("close", timesheet.Request{})
 	entries, err := timesheet.ReadEntries(h.cfg.StatePath, day)
 	if err != nil {
 		return err
 	}
 	summary := map[string]any{
-		"status":  res,
-		"date":    day,
-		"entries": 0,
+		"status":      res,
+		"environment": env,
+		"date":        day,
+		"entries":     0,
 	}
 	if entries != nil {
 		summary["entries"] = len(entries.Entries)
@@ -554,10 +559,10 @@ func runStatus(args []string) error {
 // --- SUBMIT-1 day finalization commands -----------------------------------------
 //
 // stage/acknowledge/decide/confirm/save drive the existing Session API (the
-// same ops serve dispatches) to carry one recorded day from its entries file to
+// same in-process dispatcher every command drives) to carry one recorded day from its entries file to
 // a durable confirmed day. Each command is one process: open the day, run its
 // ops, close. They hold the store's exclusive single-writer lock, so they
-// cannot run while a serve process holds the store (unlike record, which opens
+// cannot run while another process holds the store (unlike record, which opens
 // no store). Nothing here approves or submits anything.
 
 // finalizeFlags carries the stage/confirm/save inputs: --config/--env-file/
@@ -1118,7 +1123,7 @@ func runStage(args []string) error {
 // (the clone of the durable confirmed set the day opened with) is removed, the
 // staged set is re-derived from the CURRENT entries ledger with the four-hour
 // chunking applied, and the day is confirmed and saved in-process at a NEW
-// revision — mirroring the serve flow's reopen → edit → confirm → save revision
+// revision — the dispatcher's reopen → edit → confirm → save revision
 // step and classify's finalized-day pattern. Entries no longer in the ledger
 // lose their intervals; the ledger itself is never modified. Every op refusal
 // (source gate, stale revision, interval validation) passes through verbatim
@@ -1369,8 +1374,8 @@ type ClassifyReceipt struct {
 //     the clone of the durable confirmed intervals — never re-derived, never
 //     restaged), the selections key off the durable interval ids exactly as
 //     `status --date` prints them, and the command drives the day to a NEW
-//     durable revision inside this process — confirm then save, the serve
-//     flow's reopen → select → confirm → save revision step — because the
+//     durable revision inside this process — confirm then save, the
+//     dispatcher's reopen → select → confirm → save revision step — because the
 //     selections live only on Staged otherwise. No sidecar is written on this
 //     path: the selections become durable immediately. A `{}` choices file is
 //     still an honest no-op: nothing is selected and the saved day is left
@@ -1506,7 +1511,7 @@ func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date, project s
 // selections apply directly against those ids at the day's current (saved)
 // revision. With at least one applied selection the day is driven to a new
 // durable revision: confirm then save within this same process, mirroring the
-// serve flow's reopen → select_classification → confirm → save revision step
+// dispatcher's reopen → select_classification → confirm → save revision step
 // (staged selections are session-only, so skipping the re-finalize would
 // silently drop them). An empty applied set is an honest no-op: no confirm
 // and no save run, and the receipt says the saved day was left unchanged.
@@ -1843,7 +1848,7 @@ func confirmAndSave(h *headlessSession, name, date string, revision int, through
 // result printed as deterministic JSON — plan_id, state, operations, blockers
 // and surfaced remotes, untouched. The op persists the fresh observations and
 // the immutable plan record in one durable transaction under this process's
-// exclusive store lock, so plan cannot run while a serve process holds the
+// exclusive store lock, so plan cannot run while another process holds the
 // store; the durable plan record is exactly what a later approve consumes
 // after re-rendering fresh in its own process (nothing is approved here).
 // Blockers never auto-clear: each is resolved by an explicit human decision
@@ -1877,7 +1882,7 @@ func runPlan(args []string) error {
 // orphaned identities, unbound remotes and candidates exactly as the op
 // returns them. Read-only in the identity sense: the op persists the fresh
 // observation record itself (under this process's exclusive store lock, so it
-// cannot run while serve holds the store) but it NEVER binds an identity,
+// cannot run while another process holds the store) but it NEVER binds an identity,
 // never mutates an existing mapping and never resolves a blocker — the
 // receipt's observation_id, revision and unbound/candidate lists are exactly
 // the inputs the human copies into resolve's decision file.

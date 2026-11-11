@@ -950,9 +950,44 @@ func buildMigrationCandidate(cfg *Config, st *State, dates []string) (*migration
 	cand.Receipt.LegacyApprovals = cand.Counts.LegacyApprovals
 	cand.Receipt.MigrationID = cand.MigrationID
 	cand.Receipt.SourceIdentity = cand.SourceIdentity
+	bindMigrationContent(cand)
 
 	cand.Ready = len(cand.Conflicts) == 0
 	return cand, nil
+}
+
+// bindMigrationContent folds the exact payload apply would commit (days,
+// bindings, outcomes, carries, receipt and conflicts) into the migration_id.
+// Each command reloads the configuration, so a project or classification map
+// edited between preview and apply changes this payload and therefore the id:
+// apply can only commit what the preview showed (PR #275 review). The payload
+// is built deterministically and carries no timestamps of its own (AppliedAt
+// is set at merge), and the provisional id it embeds is itself a function of
+// the source identity and the target fingerprint.
+func bindMigrationContent(cand *migrationCandidate) {
+	payload, err := json.Marshal(struct {
+		Days      map[string]*Day     `json:"days"`
+		Bindings  []RemoteBinding     `json:"bindings"`
+		Outcomes  []WriteOutcome      `json:"outcomes"`
+		Carries   []MigratedCarry     `json:"carries"`
+		Receipt   MigrationReceipt    `json:"receipt"`
+		Conflicts []MigrationConflict `json:"conflicts"`
+	}{cand.Days, cand.Bindings, cand.Outcomes, cand.Carries, cand.Receipt, cand.Conflicts})
+	if err != nil {
+		payload = nil
+	}
+	id := sha256Hex([]byte(cand.MigrationID + "|" + sha256Hex(payload)))
+	cand.MigrationID = id
+	cand.Receipt.MigrationID = id
+	for i := range cand.Bindings {
+		cand.Bindings[i].MigrationID = id
+	}
+	for i := range cand.Outcomes {
+		cand.Outcomes[i].MigrationID = id
+	}
+	for i := range cand.Carries {
+		cand.Carries[i].MigrationID = id
+	}
 }
 
 type migrationSpan struct {

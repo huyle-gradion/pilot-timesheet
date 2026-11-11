@@ -10,13 +10,13 @@ callers pass its path.
 - **One owner-authored file.** `.env.local` at the repository root is
   git-ignored and owner-authored. Nothing in this repository creates, implementations
   or logs it.
-- **Binary-owned.** `timesheet serve --env-file <path>` is the only reader.
-  The path is an operator input, never a protocol request field and never
-  a model argument.
+- **Binary-owned.** The `timesheet` binary (`--env-file <path>`, defaulting
+  to `~/.timesheet/.env.local`) is the only reader. The path is an operator
+  input, never a request field and never a model argument.
 - **Precedence.** An inherited process-environment value overrides the file
   value for the same name, including an explicitly empty value. A file-only
-  value is reported present. Validation is lazy: `check_environment` reports
-  missing **names**; local review and `save` never require a credential.
+  value is reported present. Validation is lazy: `timesheet status` reports
+  required and missing **names** under `environment`; local review and `save` never require a credential.
 - **Config holds names only.** A config file may reserve credential variable
   **names** (`required_env`, and `gradion.token_env` for the remote endpoint).
   It never contains a secret value.

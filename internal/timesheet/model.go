@@ -18,8 +18,7 @@ import (
 	"time"
 )
 
-// Application identity. ProtocolSchema is negotiated independently of the
-// release version and fails closed.
+// Application identity.
 //
 // stateSchema is the schema this build writes. It still reads the accepted
 // state schemas 1 and 2: each legacy file loads, is validated in its own
@@ -30,7 +29,6 @@ import (
 // execution history.
 const (
 	AppVersion        = "0.2.0-dev.11"
-	ProtocolSchema    = 1
 	stateSchema       = 3
 	legacyStateSchema = 1
 	schemaTwoState    = 2
