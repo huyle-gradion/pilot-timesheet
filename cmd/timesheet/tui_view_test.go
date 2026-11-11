@@ -242,9 +242,18 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 			}}),
 		},
 		{
+			name: "ask human question",
+			model: model(loopSnapshot{day: hostile, project: hostile, action: nextAction{
+				Day: hostile, State: stateAskHuman, Ask: &askHuman{
+					Kind: hostile, Question: hostile, Options: []string{hostile, hostile},
+					AnswerFile: hostile, Digest: hostile, LastError: hostile, Protocol: hostile,
+				},
+			}}),
+		},
+		{
 			name: "approve plan body",
-			model: tuiModel{env: tuiEnv{styles: testStyles()}, bench: benchState{
-				screen: screenGate, kind: gateApprove, answerFile: hostile, text: hostile, caret: 2,
+			model: tuiModel{env: tuiEnv{styles: testStyles()}, err: errForTest(hostile), bench: benchState{
+				screen: screenGate, kind: gateApprove, answerFile: hostile, text: hostile + hostile, caret: len(hostile),
 				preview: &timesheet.PlanPreview{
 					PlanID: hostile, State: hostile,
 					Operations: []timesheet.PlanOperation{{
@@ -257,15 +266,21 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 		},
 		{
 			name: "submit approvals",
-			model: tuiModel{env: tuiEnv{styles: testStyles()}, bench: benchState{
-				screen: screenGate, kind: gateSubmit, answerFile: hostile, text: hostile, caret: 2,
+			model: tuiModel{env: tuiEnv{styles: testStyles()}, err: errForTest(hostile), bench: benchState{
+				screen: screenGate, kind: gateSubmit, answerFile: hostile, text: hostile + hostile, caret: len(hostile),
 				approvals: []timesheet.ApprovalRow{{ApprovalID: hostile, PlanID: hostile, State: hostile}},
 			}},
 		},
 		{
-			name: "bench text",
+			name: "gate kind",
 			model: tuiModel{env: tuiEnv{styles: testStyles()}, bench: benchState{
-				screen: screenBench, kind: hostile, answerFile: hostile, digest: hostile, text: hostile, caret: 2,
+				screen: screenGate, kind: hostile, answerFile: hostile, text: hostile,
+			}},
+		},
+		{
+			name: "bench text",
+			model: tuiModel{env: tuiEnv{styles: testStyles()}, err: errForTest(hostile), bench: benchState{
+				screen: screenBench, kind: hostile, answerFile: hostile, digest: hostile, text: hostile + hostile, caret: len(hostile),
 			}},
 		},
 		{
@@ -354,6 +369,27 @@ func TestFitAround(t *testing.T) {
 				t.Fatalf("fitAround(%d, %d) = %q, want %q", tc.n, tc.anchor, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRecordedSanitizesEveryValue pins the writer's contract: the format is
+// the UI's own text and passes through, every value is recorded content and
+// loses its control runes, newlines kept.
+func TestRecordedSanitizesEveryValue(t *testing.T) {
+	got := recorded("  a %s b %s\n", "x\x1b[31my", "p\x07q\nr")
+	if want := "  a x[31my b pq\nr\n"; got != want {
+		t.Fatalf("recorded = %q, want %q", got, want)
+	}
+}
+
+// TestClampCaret pins the one caret clamp both the caret render and the
+// caret-line lookup share.
+func TestClampCaret(t *testing.T) {
+	for _, tc := range []struct{ caret, want int }{{-4, 0}, {0, 0}, {3, 3}, {5, 5}, {99, 5}} {
+		runes, got := clampCaret("ab\ncd", tc.caret)
+		if got != tc.want || string(runes) != "ab\ncd" {
+			t.Fatalf("clampCaret(%d) = %q, %d; want %d", tc.caret, string(runes), got, tc.want)
+		}
 	}
 }
 

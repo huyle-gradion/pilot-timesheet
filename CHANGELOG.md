@@ -4,6 +4,13 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- Make the `tui` view's content sanitization structural (#229): recorded
+  content enters a frame only as a value of one writer (`recorded`, and the
+  `labelRow` label/value row built on it), which sanitizes internally, in place
+  of ~55 hand-placed `sanitizeContent` calls. The approval row and the caret
+  clamp each exist once. The hostile-content test now covers the ask, gate
+  kind, gate/bench error and caret branches it missed. Rendered frames are
+  byte-identical.
 - Point the missing-configuration error at `timesheet init` instead of the
   retired `setup` command, and bring the configuration docs in line with the
   current loader (#194): `docs/agents/collection-config.md` and the setup and
