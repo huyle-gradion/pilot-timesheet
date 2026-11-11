@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,5 +201,49 @@ func TestEvalExportRefusesAPathInsideARepository(t *testing.T) {
 	}
 	if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
 		t.Fatalf("a refused export wrote %s", out)
+	}
+}
+
+func TestEvalScoreRefusesADatasetWithNothingToScore(t *testing.T) {
+	for name, days := range map[string]string{
+		"no days": `[]`,
+		"no truth": `[{"date":"2026-10-01","descriptions":{"input":{"date":"2026-10-01","blocks":[]},"truth":{}},` +
+			`"classifications":{"input":[],"candidates":[],"truth":{}}}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			golden := filepath.Join(t.TempDir(), "golden.json")
+			writeAnswerFile(t, golden, fmt.Sprintf(`{"schema":%d,"days":%s}`, timesheet.GoldenSchema, days))
+			stdout, _, err := captureOutput(t, func() error { return runEval([]string{"score", "--golden", golden}) })
+			if err == nil || !strings.Contains(err.Error(), "nothing to score") || strings.Contains(err.Error(), "\n") {
+				t.Fatalf("err = %v, want one line naming the empty dataset", err)
+			}
+			if len(stdout) != 0 {
+				t.Fatalf("stdout = %s, want no rates printed", stdout)
+			}
+		})
+	}
+}
+
+func TestEvalExportOfNoUsableDaysWarnsButKeepsTheFile(t *testing.T) {
+	cfg, _ := savedReadyPlan(t) // a saved day, but no draft and no candidates
+	out := filepath.Join(t.TempDir(), "golden.json")
+	_, stderr, err := captureOutput(t, func() error {
+		return runEval([]string{"export", "--config", cfg, "--out", out})
+	})
+	if err != nil {
+		t.Fatalf("eval export: %v", err)
+	}
+	var g timesheet.GoldenDataset
+	if err := readJSONFile(out, &g); err != nil || len(g.Days) != 0 || len(g.Skipped) == 0 {
+		t.Fatalf("dataset = %+v, %v; want the file written with its skip reasons", g, err)
+	}
+	warnings := 0
+	for _, line := range strings.Split(string(stderr), "\n") {
+		if strings.Contains(line, "exported 0 days") {
+			warnings++
+		}
+	}
+	if warnings != 1 {
+		t.Fatalf("stderr = %q, want one warning line", stderr)
 	}
 }
