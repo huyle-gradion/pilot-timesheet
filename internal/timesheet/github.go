@@ -68,19 +68,21 @@ func collectGithub(scope *githubScope, windowStart, windowEnd time.Time) collect
 	if overflowKept > 0 || overflowLost > 0 {
 		// The topic item cap bounds the AI-visible draft, not the evidence:
 		// items beyond it are retained durably as topic overflow up to the
-		// fixed ceilings, and anything beyond those ceilings is a real loss
-		// counted here and on the affected topics, never a silent no-op (F6).
-		// The source stays incomplete either way: the draft still shows only
-		// the first maxTopicItems items per topic.
-		status = StatusIncomplete
+		// fixed ceilings, and the draft summarizes them on the topic's line
+		// (count, kinds, first–last local time). Retained overflow is
+		// therefore not missing coverage and leaves the status alone (#309).
+		// Anything beyond those ceilings is a real loss counted here and on
+		// the affected topics, never a silent no-op (F6); it keeps the source
+		// incomplete so the human is asked.
 		if overflowLost > 0 {
+			status = StatusIncomplete
 			detail = niceJoin(detail, fmt.Sprintf(
 				"%d attributable item(s) beyond the %d-item topic cap: %d retained durably as topic overflow, %d beyond the overflow caps are not retained; the affected topic(s) record the counts",
 				overflowKept+overflowLost, maxTopicItems, overflowKept, overflowLost))
 		} else {
 			detail = niceJoin(detail, fmt.Sprintf(
-				"%d attributable item(s) beyond the %d-item topic cap are retained durably as topic overflow; the draft still shows the first %d items per topic",
-				overflowKept, maxTopicItems, maxTopicItems))
+				"%d attributable item(s) beyond the %d-item topic cap are summarized in the draft and retained durably as topic overflow",
+				overflowKept, maxTopicItems))
 		}
 	}
 	return collectGithubResult{
