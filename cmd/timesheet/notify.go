@@ -39,7 +39,7 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 			msg += " Options: " + strings.Join(r.Ask.Options, ", ") + "."
 		}
 		return clipNotice(msg + " Answer it in your agent, or write the answer file " + r.Ask.AnswerFile +
-			" as its protocol shows, then run: timesheet next --do --auto --date " + day), true
+			" as its protocol shows, then run: timesheet log --date " + day), true
 	case r.State == stateStopped && strings.Contains(r.Reason, noEvidenceMarker):
 		return day + ": nothing to log (no evidence was collected).", *policy.NotifyEmpty
 	case r.State == stateStopped:
@@ -47,7 +47,7 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 	case runErr != nil:
 		return clipNotice(day + " could not be logged: " + runErr.Error()), true
 	}
-	return clipNotice(day + " is at " + r.State + "; run: timesheet next --do --auto --date " + day), true
+	return clipNotice(day + " is at " + r.State + "; run: timesheet log --date " + day), true
 }
 
 func dayLedgerTotals(cfg *timesheet.Config, day string) (int, int) {

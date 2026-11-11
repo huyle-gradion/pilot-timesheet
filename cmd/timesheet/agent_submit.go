@@ -21,7 +21,7 @@ type agentSubmitReview struct {
 // runAgentSubmit is an opt-in agent consent assertion, never a presence proof.
 // With no confirmation inputs it only reviews; the agent owns the chat gate.
 func runAgentSubmit(args []string) error {
-	flags := flag.NewFlagSet("agent-submit", flag.ContinueOnError)
+	flags := flag.NewFlagSet("submit --chat", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var config, env, day, planID, reviewID string
 	var confirmed bool
@@ -35,16 +35,16 @@ func runAgentSubmit(args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("agent-submit does not accept positional arguments")
+		return fmt.Errorf("submit --chat does not accept positional arguments")
 	}
-	if err := validateDate("agent-submit", day, dateSupplied(flags)); err != nil {
+	if err := validateDate("submit --chat", day, dateSupplied(flags)); err != nil {
 		return err
 	}
 	submit := confirmed || planID != "" || reviewID != ""
 	if submit && (!confirmed || strings.TrimSpace(planID) == "" || strings.TrimSpace(reviewID) == "") {
-		return fmt.Errorf("agent-submit requires --plan-id, --review-id and --confirm-chat together after explicit chat confirmation")
+		return fmt.Errorf("submit --chat requires --plan-id, --review-id and --confirm-chat together after explicit chat confirmation")
 	}
-	config, env, err := resolveStoreFlags("agent-submit", config, env)
+	config, env, err := resolveStoreFlags("submit --chat", config, env)
 	if err != nil {
 		return err
 	}
@@ -62,11 +62,11 @@ func runAgentSubmit(args []string) error {
 		return err
 	}
 	if !artifacts.EntriesPresent || !snapshot.Finalized {
-		return fmt.Errorf("agent-submit: no saved recorded day; finish logging before reviewing submission")
+		return fmt.Errorf("submit --chat: no saved recorded day; finish logging before reviewing submission")
 	}
 	ledger := ledgerContentSpans(ledgerUnits(artifacts.Entries.Entries, day))
 	if !sameContent(ledger, confirmedContentSpans(snapshot.Confirmed)) {
-		return fmt.Errorf("agent-submit: recorded ledger differs from saved intervals; review stage --revise and classify before requesting fresh confirmation")
+		return fmt.Errorf("submit --chat: recorded ledger differs from saved intervals; review stage --revise and classify before requesting fresh confirmation")
 	}
 	res, err := h.call("preview_plan", timesheet.Request{Day: day})
 	if err != nil {
@@ -74,7 +74,7 @@ func runAgentSubmit(args []string) error {
 	}
 	plan, ok := res.(timesheet.PlanPreview)
 	if !ok {
-		return fmt.Errorf("agent-submit: unexpected preview_plan payload")
+		return fmt.Errorf("submit --chat: unexpected preview_plan payload")
 	}
 	context, err := h.session.ReviewContext()
 	if err != nil {
@@ -94,10 +94,10 @@ func runAgentSubmit(args []string) error {
 		return printJSON(review)
 	}
 	if plan.PlanID != planID || review.ReviewID != reviewID {
-		return fmt.Errorf("agent-submit: stale review; review the current plan and context and obtain fresh chat confirmation")
+		return fmt.Errorf("submit --chat: stale review; review the current plan and context and obtain fresh chat confirmation")
 	}
 	if plan.State != timesheet.PlanReady {
-		return fmt.Errorf("agent-submit: plan is blocked; review blockers before requesting confirmation")
+		return fmt.Errorf("submit --chat: plan is blocked; review blockers before requesting confirmation")
 	}
 	res, err = h.call("approve_plan", timesheet.Request{Day: day, PlanID: planID})
 	if err != nil {
@@ -105,7 +105,7 @@ func runAgentSubmit(args []string) error {
 	}
 	approval, ok := res.(timesheet.ApprovalReceipt)
 	if !ok {
-		return fmt.Errorf("agent-submit: unexpected approve_plan payload")
+		return fmt.Errorf("submit --chat: unexpected approve_plan payload")
 	}
 	res, err = h.call("submit_plan", timesheet.Request{Day: day, ApprovalID: approval.ApprovalID})
 	if err != nil {
@@ -113,7 +113,7 @@ func runAgentSubmit(args []string) error {
 	}
 	receipt, ok := res.(timesheet.SubmissionReceipt)
 	if !ok {
-		return fmt.Errorf("agent-submit: unexpected submit_plan payload")
+		return fmt.Errorf("submit --chat: unexpected submit_plan payload")
 	}
 	return printJSON(receipt)
 }

@@ -53,7 +53,7 @@ func setupConfigBytes(opts setupOptions, seed *timesheet.Config, dir string) (da
 	cfg.StatePath = filepath.Join(dir, setupStateName)
 	data, err = json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return nil, "", "", fmt.Errorf("setup: cannot render the configuration: %v", err)
+		return nil, "", "", fmt.Errorf("init: cannot render the configuration: %v", err)
 	}
 	data = append(data, '\n')
 	if err := validateSetupConfig(data); err != nil {
@@ -68,15 +68,15 @@ func setupConfigBytes(opts setupOptions, seed *timesheet.Config, dir string) (da
 func validateSetupConfig(data []byte) error {
 	probeDir, err := os.MkdirTemp("", "timesheet-setup-validate-")
 	if err != nil {
-		return fmt.Errorf("setup: cannot validate the generated configuration: %v", err)
+		return fmt.Errorf("init: cannot validate the generated configuration: %v", err)
 	}
 	defer func() { _ = os.RemoveAll(probeDir) }()
 	probe := filepath.Join(probeDir, defaultConfigName)
 	if err := os.WriteFile(probe, data, 0o600); err != nil {
-		return fmt.Errorf("setup: cannot validate the generated configuration: %v", err)
+		return fmt.Errorf("init: cannot validate the generated configuration: %v", err)
 	}
 	if _, err := timesheet.LoadConfig(probe); err != nil {
-		return fmt.Errorf("setup: generated configuration does not load: %v", err)
+		return fmt.Errorf("init: generated configuration does not load: %v", err)
 	}
 	return nil
 }
@@ -125,13 +125,13 @@ func describeSetupProjects(seed *timesheet.Config, projects []projectSeed) strin
 func setupTimezone(explicit string) (string, string, error) {
 	if explicit != "" {
 		if !validIANAZone(explicit) {
-			return "", "", setupUsagef("setup: --tz %q is not a recognised IANA timezone", explicit)
+			return "", "", setupUsagef("init: --tz %q is not a recognised IANA timezone", explicit)
 		}
 		return explicit, "--tz", nil
 	}
 	zone, err := hostTimezone()
 	if err != nil {
-		return "", "", setupUsagef("setup: cannot determine the host IANA timezone; pass --tz <IANA zone>: %v", err)
+		return "", "", setupUsagef("init: cannot determine the host IANA timezone; pass --tz <IANA zone>: %v", err)
 	}
 	return zone, "the host zone", nil
 }

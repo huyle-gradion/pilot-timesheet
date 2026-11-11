@@ -38,17 +38,17 @@ environment troubleshooting, not a project dependency).
 
 These are enforced by the binary and the repository, not just preferred:
 
-- **Never run or automate the TTY-gated human verbs.** `approve`, `submit`
-  and `resolve-write` refuse non-TTY stdin/stdout by design; they exist so a
+- **Never run or automate the TTY-gated human verbs.** `submit` (terminal
+  mode) and `submit resolve` refuse non-TTY stdin/stdout by design; they exist so a
   human pushes the final button. A pty wrapper does not make them agent-safe
-  — it defeats exactly the check they implement. Run `submit-status`
+  — it defeats exactly the check they implement. Run `submit status`
   (read-only) and stop there unless the user explicitly requests the separate
   chat-confirmed workflow below.
 - **Chat-confirmed submission is a separate opt-in workflow.** Follow
   `.agents/skills/submit/SKILL.md`: show the exact current plan, wait for fresh
-  explicit confirmation in chat, then invoke `agent-submit` once with the
+  explicit confirmation in chat, then invoke `submit --chat` once with the
   reviewed identifiers. This does not authorize the legacy TTY verbs or
-  `resolve-write`. Chat consent is agent-enforced policy, not proof of human
+  `submit resolve`. Chat consent is agent-enforced policy, not proof of human
   presence; stale reviews and uncertain outcomes require a stop, never an
   automatic retry.
   This workflow works in regular Pi and pig sessions.

@@ -12,36 +12,24 @@ import (
 )
 
 const commandSynopsis = `Usage:
-  timesheet version
-  timesheet setup [--project <id>=<name>[=<classification>]]... [--seed-config <path>] [--tz <IANA>]
-  timesheet serve --config <path> --env-file <path>
-  timesheet collect [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
-  timesheet draft [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
-  timesheet run [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
-  timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--do [--auto]] [--max-actions <n>]
-  timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
-  timesheet record [--config <path>] [--date <YYYY-MM-DD>] (--draft <draft.json> --descriptions <desc.json> | --file <reviewed.json>) [--replace]
+  timesheet init [--project <id>=<name>[=<classification>]]... [--seed-config <path>] [--tz <IANA>]
+  timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--max-actions <n>]
+  timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet status [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
-  timesheet stage [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--project <id>] [--revise]
-  timesheet classifications [--config <path>] [--env-file <path>] --query <text>
-  timesheet classifications [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] --candidates
-  timesheet classify [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> (--file <choices.json> | --configured-default | --from-history) [--project <id>]
-  timesheet acknowledge [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> --source <github|calendar> --collection-id <id>
-  timesheet decide [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> --meeting-id <id> --decision <attended|skipped> --collection-id <id>
-  timesheet confirm [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--project <id>]
-  timesheet save [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--project <id>]
-  timesheet plan [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
-  timesheet reconcile [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
-  timesheet resolve [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> --file <decision.json>
-  timesheet approve [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
-  timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> --approval-id <id>
-  timesheet submit-status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
-  timesheet agent-submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
-  timesheet resolve-write [--config <path>] [--env-file <path>] --file <decision.json>
+  timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
+  timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
+  timesheet submit status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
+  timesheet submit resolve [--config <path>] [--env-file <path>] --file <decision.json>
+  timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
   timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
   timesheet eval export [--config <path>] [--out <file outside any repository>]
   timesheet eval score --golden <file> [--candidate <file>]
+  timesheet version
+
+next prints the one action it derives; the steps it names (run, record, stage,
+classifications, classify, save, plan, acknowledge, decide, reconcile, resolve)
+and serve stay callable but are internal.
 `
 
 // printSynopsis is the clean help surface: the command list, no prose.
@@ -52,13 +40,17 @@ func printSynopsis(w io.Writer) {
 // printNoCommand keeps a bare invocation two lines long, so a caller that runs
 // the binary with no arguments cannot pull the command list into context.
 func printNoCommand(w io.Writer) {
-	fmt.Fprintln(w, "timesheet: no command given; start with `timesheet next --do`")
+	fmt.Fprintln(w, "timesheet: no command given; start with `timesheet log`")
 	fmt.Fprintln(w, "  also: timesheet tui, timesheet version, timesheet help")
 }
 
 func main() {
 	if len(os.Args) < 2 {
 		printNoCommand(os.Stderr)
+		os.Exit(2)
+	}
+	if _, retired := retiredCommands[os.Args[1]]; retired {
+		fmt.Fprintf(os.Stderr, "timesheet: %s\n", retiredCommandError(os.Args[1]))
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -70,7 +62,7 @@ func main() {
 			os.Exit(2)
 		}
 		fmt.Printf("timesheet %s (protocol schema %d)\n", timesheet.AppVersion, timesheet.ProtocolSchema)
-	case "setup":
+	case "init":
 		if err := runSetup(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return
@@ -92,24 +84,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
 			os.Exit(1)
 		}
-	case "collect":
-		if err := runCollect(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
-	case "draft":
-		if err := runDraft(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
 	case "run":
 		if err := runRun(os.Args[2:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
+			os.Exit(1)
+		}
+	case "log":
+		if err := runLog(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return
 			}
@@ -212,14 +196,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
 			os.Exit(1)
 		}
-	case "confirm":
-		if err := runConfirm(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
 	case "save":
 		if err := runSave(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -252,40 +228,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
 			os.Exit(1)
 		}
-	case "agent-submit":
-		if err := runAgentSubmit(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
-	case "approve":
-		if err := runApprove(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
 	case "submit":
-		if err := runSubmit(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
-	case "submit-status":
-		if err := runSubmitStatus(os.Args[2:]); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
-			os.Exit(1)
-		}
-	case "resolve-write":
-		if err := runResolveWrite(os.Args[2:]); err != nil {
+		if err := runSubmitCommand(os.Args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return
 			}

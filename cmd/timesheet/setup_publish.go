@@ -34,7 +34,7 @@ func setupTargetExists(path string) (bool, error) {
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
-		return false, fmt.Errorf("setup: cannot inspect %s: %v", path, err)
+		return false, fmt.Errorf("init: cannot inspect %s: %v", path, err)
 	}
 	return true, nil
 }
@@ -47,7 +47,7 @@ func publishSetupFile(dir, leaf string, data []byte) (bool, error) {
 	tmp := filepath.Join(dir, fmt.Sprintf(".%s%s%d-%d", leaf, setupTempMarker, os.Getpid(), time.Now().UnixNano()))
 	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return false, fmt.Errorf("setup: cannot stage %s: %v", filepath.Join(dir, leaf), err)
+		return false, fmt.Errorf("init: cannot stage %s: %v", filepath.Join(dir, leaf), err)
 	}
 	discard := func() {
 		_ = file.Close()
@@ -55,22 +55,22 @@ func publishSetupFile(dir, leaf string, data []byte) (bool, error) {
 	}
 	if _, err := file.Write(data); err != nil {
 		discard()
-		return false, fmt.Errorf("setup: cannot stage %s: %v", filepath.Join(dir, leaf), err)
+		return false, fmt.Errorf("init: cannot stage %s: %v", filepath.Join(dir, leaf), err)
 	}
 	if err := file.Sync(); err != nil {
 		discard()
-		return false, fmt.Errorf("setup: cannot stage %s: %v", filepath.Join(dir, leaf), err)
+		return false, fmt.Errorf("init: cannot stage %s: %v", filepath.Join(dir, leaf), err)
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return false, fmt.Errorf("setup: cannot stage %s: %v", filepath.Join(dir, leaf), err)
+		return false, fmt.Errorf("init: cannot stage %s: %v", filepath.Join(dir, leaf), err)
 	}
 	defer func() { _ = os.Remove(tmp) }()
 	if err := os.Link(tmp, filepath.Join(dir, leaf)); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return false, nil
 		}
-		return false, fmt.Errorf("setup: cannot publish %s: %v", filepath.Join(dir, leaf), err)
+		return false, fmt.Errorf("init: cannot publish %s: %v", filepath.Join(dir, leaf), err)
 	}
 	return true, nil
 }
@@ -81,10 +81,10 @@ func publishSetupFile(dir, leaf string, data []byte) (bool, error) {
 func presentSetupFile(path string, isConfig bool) (string, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("setup: %s disappeared while reporting; nothing was replaced", path)
+		return "", fmt.Errorf("init: %s disappeared while reporting; nothing was replaced", path)
 	}
 	if err != nil {
-		return "", fmt.Errorf("setup: cannot inspect %s: %v", path, err)
+		return "", fmt.Errorf("init: cannot inspect %s: %v", path, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Sprintf("present %s (symlink; not followed; left untouched)", path), nil

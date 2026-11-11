@@ -105,9 +105,9 @@ func deriveFinalizedDay(o nextObservation, n nextAction) nextAction {
 	switch plan.State {
 	case timesheet.PlanReady:
 		return n.withHuman(nextHumanGates{
-			ApproveCommand:   shellJoin(o.argv("approve")),
+			ApproveCommand:   shellJoin(o.argv("submit")),
 			SubmitCommand:    shellJoin(append(o.argv("submit"), "--approval-id", "<approval_id>")),
-			StatusCommand:    shellJoin(o.argv("submit-status")),
+			StatusCommand:    shellJoin(append([]string{o.Exe, "submit", "status"}, o.argv("submit")[2:]...)),
 			Unresolved:       o.Workflow.UnresolvedWrites,
 			NativeUnresolved: o.Workflow.NativeUnresolved,
 		})
