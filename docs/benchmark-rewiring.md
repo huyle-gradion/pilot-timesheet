@@ -1,5 +1,9 @@
 # Benchmark rewiring: one pipeline instrument, one harness instrument
 
+> **Historical.** The `internal/run` and `internal/benchmark` code this design note
+> cites was removed in the CLI cut-over (f2c80880); the current flow is
+> `timesheet log` (see the [README](../README.md)).
+
 **Purpose.** Settle, before any code, what `internal/benchmark` is allowed to measure now that
 `internal/metrics` measures the harness session — and retire the pieces that answer the wrong
 question. Design only: nothing here is implemented. Every anchor was re-read at `main` `63f3018`,
