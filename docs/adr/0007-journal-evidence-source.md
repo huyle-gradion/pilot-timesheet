@@ -36,7 +36,8 @@ service, or (c) feed an exported timesheet back into itself.
 Add one compile-time evidence plugin, `journal` (`internal/evidence/plugins/journal.go`),
 registered explicitly in the CLI registry. It is a **supplementary, read-only**
 evidence source: the vault is never written by it, and ai-database is never the
-primary store.
+primary store. *(Amended 2026-11-11 by #270: the source was removed in the
+CLI cut-over and no journal source exists. See [Amendments](#amendments).)*
 
 - **Explicit, confined configuration.** A journal source requires `vault` (the
   vault root) and `daily_dir` (a RELATIVE directory, e.g. `02 - Daily & Logs`).
@@ -163,3 +164,15 @@ exclusions, identity, provenance and privacy clauses are unchanged.
 
 The authoritative, code-grounded list of collected and skipped headings is
 [the journal collection note](../journal-collection.md).
+
+### 2026-11-11 — the journal source was removed (#270)
+
+The `journal` source no longer exists. The CLI cut-over (f2c80880, #137)
+removed `internal/evidence`, including the `journal` plugin and its
+`timesheet.journal.example.json` template, and the current configuration
+accepts only `sources.github` and `sources.calendar`
+([collection configuration](../agents/collection-config.md)). Nothing in the
+product reads the vault. The decision above stays as the accepted record of
+how the source behaved while it existed; the operator note
+[journal source](../agents/journal-source.md) is retired to a historical stub.
+Reintroducing a narrative source would need a new decision.
