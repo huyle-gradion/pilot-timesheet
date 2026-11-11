@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 )
 
-// JSON-RPC 2.0 wire types.
-
 type rpcRequest struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      *int64 `json:"id,omitempty"`
@@ -27,14 +25,12 @@ type rpcResponse struct {
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
-// ServerInfo is the server identity captured during initialize.
 type ServerInfo struct {
 	Name            string `json:"name"`
 	Version         string `json:"version"`
 	ProtocolVersion string `json:"protocolVersion"`
 }
 
-// ToolDecl is one declared MCP tool from tools/list.
 type ToolDecl struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
@@ -63,7 +59,6 @@ type CallResult struct {
 	Content string
 }
 
-// initResult is the initialize result payload.
 type initResult struct {
 	ProtocolVersion string `json:"protocolVersion"`
 	ServerInfo      struct {
@@ -72,12 +67,10 @@ type initResult struct {
 	} `json:"serverInfo"`
 }
 
-// listToolsResult is the tools/list result payload.
 type listToolsResult struct {
 	Tools []ToolDecl `json:"tools"`
 }
 
-// callToolResult is the tools/call result payload.
 type callToolResult struct {
 	IsError           bool            `json:"isError"`
 	StructuredContent json.RawMessage `json:"structuredContent"`
@@ -89,7 +82,6 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
-// parseServerInfo decodes an initialize result and extracts server identity.
 func parseServerInfo(result json.RawMessage) (ServerInfo, error) {
 	var ir initResult
 	if len(bytes.TrimSpace(result)) > 0 {
@@ -104,7 +96,6 @@ func parseServerInfo(result json.RawMessage) (ServerInfo, error) {
 	}, nil
 }
 
-// parseToolDecls decodes a tools/list result and enforces the tool cap.
 func parseToolDecls(result json.RawMessage) ([]ToolDecl, error) {
 	var lr listToolsResult
 	if err := json.Unmarshal(result, &lr); err != nil {
@@ -116,8 +107,6 @@ func parseToolDecls(result json.RawMessage) ([]ToolDecl, error) {
 	return lr.Tools, nil
 }
 
-// parseCallResult decodes a tools/call result, preferring structuredContent and
-// falling back to the first text block. A result with neither is an error.
 func parseCallResult(result json.RawMessage, maxBytes int64) (CallResult, error) {
 	var cr callToolResult
 	if err := json.Unmarshal(result, &cr); err != nil {
@@ -135,8 +124,6 @@ func parseCallResult(result json.RawMessage, maxBytes int64) (CallResult, error)
 		hasStructured = true
 	}
 
-	// Always capture the first text block into Content; only fall back to it for
-	// Text when structuredContent is absent.
 	for _, block := range cr.Content {
 		if block.Type == "text" || block.Type == "" {
 			out.Content = boundString(block.Text, MaxTextBlockBytes)
@@ -152,7 +139,6 @@ func parseCallResult(result json.RawMessage, maxBytes int64) (CallResult, error)
 	return out, nil
 }
 
-// boundString truncates s to at most max bytes on a UTF-8 rune boundary.
 func boundString(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s

@@ -184,3 +184,38 @@ func TestPromptKeyBindsBackendAndContent(t *testing.T) {
 		t.Fatalf("keys %s %s %s; text %q", a.Key, b.Key, c.Key, a.Text[:40])
 	}
 }
+
+func TestBackendIdentityNeverCarriesACredential(t *testing.T) {
+	const secret = "synthetic-judge-secret"
+	for name, b := range map[string]Backend{
+		"openai":  OpenAIBackend{BaseURL: "http://127.0.0.1:1/v1", Model: "m", APIKey: secret},
+		"command": CommandBackend{Argv: []string{"harness", "--print"}, Env: []string{"JUDGE_KEY=" + secret}},
+	} {
+		if strings.Contains(b.Identity(), secret) {
+			t.Errorf("%s Identity() = %q carries a credential", name, b.Identity())
+		}
+	}
+}
+
+func TestCommandBackendRefusesAnInheritedEnvironment(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	b := CommandBackend{Argv: []string{"sh", "-c", "touch " + marker + "; echo '{}'"}, Timeout: 5 * time.Second}
+	if _, _, err := b.Complete(context.Background(), "prompt"); !errors.Is(err, ErrBackend) {
+		t.Fatalf("nil Env: err = %v, want ErrBackend", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the harness ran with the parent environment")
+	}
+}
+
+func TestDescribePromptClipsLongTitles(t *testing.T) {
+	d := syntheticDraft()
+	d.Blocks[0].Title = strings.Repeat("x", 3*MaxTitleRunes)
+	p, err := DescribePrompt(d, &fakeBackend{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(p.Text, strings.Repeat("x", MaxTitleRunes)) || !strings.Contains(p.Text, strings.Repeat("x", MaxTitleRunes-1)+"…") {
+		t.Fatalf("title not clipped to %d runes:\n%s", MaxTitleRunes, p.Text)
+	}
+}

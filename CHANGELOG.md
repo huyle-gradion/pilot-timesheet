@@ -73,6 +73,14 @@ Carry the after-midnight remainder of long overnight entries into the next day
   catalog candidate sets the judgment picked from, and leaves out intervals
   decided from approved history. A day without bound candidates is skipped
   with a reason. Schema 1 datasets are refused; export them again.
+- Remove narrating comments from `internal/mcp` and `internal/llm` (#258).
+  The constraints they stated are now tests: MCP status and version errors
+  redact the token before bounding, requests accept only `application/json`,
+  the default client follows no redirect, bounded strings keep rune
+  boundaries, prompt titles are clipped, and no judge backend identity
+  carries a credential. The headless judge command now refuses to run
+  without a filtered environment instead of inheriting every pipeline
+  secret.
 - An empty golden dataset no longer reads as zeros with exit 0 (#282).
   `eval run` refuses a dataset with no replayable day (no days, or every part
   would be skipped before a judge call) with one line, before any judge call

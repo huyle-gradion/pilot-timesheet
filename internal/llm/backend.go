@@ -21,11 +21,8 @@ import (
 	"time"
 )
 
-// Bounds with explicit units.
 const (
-	// MaxReplyBytes bounds one backend reply (1 MiB).
-	MaxReplyBytes = 1 << 20
-	// maxOutputTokens bounds the reply the HTTP backend asks for.
+	MaxReplyBytes   = 1 << 20
 	maxOutputTokens = 4096
 )
 
@@ -42,18 +39,13 @@ func (u Usage) add(v Usage) Usage {
 	return Usage{Calls: u.Calls + v.Calls, InputTokens: u.InputTokens + v.InputTokens, OutputTokens: u.OutputTokens + v.OutputTokens, Exact: u.Exact && v.Exact}
 }
 
-// Total is input plus output tokens.
 func (u Usage) Total() int { return u.InputTokens + u.OutputTokens }
 
-// EstimateTokens is the coarse size estimate used when a backend reports no
-// usage: about four bytes per token.
 func EstimateTokens(s string) int { return (len(s) + 3) / 4 }
 
 // Backend sends one prompt and returns the model's reply text.
 type Backend interface {
 	Complete(ctx context.Context, prompt string) (string, Usage, error)
-	// Identity names the backend and model for the response cache key; it
-	// never carries a credential.
 	Identity() string
 }
 
@@ -65,8 +57,7 @@ var ErrBackend = errors.New("judge backend failed")
 // the reply from stdout. Stderr is discarded: a third-party harness may print
 // anything there.
 type CommandBackend struct {
-	Argv []string
-	// Env is the harness environment, already stripped of credential names.
+	Argv    []string
 	Env     []string
 	Timeout time.Duration
 }
@@ -74,6 +65,9 @@ type CommandBackend struct {
 func (b CommandBackend) Identity() string { return "command:" + strings.Join(b.Argv, "\x1f") }
 
 func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Usage, error) {
+	if b.Env == nil {
+		return "", Usage{}, fmt.Errorf("%w: the harness command has no filtered environment; build it with CommandEnv so pipeline credentials are never inherited", ErrBackend)
+	}
 	ctx, cancel := context.WithTimeout(ctx, b.Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, b.Argv[0], b.Argv[1:]...)
@@ -120,7 +114,6 @@ func (l *limitedBuffer) Write(p []byte) (int, error) {
 	return l.Buffer.Write(p)
 }
 
-// FilterEnv drops every variable whose name is in reserved.
 func FilterEnv(environ []string, reserved []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
@@ -132,7 +125,6 @@ func FilterEnv(environ []string, reserved []string) []string {
 	return out
 }
 
-// CommandEnv is the process environment minus the reserved credential names.
 func CommandEnv(reserved []string) []string { return FilterEnv(os.Environ(), reserved) }
 
 // OpenAIBackend sends one chat-completions request to an OpenAI-compatible
@@ -140,8 +132,6 @@ func CommandEnv(reserved []string) []string { return FilterEnv(os.Environ(), res
 type OpenAIBackend struct {
 	BaseURL string
 	Model   string
-	// APIKey is empty for a local endpoint. It is sent only in the
-	// Authorization header and never appears in an error.
 	APIKey  string
 	Timeout time.Duration
 	Client  *http.Client
@@ -160,8 +150,6 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
-// ChatRequestBody is the exact request body the HTTP backend sends; tests pin
-// it against a golden file.
 func ChatRequestBody(model, prompt string) ([]byte, error) {
 	return json.Marshal(chatRequest{
 		Model: model, MaxTokens: maxOutputTokens,

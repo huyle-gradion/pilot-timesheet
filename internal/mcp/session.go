@@ -14,14 +14,10 @@ import (
 	"time"
 )
 
-// Transport performs a single MCP HTTP exchange. *http.Client satisfies it, so
-// tests can inject faults (timeout, reset, malformed body, oversized body, SSE)
-// without real network access.
 type Transport interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// Config configures a Session. Token is never serialized.
 type Config struct {
 	Endpoint         string
 	Token            string        `json:"-"`
@@ -71,8 +67,6 @@ func NewSession(cfg Config) (*Session, error) {
 	return &Session{cfg: cfg, transport: cfg.resolveTransport()}, nil
 }
 
-// resolveTransport returns the injected transport, the configured HTTP client, or
-// a bounded default client (redirects disabled).
 func (cfg Config) resolveTransport() Transport {
 	if cfg.Transport != nil {
 		return cfg.Transport
@@ -129,13 +123,11 @@ func (s *Session) Initialize(ctx context.Context) (ServerInfo, error) {
 		return ServerInfo{}, &Error{
 			Kind:       ErrProtocol,
 			StableCode: CodeProtocolVersion,
-			// Server-supplied and unbounded: redact then bound before formatting.
 			Message: fmt.Sprintf("MCP protocol version mismatch: server %q, client %q",
 				boundString(redact(info.ProtocolVersion, s.cfg.Token), maxErrorSnippetBytes), s.cfg.ProtocolVersion),
 		}
 	}
 
-	// JSON-RPC notification: no id, no response expected.
 	if _, err := s.doRPC(ctx, "notifications/initialized", map[string]any{}, true); err != nil {
 		return ServerInfo{}, err
 	}
@@ -232,9 +224,6 @@ func (s *Session) doRPC(ctx context.Context, method string, params any, notifica
 		return nil, newError(ErrTransport, CodeTransport, "failed to construct MCP HTTP request")
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	// Accept advertises ONLY application/json on purpose: this layer does not
-	// parse SSE (text/event-stream); an SSE response fails closed with a typed
-	// error. Do not add text/event-stream here without implementing SSE parsing.
 	httpReq.Header.Set("Accept", "application/json")
 	if s.cfg.Token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+s.cfg.Token)
@@ -293,7 +282,6 @@ func (s *Session) doRPC(ctx context.Context, method string, params any, notifica
 	if err := json.Unmarshal(trimmed, &rpc); err != nil {
 		return nil, newError(ErrSchema, CodeSchema, "MCP response was not valid JSON")
 	}
-	// Fail closed on a response that is not the reply to this request.
 	if rpc.JSONRPC != "2.0" {
 		return nil, newError(ErrProtocol, CodeProtocol, "MCP response had an invalid jsonrpc version")
 	}
@@ -305,16 +293,12 @@ func (s *Session) doRPC(ctx context.Context, method string, params any, notifica
 			Kind:       ErrProtocol,
 			Code:       rpc.Error.Code,
 			StableCode: CodeProtocol,
-			// Redact FIRST, then bound: bounding first can cut a token at the byte
-			// cap and leave a bare prefix that whole-token replacement cannot match.
-			Message: boundString(redact(rpc.Error.Message, s.cfg.Token), maxErrorSnippetBytes),
+			Message:    boundString(redact(rpc.Error.Message, s.cfg.Token), maxErrorSnippetBytes),
 		}
 	}
 	return rpc.Result, nil
 }
 
-// readBounded reads a response body up to MaxResponseBytes+1, failing closed when
-// the limit is exceeded.
 func (s *Session) readBounded(body io.Reader) ([]byte, error) {
 	max := s.cfg.MaxResponseBytes
 	if max <= 0 {
@@ -330,7 +314,6 @@ func (s *Session) readBounded(body io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-// statusMessage builds a bounded, redacted HTTP-status message.
 func (s *Session) statusMessage(status int, body []byte) string {
 	snippet := redact(string(body), s.cfg.Token)
 	if len(snippet) > maxErrorSnippetBytes {
@@ -342,7 +325,6 @@ func (s *Session) statusMessage(status int, body []byte) string {
 	return fmt.Sprintf("MCP HTTP status %d: %s", status, snippet)
 }
 
-// isSSE reports whether the response Content-Type is text/event-stream.
 func isSSE(contentType string) bool {
 	if contentType == "" {
 		return false
@@ -354,8 +336,7 @@ func isSSE(contentType string) bool {
 	return strings.EqualFold(mt, "text/event-stream")
 }
 
-// redact removes any literal occurrence of the token (defense in depth; encoded
-// or split forms are not detected).
+// redact does not detect encoded or split forms of the token.
 func redact(msg, token string) string {
 	if token == "" {
 		return msg
