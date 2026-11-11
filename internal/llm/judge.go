@@ -31,6 +31,8 @@ const (
 	// appended PRs list).
 	maxDescriptionRunes = 500
 	minProseRunes       = 60
+	// prsSeparatorRunes is the space that joins the prose to the PRs list.
+	prsSeparatorRunes = 1
 )
 
 // ErrInvalidReply marks a reply that does not validate against the judgment.
@@ -38,9 +40,7 @@ var ErrInvalidReply = errors.New("the judge reply is not a valid answer")
 
 type Prompt struct {
 	Text string
-	// Key binds the template bytes, the backend identity and the rendered
-	// context: any change to one of them misses the cache.
-	Key string
+	Key  string
 }
 
 func render(name string, data map[string]any, backend Backend) (Prompt, error) {
@@ -48,6 +48,10 @@ func render(name string, data map[string]any, backend Backend) (Prompt, error) {
 	if err != nil {
 		return Prompt{}, err
 	}
+	return renderTemplate(name, raw, data, backend)
+}
+
+func renderTemplate(name string, raw []byte, data map[string]any, backend Backend) (Prompt, error) {
 	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(raw))
 	if err != nil {
 		return Prompt{}, err
@@ -89,7 +93,7 @@ type describeBlock struct {
 func proseLimit(b timesheet.DraftBlock) int {
 	n := maxDescriptionRunes
 	if b.PRsInline != "" {
-		n -= len([]rune(b.PRsInline)) + 1
+		n -= len([]rune(b.PRsInline)) + prsSeparatorRunes
 	}
 	if n < minProseRunes {
 		n = minProseRunes

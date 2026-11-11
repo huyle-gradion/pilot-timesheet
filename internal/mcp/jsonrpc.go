@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"unicode/utf8"
 )
 
@@ -40,10 +41,6 @@ type ToolDecl struct {
 
 // CallResult is the bounded, NORMALIZED result of a tools/call. IsError surfaces
 // the tool-level error inside a successful HTTP response (result.isError).
-//
-// It is DECODE-ONLY: its fields deliberately carry no JSON tags because it is not
-// the MCP wire shape (the wire uses isError/structuredContent/content). Do not
-// marshal a CallResult as a protocol message.
 type CallResult struct {
 	IsError    bool
 	Structured json.RawMessage
@@ -58,6 +55,11 @@ type CallResult struct {
 	// block). Content makes that text available without changing Text's fallback
 	// semantics.
 	Content string
+}
+
+// MarshalJSON refuses: a CallResult is not the MCP wire shape.
+func (CallResult) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("mcp: CallResult is decode-only")
 }
 
 type initResult struct {

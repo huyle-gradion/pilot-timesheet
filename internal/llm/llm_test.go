@@ -219,3 +219,39 @@ func TestDescribePromptClipsLongTitles(t *testing.T) {
 		t.Fatalf("title not clipped to %d runes:\n%s", MaxTitleRunes, p.Text)
 	}
 }
+
+func TestPromptKeyBindsTemplateBytes(t *testing.T) {
+	raw := []byte("prompt {{.X}}")
+	data := map[string]any{"X": "y"}
+	a, err := renderTemplate("t", raw, data, &fakeBackend{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := renderTemplate("t", append(raw, "{{/* edited */}}"...), data, &fakeBackend{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Text != b.Text || a.Key == b.Key {
+		t.Fatalf("template edit with the same text: keys %s %s, texts %q %q", a.Key, b.Key, a.Text, b.Text)
+	}
+}
+
+// Cached judgments stay valid only while the keys of the shipped templates do
+// not move; a deliberate template edit updates these values.
+func TestPromptKeysOfShippedTemplatesAreStable(t *testing.T) {
+	d, err := DescribePrompt(syntheticDraft(), &fakeBackend{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ClassifyPrompt([]Interval{{IntervalID: "iv-1", Description: "a", Set: "c1"}},
+		[]CandidateSet{{Ref: "c1", CatalogID: "cat-1", Options: []Option{{ID: "cls-dev", Label: "Development"}}}}, &fakeBackend{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "25aed7aced6e6de9c9c7a1b9fd9b61e523d178f9f9d8362da7a4706f0f3f0c97"; d.Key != want {
+		t.Errorf("descriptions key = %s, want %s", d.Key, want)
+	}
+	if want := "1bd8c39a5eed4914b935984b254c1fb27f722ee4558adcc76d0845b542de86a1"; c.Key != want {
+		t.Errorf("classifications key = %s, want %s", c.Key, want)
+	}
+}

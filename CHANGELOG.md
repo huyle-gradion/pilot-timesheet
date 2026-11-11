@@ -18,6 +18,23 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   `usage_format`) is unchanged: stdout is the reply and usage is estimated.
   Any other value, or the field on the `openai` backend, is a configuration
   error.
+- `internal/mcp` and `internal/llm` constraints that only a comment stated
+  are now pinned by tests (#290): MCP calls on one session run one at a time
+  with distinct request ids, `CallResult` refuses to marshal, and a prompt's
+  cache key changes when its template bytes change while the keys of the
+  shipped templates stay put. Notifications use their own send path.
+
+## 0.4.0
+
+- Security: the calendar collector no longer sends the private feed URL
+  (`GCAL_ICS_URL`) to a redirect target (#302). Go's HTTP client set the
+  previous URL, path and query included, as the `Referer` of a followed
+  redirect, so a feed that redirected to another host disclosed the
+  credential to it. The `Referer` is now stripped; the 10-redirect limit is
+  unchanged. New tests pin that the feed URL never appears in the collect
+  result, source detail, stored evidence, state file, stderr or a redirect
+  target's request for an unreachable host, a non-200 status, an oversized
+  body, malformed ICS, a timeout and followed redirects.
 - `timesheet answer --date <day> [--kind <kind>] <answer>` and a TUI answer
   form let you answer an `ask_human` question without an agent (#288). Both
   write the same digest-bound answer file the agent path writes, checked

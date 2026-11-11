@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -106,7 +109,8 @@ func TestCallBeforeInit_Uninitialized(t *testing.T) {
 
 func TestJSONRPCErrorMessage_RedactBeforeBound(t *testing.T) {
 	const token = "S3CR3T-TOKEN-DO-NOT-LEAK"
-	msg := strings.Repeat("A", 250) + token
+	tokenStraddlesTheCap := maxErrorSnippetBytes - len(token)/2
+	msg := strings.Repeat("A", tokenStraddlesTheCap) + token
 
 	f := newFakeMCP()
 	f.rpcErr = &rpcError{Code: -32000, Message: msg}
@@ -661,5 +665,70 @@ func TestRequestsAcceptOnlyJSON(t *testing.T) {
 		if a != "application/json" {
 			t.Errorf("Accept = %q, want only application/json: SSE responses are not parsed", a)
 		}
+	}
+}
+
+func TestConcurrentCallsAreSerializedWithDistinctIDs(t *testing.T) {
+	var inFlight, maxInFlight atomic.Int32
+	var mu sync.Mutex
+	seen := map[int64]bool{}
+	tr := methodAwareTransport(func(method string, r *http.Request) (*http.Response, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			m := maxInFlight.Load()
+			if n <= m || maxInFlight.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		var req rpcRequest
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &req); err != nil || req.ID == nil {
+			return nil, errors.New("request without an id")
+		}
+		mu.Lock()
+		dup := seen[*req.ID]
+		seen[*req.ID] = true
+		mu.Unlock()
+		if dup {
+			t.Errorf("request id %d sent twice", *req.ID)
+		}
+		time.Sleep(2 * time.Millisecond)
+		result := `{"structuredContent":{"ok":true}}`
+		if method == "tools/list" {
+			result = `{"tools":[]}`
+		}
+		return resp(http.StatusOK, "application/json", fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":%s}`, *req.ID, result)), nil
+	})
+	sess := newTestSession(t, Config{Endpoint: "http://example.invalid", Transport: tr})
+	if _, err := sess.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var err error
+			if i%2 == 0 {
+				_, err = sess.CallTool(context.Background(), "t", nil)
+			} else {
+				_, err = sess.ListTools(context.Background())
+			}
+			if err != nil {
+				t.Errorf("call %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if m := maxInFlight.Load(); m != 1 {
+		t.Errorf("max requests in flight = %d, want 1", m)
+	}
+}
+
+func TestCallResultRefusesToMarshal(t *testing.T) {
+	if data, err := json.Marshal(CallResult{IsError: true, Text: "x"}); err == nil {
+		t.Fatalf("CallResult marshaled to %s; it is not the MCP wire shape", data)
 	}
 }
