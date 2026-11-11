@@ -238,7 +238,9 @@ classification exact-match rate, the description coverage and similarity, and
 `classification_unwinnable`: intervals whose accepted answer was not among the
 candidates the judge could pick from (they count as misses). A reply that does
 not validate is listed in `run`'s `skipped` and scores as missing. A judge
-that fails (unreachable, HTTP 401 or 429, timeout) stops the run instead.
+that fails (unreachable, HTTP 401 or 429, timeout) stops the run instead. A
+dataset with no usable day is never scored as zeros: `export` warns, and `run`
+and `score` exit non-zero naming the cause; read `export`'s `skipped` reasons.
 
 For tokens, compare `run`'s `max_day_tokens` (and each entry of `days`) with
 `daily_token_cap` (default 10,000, ADR 0010). Replies are cached in

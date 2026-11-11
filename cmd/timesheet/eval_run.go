@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/llm"
@@ -77,6 +78,11 @@ func runEvalRun(args []string) error {
 	g, err := readGolden("eval run", *goldenFlag)
 	if err != nil {
 		return err
+	}
+	if !slices.ContainsFunc(g.Days, replayableDay) {
+		// A receipt of zeros would read like a failed judge or a pass on the
+		// cap (#282), so the run refuses before any judge call.
+		return fmt.Errorf("eval run: the dataset %s has no replayable days (%d day(s), none with a draft block or a recorded interval and candidate set); log days with the current binary, then export again", *goldenFlag, len(g.Days))
 	}
 	out := *outFlag
 	if out == "" {
@@ -219,6 +225,16 @@ func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.Golden
 		return r, cand, fmt.Errorf("eval run: stopped: %s; the partial candidate is kept", r.Stopped)
 	}
 	return r, cand, nil
+}
+
+// replayableDay reports whether some part of day reaches the judge: the
+// inputs evalDescribe and evalClassify refuse with errEvalInput are absent.
+func replayableDay(day timesheet.GoldenDay) bool {
+	if d := day.Descriptions; d != nil && len(d.Input.Blocks) > 0 {
+		return true
+	}
+	c := day.Classifications
+	return c != nil && len(c.Input) > 0 && len(c.Candidates) > 0
 }
 
 // evalDescribe answers one draft and returns each block's text as record

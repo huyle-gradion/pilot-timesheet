@@ -96,6 +96,9 @@ func runEvalExport(args []string) error {
 	if err := writeFileAtomic(out, data); err != nil {
 		return fmt.Errorf("eval export: %s cannot be written: %w", out, err)
 	}
+	if len(g.Days) == 0 {
+		fmt.Fprintf(os.Stderr, "eval export: warning: exported 0 days (%d part(s) skipped); see skipped in %s, log days with the current binary, then export again\n", len(g.Skipped), out)
+	}
 	return printJSON(evalExportReceipt{File: out, Days: len(g.Days), Skipped: g.Skipped, Note: g.Note})
 }
 
@@ -302,7 +305,12 @@ func runEvalScore(args []string) error {
 			return fmt.Errorf("eval score: the candidate %s: %w", *candidateFlag, err)
 		}
 	}
-	return printJSON(timesheet.ScoreGolden(g, candidate))
+	s := timesheet.ScoreGolden(g, candidate)
+	if s.ClassificationIntervals == 0 && s.DescriptionBlocks == 0 {
+		// Rates of 0 would read like a failed judge (#282).
+		return fmt.Errorf("eval score: the dataset %s has nothing to score (%d day(s), no accepted classification or description); log days with the current binary, then export again", *goldenFlag, s.Days)
+	}
+	return printJSON(s)
 }
 
 // readGolden reads a dataset and refuses one written under another schema.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http/httptest"
 	"os"
@@ -351,5 +352,34 @@ func TestEvalRunRefusesAnOlderDatasetSchema(t *testing.T) {
 	_, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", filepath.Join(t.TempDir(), "c.json"))
 	if err == nil || !strings.Contains(err.Error(), "export it again") {
 		t.Fatalf("err = %v, want the schema refusal", err)
+	}
+}
+
+func TestEvalRunRefusesADatasetWithNothingToReplay(t *testing.T) {
+	for name, days := range map[string]string{
+		"no days": `[]`,
+		// Every part would be skipped before a judge call.
+		"empty parts": `[{"date":"` + evalDayA + `","descriptions":{"input":{"date":"` + evalDayA + `","blocks":[]},"truth":{}}},` +
+			`{"date":"` + evalDayB + `","classifications":{"input":[{"interval_id":"iv-b","candidates":"c1"}],"candidates":[],"truth":{"iv-b":"cls-dev"}}}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			chat := &fakeChat{answer: classifyOrDescribe}
+			cfg := evalJudgeConfig(t, chat, nil)
+			golden := filepath.Join(t.TempDir(), "golden.json")
+			writeAnswerFile(t, golden, fmt.Sprintf(`{"schema":%d,"days":%s}`, timesheet.GoldenSchema, days))
+			out := filepath.Join(t.TempDir(), "candidate.json")
+			stdout, _, err := captureOutput(t, func() error {
+				return runEval([]string{"run", "--config", cfg, "--golden", golden, "--out", out})
+			})
+			if err == nil || !strings.Contains(err.Error(), "no replayable days") || strings.Contains(err.Error(), "\n") {
+				t.Fatalf("err = %v, want one line naming the empty dataset", err)
+			}
+			if chat.calls != 0 || len(stdout) != 0 {
+				t.Fatalf("%d call(s), stdout %s; want no judge call and no receipt", chat.calls, stdout)
+			}
+			if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+				t.Fatal("a refused run wrote a candidate")
+			}
+		})
 	}
 }
