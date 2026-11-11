@@ -363,15 +363,14 @@ type Allocation struct {
 
 // Segment is the rendered portion of one interval on one day. Locked means the
 // segment spills in from an interval that started on an earlier day and must be
-// edited there, not in the viewed day.
+// edited there, not in the viewed day. It shows no legacy project or local
+// classification label (ADR 0012); those stay inert in state.
 type Segment struct {
 	IntervalID      string       `json:"interval_id"`
 	Date            string       `json:"date"`
 	Start           string       `json:"start"`
 	End             string       `json:"end"`
 	Minutes         int          `json:"minutes"`
-	Project         string       `json:"project,omitempty"`
-	Classification  string       `json:"classification,omitempty"`
 	Description     string       `json:"description"`
 	EvidenceRefs    []string     `json:"evidence_refs,omitempty"`
 	OriginDate      string       `json:"origin_date"`
@@ -811,8 +810,6 @@ func segmentOn(iv Interval, originDate, date string, loc *time.Location) (Segmen
 			Start:           a.Start,
 			End:             a.End,
 			Minutes:         a.Minutes,
-			Project:         iv.Project,
-			Classification:  iv.Classification,
 			Description:     iv.Description,
 			EvidenceRefs:    append([]string(nil), iv.EvidenceRefs...),
 			OriginDate:      originDate,

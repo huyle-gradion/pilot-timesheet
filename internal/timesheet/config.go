@@ -40,6 +40,12 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	// A valid configuration that still lists a retired key (ADR 0012) is
+	// reported to the command layer, which removes the key or says it is
+	// ignored. The keys are never read either way.
+	if RetiredConfigHook != nil && (cfg.RetiredProjects != nil || (cfg.Migration != nil && cfg.Migration.RetiredProjectMap != nil)) {
+		RetiredConfigHook(path)
+	}
 	return &cfg, nil
 }
 

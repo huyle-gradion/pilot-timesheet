@@ -32,10 +32,70 @@ func TestRetiredProjectFlagFailsWithOneLine(t *testing.T) {
 	if err := retiredFlagError("stage", []string{"--date", testDate}); err != nil {
 		t.Fatalf("stage without --project = %v", err)
 	}
-	// A value that merely follows another flag is not the retired flag.
-	if err := retiredFlagError("record", []string{"--descriptions", "--project-notes.json"}); err != nil {
-		t.Fatalf("an unrelated value = %v", err)
+	// A boolean flag takes no value, so --project after it is still the flag.
+	if err := retiredFlagError("next", []string{"--do", "--project", "WORK"}); err == nil {
+		t.Fatal("next --do --project: no error")
 	}
+	// A value that starts with '-' is a value, not a flag.
+	for _, args := range [][]string{
+		{"--config", "--project"},
+		{"--env-file", "-project", "--date", testDate},
+		{"--date", testDate, "--", "--project"},
+	} {
+		if err := retiredFlagError("log", args); err != nil {
+			t.Fatalf("log %v = %v, want no retired flag", args, err)
+		}
+	}
+	// Commands that never had --project leave it to their own flag parser.
+	for _, command := range []string{"record", "status", "migrate", "eval", "submit", "daily"} {
+		if err := retiredFlagError(command, []string{"--project", "WORK"}); err != nil {
+			t.Fatalf("%s: %v, want the command's own parser to answer", command, err)
+		}
+	}
+}
+
+func TestRetiredConfigKeysAreRemovedOnceOrIgnoredWithOneLine(t *testing.T) {
+	body := `{
+  "timezone": "Asia/Ho_Chi_Minh",
+  "state_path": "/tmp/state.json",
+  "projects": [{"id": "WORK", "name": "Work"}]
+}
+`
+	run := func(t *testing.T, mode os.FileMode) (string, []string) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(path, []byte(body), mode); err != nil {
+			t.Fatal(err)
+		}
+		var lines []string
+		old := timesheet.RetiredConfigHook
+		timesheet.RetiredConfigHook = retiredConfigHook(func(line string) { lines = append(lines, line) })
+		t.Cleanup(func() { timesheet.RetiredConfigHook = old })
+		for i := 0; i < 3; i++ {
+			if _, err := timesheet.LoadConfig(path); err != nil {
+				t.Fatalf("load %d: %v", i, err)
+			}
+		}
+		return path, lines
+	}
+	t.Run("writable: removed with a backup", func(t *testing.T) {
+		path, lines := run(t, 0o600)
+		if len(lines) != 1 || !strings.Contains(lines[0], "projects") || !strings.Contains(lines[0], path+".bak") {
+			t.Fatalf("lines = %q, want one line naming the removed key and the backup", lines)
+		}
+		if got, _ := os.ReadFile(path); strings.Contains(string(got), "projects") {
+			t.Fatalf("config still lists projects:\n%s", got)
+		}
+	})
+	t.Run("read-only: ignored, file untouched", func(t *testing.T) {
+		path, lines := run(t, 0o400)
+		if len(lines) != 1 || !strings.Contains(lines[0], "ignored") || !strings.Contains(lines[0], "by hand") {
+			t.Fatalf("lines = %q, want one line saying the keys are ignored", lines)
+		}
+		if got, _ := os.ReadFile(path); string(got) != body {
+			t.Fatal("a read-only config changed")
+		}
+	})
 }
 
 // writeNoProjectConfig is a configuration with no project at all, the shape

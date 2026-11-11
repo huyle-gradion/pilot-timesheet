@@ -218,7 +218,7 @@ func TestWorkdayPartitionLateEveningPOW(t *testing.T) {
 // to [end, end+1)).
 func TestWorkdayPartitionStampOnConfirmedClosingMinute(t *testing.T) {
 	review := draftReview(nil,
-		[]Segment{{IntervalID: "i1", Date: "2026-11-04", Start: "08:00", End: "09:00", Project: "WORK", Description: "planned stretch"}},
+		[]Segment{{IntervalID: "i1", Date: "2026-11-04", Start: "08:00", End: "09:00", Description: "planned stretch"}},
 		[]TopicCandidate{{
 			Ref: "tc-close", Title: "Closing push",
 			FirstAt: "2026-11-04T09:00:00+07:00", LastAt: "2026-11-04T09:00:00+07:00",

@@ -41,23 +41,71 @@ var retiredFlags = map[string]string{
 	"project": "intervals no longer carry a project (ADR 0012); drop the flag, classification comes from gradion.default_classification or the classification judgment",
 }
 
+// retiredFlagCommands are the commands that took --project before ADR 0012.
+// Any other command leaves an unknown flag to its own parser.
+var retiredFlagCommands = map[string]bool{
+	"init": true, "log": true, "next": true, "tui": true, "judge": true,
+	"stage": true, "classify": true, "save": true, "confirm": true,
+}
+
+// boolFlags are those commands' flags that take no value, so the argument
+// after one is the next flag rather than its value.
+var boolFlags = map[string]bool{
+	"do": true, "auto": true, "revise": true, "configured-default": true,
+	"from-history": true, "h": true, "help": true,
+}
+
 // retiredFlagError reports the first retired flag in args, in any of the
-// flag package's spellings (-name, --name, --name=value). Arguments after a
-// bare "--" are not flags.
+// flag package's spellings (-name, --name, --name=value), for a command that
+// had it. The value of a value-taking flag is skipped even when it starts
+// with '-', and arguments after a bare "--" are not flags.
 func retiredFlagError(command string, args []string) error {
+	if !retiredFlagCommands[command] {
+		return nil
+	}
+	value := false
 	for _, a := range args {
+		if value {
+			value = false
+			continue
+		}
 		if a == "--" {
 			break
 		}
-		if !strings.HasPrefix(a, "-") {
+		if !strings.HasPrefix(a, "-") || a == "-" {
 			continue
 		}
-		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		name, _, inline := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		if why, ok := retiredFlags[name]; ok {
 			return fmt.Errorf("`%s --%s` was removed: %s", command, name, why)
 		}
+		value = !inline && !boolFlags[name]
 	}
 	return nil
+}
+
+// retiredConfigHook is what main installs as timesheet.RetiredConfigHook: on
+// the first load of a configuration that still lists a retired key, it removes
+// the keys from the file (keeping a one-time <config>.bak) and says so on one
+// line. When the file cannot be rewritten safely, nothing is changed and one
+// line says the keys are ignored and can be removed by hand. Each path is
+// reported once per run.
+func retiredConfigHook(notice func(string)) func(string) {
+	seen := map[string]bool{}
+	return func(path string) {
+		if seen[path] {
+			return
+		}
+		seen[path] = true
+		removed, backup, err := timesheet.RemoveRetiredConfigKeys(path)
+		if err != nil {
+			notice(fmt.Sprintf("config %s: the retired keys projects / migration.project_map are ignored and can be removed by hand (ADR 0012; not rewritten: %v)", path, err))
+			return
+		}
+		if len(removed) > 0 {
+			notice(fmt.Sprintf("config %s: removed the retired %s (ADR 0012); the previous file is kept at %s", path, strings.Join(removed, " and "), backup))
+		}
+	}
 }
 
 // runLog logs a day end to end: next --do, answering judgments with the

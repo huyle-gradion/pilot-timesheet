@@ -68,7 +68,7 @@ Top-level keys (all non-secret; the loader rejects any key not listed):
 | --- | --- |
 | `timezone` | **Required** IANA timezone that defines the recorded day. |
 | `state_path` | **Required** state file. An absolute path is recommended; a relative one resolves against the process cwd. |
-| `projects` | Retired and ignored ([ADR 0012](../adr/0012-retire-the-local-project.md)); an interval carries no project. Remove it when convenient. |
+| `projects` | Retired ([ADR 0012](../adr/0012-retire-the-local-project.md)); an interval carries no project. Commands remove it from the file on first load (keeping `<config>.bak`), or ignore it when the file cannot be rewritten. |
 | `required_env` | Optional credential variable **names** to report when missing; never values. |
 | `sources` | Optional evidence collectors (GitHub, calendar); see below. |
 | `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification` object (`catalog_id`, `classification_id`, `code`, `name`, `activity_type`). |
@@ -478,6 +478,18 @@ remote prompt prepares the exact plan for a human to `approve`/`submit` later.
 - **Only recorded work is captured** — this never establishes a complete day.
 
 ## Release note (upgrade behavior)
+
+**State schema 4 is a one-way upgrade** ([ADR 0012](../adr/0012-retire-the-local-project.md)).
+The first command that writes the store after the upgrade copies the old file
+once to `state.json.schema3.bak` (or `.schema1.bak`/`.schema2.bak`; `0600`,
+never overwritten) and prints one stderr line naming it. `0.2.0` cannot read
+the new file and stops with `state_invalid: local state file is not valid JSON
+for the supported schema`. To go back to `0.2.0`: restore the backup over
+`state.json` (`cp ~/.timesheet/state.json.schema3.bak ~/.timesheet/state.json`)
+and put a `projects` list back in the configuration (or restore
+`config.json.bak` if the new build removed it), because `0.2.0` requires at
+least one project. Work saved by the new build after the upgrade is not in the
+backup.
 
 The `content_observed` flag on a remote observation is an **additive** field. On
 upgrade, a pre-existing mapping or observation recorded before this field existed

@@ -85,7 +85,7 @@ func TestAnnotateWorkHoursWeekend(t *testing.T) {
 func TestAnnotateWorkHoursNilPolicyByteIdentical(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
-		[]Segment{{IntervalID: "i1", Date: "2026-10-26", Start: "10:30", End: "12:00", Project: "WORK", Description: "focus"}},
+		[]Segment{{IntervalID: "i1", Date: "2026-10-26", Start: "10:30", End: "12:00", Description: "focus"}},
 		nil, nil,
 	)
 	d := BuildDraft(review, "test")

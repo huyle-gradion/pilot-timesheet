@@ -25,7 +25,7 @@ Consequences:
 ## 2. Usage: one state per invocation
 
 ```text
-timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
 ```
 
 Omitted `--date` means today in the configured timezone. The skill invokes
@@ -129,7 +129,6 @@ See [ADR 0009](../adr/0009-chat-confirmed-submission.md).
 
 - enabled source with no collection attempt, or an incomplete attempt that
   needs an explicit acknowledgement;
-- multiple configured projects without a chosen `--project`;
 - a blocked plan, with reconcile/resolve as the human path;
 - a finalized ledger that no longer derives the saved intervals
   (`stage --revise` is a human decision);
@@ -156,12 +155,13 @@ no retry.
 
 Decisions only the owner makes are reported as `state: ask_human` with
 `ask: {kind, question, options, answer_file, digest, protocol, last_error}`,
-not as free-text stops:
+not as free-text stops. There is no `project` question: intervals carry no
+project ([ADR 0012](../adr/0012-retire-the-local-project.md)), and an
+`ask-project.json` left in a day folder is ignored.
 
 | `kind` | When | Options | A valid answer licenses |
 |---|---|---|---|
 | `source_acknowledgement` | an enabled source's attempt is incomplete and unacknowledged (one question per source) | `acknowledge` | `acknowledge --source <s> --collection-id <id>` |
-| `project` | several configured projects and no `--project` | the project ids | the day's project (an explicit `--project` still wins) |
 | `resolve` | the newest plan is blocked and nothing is newer | `adopt`, `accept_observed`, `foreign` | `resolve --file <answer_file>`; the answer file is the resolve decision file plus `digest` and `surface` |
 
 The answer is `{"digest":"<ask.digest>","answer":"<option>","surface":"terminal|chat|tui|notification"}`
@@ -240,7 +240,7 @@ catalog/store fixtures; live remote behavior remains owner-verified.
 ## 12. Binary-owned judge (`timesheet judge`)
 
 ADR 0010. With a `judge` section in the configuration, `timesheet judge
-[--config] [--env-file] [--date] [--project]` answers the day's current
+[--config] [--env-file] [--date]` answers the day's current
 `block_descriptions` or `classifications` judgment itself and writes the
 judgment's answer file; `next --do` then consumes it exactly like an
 agent-written one. Without the section the verb refuses and nothing else

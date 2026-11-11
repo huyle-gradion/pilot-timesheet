@@ -42,6 +42,8 @@ the change.
    The saved-classification digest still covers the label, so an answer bound
    to a legacy day stays valid. Only an explicit human revision
    (`stage --revise`) replaces those intervals, and the new ones have no label.
+   Neither label is shown: review, day and segment output, history snapshots
+   included, leave both out (owner, 2026-11-11). They stay in state only.
 
 3. **Classification is decided without a project.** The remote classification
    is the reviewed selection, as before. When `gradion.default_classification`
@@ -60,8 +62,21 @@ the change.
    intervals, and how many of them keep a legacy project label. The receipt
    becomes durable in the same atomic write that activates schema 4.
    `applied_at` is stamped at that write. A store that never had a file gets
-   no receipt. A build that only reads schema 3 fails closed on a schema 4
-   file with `state_invalid`.
+   no receipt.
+
+   The upgrade is one-way. Before the activating write, the binary copies the
+   older file once to `<state>.schema<N>.bak` (for example
+   `state.json.schema3.bak`, mode 0600, never overwritten). If the copy fails,
+   the write fails and nothing changes. When the write activates, it prints
+   one stderr line that names the backup and says the upgrade is one-way. A
+   write that fails before activation leaves the older file as it was and the
+   receipt unstamped; the backup may remain. A 0.2.0 build reading a schema 4
+   file fails closed with `state_invalid: local state file is not valid JSON
+   for the supported schema`, because its strict decoder rejects the unknown
+   `migration.schema_upgrades` before it checks the schema number. To
+   downgrade, restore the backup and put `projects` back in the
+   configuration. The receipt records `app_version` `0.2.0` until the 0.3.0
+   release that follows this change.
 
 5. **The surface drops the project.** `--project` is gone from `init`, `log`,
    `next`, `tui`, `judge`, `stage`, `classify` and `save`. Passing it fails
@@ -71,10 +86,20 @@ the change.
    `init` needs no project, and `--seed-config` copies the seed's
    `required_env` and `sources`.
 
-6. **Old configurations keep loading.** The configuration keys `projects` and
-   `migration.project_map` are retired. They are still accepted and ignored,
-   so an existing `config.json` and the daily run keep working. `init` no
-   longer writes them. Every other unknown key still fails closed.
+6. **Retired configuration keys are removed, or else ignored.** The keys
+   `projects` and `migration.project_map` are retired, and a configuration
+   that lists them still loads (owner, 2026-11-11). On the first load in a run,
+   every command except `init` removes them from the file: a token-level edit
+   that keeps every other key, its order, values and formatting, and that is
+   checked to change nothing else. The original is kept once as
+   `<config>.bak` (0600, never overwritten). The new bytes replace the file
+   atomically (temporary file in the same directory, the original mode,
+   rename), and one stderr line names what was removed and the backup. If the
+   file cannot be rewritten safely (read-only file or directory, a symlink,
+   or a shape the edit cannot prove), nothing changes and one stderr line
+   says the keys are ignored and can be removed by hand. The env file is never
+   touched. `init` neither writes the keys nor edits a seed. Every other
+   unknown key still fails closed.
 
 7. **Legacy migration stops mapping projects.** `migrate preview|apply` no
    longer requires a legacy project to name a configured project, so an
@@ -92,11 +117,13 @@ the change.
   inert label.
 - **Fail closed on a configuration that still lists `projects`.** That would
   stop every existing scheduled run until the owner edits the file, for a key
-  that no longer does anything. It is listed as an owner question below.
+  that no longer does anything. The owner chose removal, with ignoring as the
+  fallback.
 - **Keep schema 3 with an optional project.** A schema 3 build would then
-  reject the new files with a misleading "interval is incomplete" error
-  instead of an unsupported schema. The bump keeps the old build's failure
-  honest.
+  load a file it cannot fully read and reject only some intervals, as
+  "incomplete". With the bump, the old build rejects the whole file before
+  touching it (with the generic `state_invalid` message quoted in decision
+  4), and the backup gives the way back.
 
 ## Consequences
 
@@ -109,10 +136,12 @@ deterministic first, through the configured default, and judged second, so
 12). A script or skill that still passes `--project` fails with a one-line
 instruction instead of being silently ignored.
 
-## Open questions for the owner
+## Owner decisions on the open questions (2026-11-11)
 
-- Should a configuration that still lists `projects` or
-  `migration.project_map` fail closed with a one-line instruction instead of
-  being ignored?
-- Should `status` show the schema-4 upgrade receipt, or is the state file
-  enough?
+- **Retired configuration keys:** remove them from the file; when that cannot
+  be done safely, ignore them and say so (decision 6).
+- **The upgrade receipt in `status`:** no. `status` stays as it is, and the
+  receipt lives in the state file only. Closed.
+- **The legacy local classification label:** removed from review, day and
+  segment output, like the project label. It stays inert in state
+  (decision 2).

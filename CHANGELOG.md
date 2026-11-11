@@ -22,12 +22,25 @@ interval no longer carries one.
   shape, upgraded in memory, and written as schema `4` by the next successful
   write together with one `migration.schema_upgrades` receipt (from and to
   schema, build version, days, intervals, legacy project labels,
-  `applied_at`). A build that only reads schema `3` rejects a schema `4` file
-  with `state_invalid`.
+  `applied_at`).
+- **Breaking, one-way upgrade:** before that first write, the schema 1-3 file
+  is copied once to `state.json.schema<N>.bak` (0600, never overwritten), and
+  the write prints one stderr line naming it. `0.2.0` cannot read a schema `4`
+  file: it fails closed with `state_invalid: local state file is not valid
+  JSON for the supported schema`. To downgrade, restore the backup over
+  `state.json` and put `projects` back in the configuration (the old build
+  requires at least one). The receipt's `app_version` reads `0.2.0` until the
+  `0.3.0` release.
 - `init` needs no project and writes none. `--seed-config` no longer copies a
   seed's `projects` or `migration.project_map`.
 - The configuration keys `projects` and `migration.project_map` are retired.
-  They are accepted and ignored, so an existing `config.json` keeps loading.
+  A configuration that lists them still loads. On the first load, every
+  command except `init` removes them from the file with an edit that keeps
+  every other key and its formatting, keeps the original once as
+  `<config>.bak`, and prints one stderr line. A file it cannot rewrite
+  safely (read-only, a symlink) keeps them, ignored, with one stderr line.
+- Review, day and segment output no longer show an interval's legacy
+  `project` or local `classification` label. Both stay inert in state.
 - Classification comes from `gradion.default_classification` when configured
   and otherwise from the ADR 0010 classification judgment. The retired
   per-project `default_classification` only ever set a local label.

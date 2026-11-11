@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -813,12 +814,45 @@ func (s *Store) Commit(expectedSavedRevision int, day *Day) error {
 // activated=true happened after activation and must not be treated as a safe
 // rollback or retried blindly.
 func (s *Store) write() (bool, error) {
+	upgrading := s.durableSchema < stateSchema
+	backup := ""
+	if upgrading {
+		// The upgrade is one-way: an older build cannot read the new schema.
+		// Keep the older file once, before the write that replaces it.
+		var err error
+		if backup, err = s.backupOlderSchema(); err != nil {
+			return false, err
+		}
+	}
 	undo := s.stampSchemaUpgrades()
 	activated, err := s.writeFile()
 	if !activated {
 		undo()
 	}
+	if activated && upgrading && UpgradeNotice != nil {
+		UpgradeNotice(fmt.Sprintf("local state upgraded to schema %d (one-way: an older build cannot read it); the schema-%d file is kept at %s, and to downgrade restore it and put `projects` back in the configuration",
+			stateSchema, s.durableSchema, backup))
+	}
 	return activated, err
+}
+
+// UpgradeNotice, when set, receives the one line the activating write of a
+// state schema upgrade reports. The command layer prints it on stderr.
+var UpgradeNotice func(line string)
+
+// backupOlderSchema copies the on-disk file of the older schema to
+// <state>.schema<N>.bak (0600) unless that backup already exists. The store's
+// lock is held, so the file is still the one that was loaded.
+func (s *Store) backupOlderSchema() (string, error) {
+	backup := fmt.Sprintf("%s.schema%d.bak", s.path, s.durableSchema)
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return "", newError(CodeWriteFailed, "local state cannot be backed up before its schema upgrade")
+	}
+	if err := writeOnce(backup, data); err != nil {
+		return "", newError(CodeWriteFailed, "local state cannot be backed up before its schema upgrade")
+	}
+	return backup, nil
 }
 
 // stampSchemaUpgrades dates each pending schema-upgrade receipt with this

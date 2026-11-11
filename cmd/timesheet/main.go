@@ -62,6 +62,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "timesheet: %s\n", err)
 		os.Exit(2)
 	}
+	stderrLine := func(line string) { fmt.Fprintf(os.Stderr, "timesheet: %s\n", line) }
+	timesheet.UpgradeNotice = stderrLine
+	// init only reads a --seed-config and its own probe; it never edits a
+	// configuration it did not create (ADR 0012).
+	if os.Args[1] != "init" {
+		timesheet.RetiredConfigHook = retiredConfigHook(stderrLine)
+	}
 	switch os.Args[1] {
 	case "help", "-h", "--help":
 		printSynopsis(os.Stdout)
