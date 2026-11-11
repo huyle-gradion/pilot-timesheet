@@ -18,7 +18,7 @@ import (
 // judge answers the day's current judgment with the configured judge backend
 // (ADR 0010, issue #241):
 //
-//	timesheet judge [--config <path>] [--env-file <path>] [--date <day>] [--project <id>]
+//	timesheet judge [--config <path>] [--env-file <path>] [--date <day>]
 //
 // It derives the day exactly as next does. At a block_descriptions or
 // classifications judgment it renders the owned prompt, reuses a stored
@@ -96,7 +96,7 @@ func runJudge(args []string) error {
 	if err != nil {
 		return err
 	}
-	obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, f.project, store)
+	obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, store)
 	if closeErr := store.Close(); closeErr != nil {
 		return fmt.Errorf("judge: the store lock cannot be released")
 	}

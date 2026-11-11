@@ -12,10 +12,9 @@ import (
 
 // loopSnapshot is one tick's derived view of the day; nothing survives a tick.
 type loopSnapshot struct {
-	day     string
-	project string
-	action  nextAction
-	status  *timesheet.SubmissionStatusResult
+	day    string
+	action nextAction
+	status *timesheet.SubmissionStatusResult
 }
 
 // tuiEnv is the immutable process context the effects close over: one store,
@@ -25,7 +24,6 @@ type tuiEnv struct {
 	configPath string
 	envFile    string
 	day        string
-	project    string
 	h          *headlessSession
 	styles     uiStyles
 }
@@ -270,7 +268,7 @@ func updateKey(m tuiModel, key string) (tuiModel, effect) {
 		if m.snap.action.Action != nil {
 			cmd = m.snap.action.Action.Cmd
 		}
-		return m, func() any { return m.env.act(step, m.snap.project, cmd) }
+		return m, func() any { return m.env.act(step, cmd) }
 	case "s": // the submit gate; the approve gate is enter, the day screen's act key
 		if stepAct(m.snap.action) != stateHumanGates {
 			return m, nil

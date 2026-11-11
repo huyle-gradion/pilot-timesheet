@@ -270,8 +270,8 @@ func sidecarBinds(date string, selections map[string]timesheet.ClassificationCho
 }
 
 // contentSpan is the comparable staged content of one interval: what it covers
-// and the description it carries. Project and classification are configuration
-// and review state, not ledger content, so they are not compared.
+// and the description it carries. Classification is review state and a legacy
+// project label (ADR 0012) is inert, so neither is ledger content or compared.
 type contentSpan struct {
 	Start       string
 	End         string

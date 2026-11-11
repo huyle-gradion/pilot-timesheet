@@ -52,27 +52,20 @@ func readSetupBytes(t *testing.T, path string) []byte {
 	return data
 }
 
-func TestSetupWithoutProjectsCreatesNothing(t *testing.T) {
+// TestSetupNeedsNoProject: since ADR 0012 init writes a loadable configuration
+// with no arguments at all, and never a project.
+func TestSetupNeedsNoProject(t *testing.T) {
 	_, dir := pinSetupHome(t)
-
-	out, err := runSetupOutput(t)
-	if err == nil {
-		t.Fatal("setup without projects succeeded; want the remedy error")
+	t.Setenv("TZ", "UTC")
+	if _, err := runSetupOutput(t); err != nil {
+		t.Fatalf("setup without arguments: %v", err)
 	}
-	var usageErr *setupUsageError
-	if !errors.As(err, &usageErr) {
-		t.Fatalf("error %v is not a setupUsageError (exit 2)", err)
+	configPath := filepath.Join(dir, "config.json")
+	if _, err := timesheet.LoadConfig(configPath); err != nil {
+		t.Fatalf("generated config does not load: %v", err)
 	}
-	for _, want := range []string{"needs at least one project", "--project", "--seed-config"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error %q lacks %q", err, want)
-		}
-	}
-	if out != "" {
-		t.Fatalf("stdout = %q, want nothing created", out)
-	}
-	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("target directory exists after a failed setup: %v", statErr)
+	if raw := string(readSetupBytes(t, configPath)); strings.Contains(raw, `"project`) {
+		t.Fatalf("generated config names a project:\n%s", raw)
 	}
 }
 
@@ -81,7 +74,7 @@ func TestSetupHappyPath(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 	envPath := filepath.Join(dir, ".env.local")
 
-	out, err := runSetupOutput(t, "--project", "pilot=Personal Pilot Timesheet", "--tz", "Europe/Amsterdam")
+	out, err := runSetupOutput(t, "--tz", "Europe/Amsterdam")
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -104,12 +97,6 @@ func TestSetupHappyPath(t *testing.T) {
 	}
 	if want := filepath.Join(dir, setupStateName); cfg.StatePath != want || !filepath.IsAbs(cfg.StatePath) {
 		t.Fatalf("state_path = %q, want the absolute %q", cfg.StatePath, want)
-	}
-	if len(cfg.Projects) != 1 || cfg.Projects[0].ID != "pilot" || cfg.Projects[0].Name != "Personal Pilot Timesheet" {
-		t.Fatalf("projects = %+v, want the --project values verbatim", cfg.Projects)
-	}
-	if cfg.Projects[0].DefaultClassification != "" {
-		t.Fatalf("default_classification = %q, want none invented", cfg.Projects[0].DefaultClassification)
 	}
 	if raw := string(readSetupBytes(t, configPath)); strings.Contains(raw, "default_classification") {
 		t.Fatalf("generated config invents a classification:\n%s", raw)
@@ -139,38 +126,10 @@ func TestSetupHappyPath(t *testing.T) {
 	}
 }
 
-func TestSetupProjectSeedsAreCopiedVerbatim(t *testing.T) {
-	_, dir := pinSetupHome(t)
-	_, err := runSetupOutput(t,
-		"--project", "alpha=Alpha Project=DEV",
-		"--project", "beta=Beta Project",
-		"--tz", "UTC",
-	)
-	if err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	cfg, err := timesheet.LoadConfig(filepath.Join(dir, "config.json"))
-	if err != nil {
-		t.Fatalf("generated config: %v", err)
-	}
-	want := []timesheet.Project{
-		{ID: "alpha", Name: "Alpha Project", DefaultClassification: "DEV"},
-		{ID: "beta", Name: "Beta Project"},
-	}
-	if len(cfg.Projects) != len(want) {
-		t.Fatalf("projects = %+v, want %+v", cfg.Projects, want)
-	}
-	for i := range want {
-		if cfg.Projects[i] != want[i] {
-			t.Fatalf("projects[%d] = %+v, want %+v", i, cfg.Projects[i], want[i])
-		}
-	}
-}
-
 func TestSetupTimezoneFallsBackToHostTZ(t *testing.T) {
 	_, dir := pinSetupHome(t)
 	t.Setenv("TZ", "Asia/Tokyo")
-	if _, err := runSetupOutput(t, "--project", "pilot=Pilot"); err != nil {
+	if _, err := runSetupOutput(t); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	cfg, err := timesheet.LoadConfig(filepath.Join(dir, "config.json"))
@@ -186,7 +145,7 @@ func TestSetupRepeatIsNoOpWithoutSeedParams(t *testing.T) {
 	_, dir := pinSetupHome(t)
 	configPath := filepath.Join(dir, "config.json")
 	envPath := filepath.Join(dir, ".env.local")
-	if _, err := runSetupOutput(t, "--project", "pilot=Pilot", "--tz", "UTC"); err != nil {
+	if _, err := runSetupOutput(t, "--tz", "UTC"); err != nil {
 		t.Fatalf("first setup: %v", err)
 	}
 	beforeConfig := readSetupBytes(t, configPath)
@@ -254,7 +213,7 @@ func TestSetupNeverReplacesExistingInvalidConfig(t *testing.T) {
 	}
 	before := readSetupBytes(t, configPath)
 
-	out, err := runSetupOutput(t, "--project", "pilot=Pilot")
+	out, err := runSetupOutput(t)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -335,7 +294,7 @@ func TestSetupReportsSymlinkedFinalWithoutFollowingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runSetupOutput(t, "--project", "pilot=Pilot")
+	out, err := runSetupOutput(t)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -358,7 +317,7 @@ func TestSetupRefusesSymlinkedTargetDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := runSetupOutput(t, "--project", "pilot=Pilot")
+	_, err := runSetupOutput(t)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("err = %v, want the unsafe-target refusal", err)
 	}
@@ -373,10 +332,7 @@ func TestSetupRefusesSymlinkedTargetDirectory(t *testing.T) {
 
 func TestSetupConcurrentRunsPublishOneFileEach(t *testing.T) {
 	_, dir := pinSetupHome(t)
-	opts := setupOptions{
-		projects: []projectSeed{{id: "pilot", name: "Pilot"}},
-		timezone: "Europe/Amsterdam",
-	}
+	opts := setupOptions{timezone: "Europe/Amsterdam"}
 	var buffers [2]bytes.Buffer
 	var errs [2]error
 	var wg sync.WaitGroup
@@ -402,12 +358,8 @@ func TestSetupConcurrentRunsPublishOneFileEach(t *testing.T) {
 			t.Fatalf("%s present lines = %d, want the loser's EEXIST report:\n%s", path, got, combined)
 		}
 	}
-	cfg, err := timesheet.LoadConfig(filepath.Join(dir, "config.json"))
-	if err != nil {
+	if _, err := timesheet.LoadConfig(filepath.Join(dir, "config.json")); err != nil {
 		t.Fatalf("concurrent config does not load: %v", err)
-	}
-	if len(cfg.Projects) != 1 || cfg.Projects[0].ID != "pilot" {
-		t.Fatalf("projects = %+v", cfg.Projects)
 	}
 }
 
@@ -429,7 +381,7 @@ func TestSetupLeavesExistingFilesAndLeftoversAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runSetupOutput(t, "--project", "pilot=Pilot", "--tz", "UTC")
+	out, err := runSetupOutput(t, "--tz", "UTC")
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -449,7 +401,7 @@ func TestSetupLeavesExistingFilesAndLeftoversAlone(t *testing.T) {
 	}
 }
 
-func TestSetupSeedConfigCarriesProjectsEnvAndRelativePaths(t *testing.T) {
+func TestSetupSeedConfigCarriesEnvAndRelativePathsButNoProjects(t *testing.T) {
 	_, dir := pinSetupHome(t)
 	seedDir := t.TempDir()
 	seedPath := filepath.Join(seedDir, "seed.json")
@@ -458,7 +410,7 @@ func TestSetupSeedConfigCarriesProjectsEnvAndRelativePaths(t *testing.T) {
   "state_path": "relative-state.json",
   "projects": [{"id": "SEED", "name": "Seed Project", "default_classification": "DEV"}],
   "required_env": ["SEED_TOKEN"],
-  "migration": {"enabled": true, "legacy_root": "legacy", "legacy_timezone": "UTC"}
+  "migration": {"enabled": true, "legacy_root": "legacy", "legacy_timezone": "UTC", "project_map": {"OLD": "SEED"}}
 }`
 	if err := os.WriteFile(seedPath, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -479,8 +431,8 @@ func TestSetupSeedConfigCarriesProjectsEnvAndRelativePaths(t *testing.T) {
 	if cfg.StatePath != filepath.Join(dir, setupStateName) {
 		t.Fatalf("state_path = %q, want the target's absolute state path", cfg.StatePath)
 	}
-	if len(cfg.Projects) != 1 || cfg.Projects[0] != (timesheet.Project{ID: "SEED", Name: "Seed Project", DefaultClassification: "DEV"}) {
-		t.Fatalf("projects = %+v", cfg.Projects)
+	if raw := string(readSetupBytes(t, configPath)); strings.Contains(raw, `"project`) {
+		t.Fatalf("the seed's retired project keys were copied forward:\n%s", raw)
 	}
 	if len(cfg.RequiredEnv) != 1 || cfg.RequiredEnv[0] != "SEED_TOKEN" {
 		t.Fatalf("required_env = %v", cfg.RequiredEnv)
@@ -503,12 +455,9 @@ func TestSetupRejectsBadInputBeforeCreatingAnything(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"malformed project", []string{"--project", "no-equals"}, "expects '<id>=<name>"},
-		{"empty name", []string{"--project", "pilot="}, "non-empty id and name"},
-		{"invalid timezone", []string{"--project", "pilot=Pilot", "--tz", "Not/AZone"}, "not a recognised IANA timezone"},
-		{"pseudo zone", []string{"--project", "pilot=Pilot", "--tz", "Local"}, "not a recognised IANA timezone"},
-		{"both sources", []string{"--project", "pilot=Pilot", "--seed-config", "seed.json"}, "either --project or --seed-config"},
-		{"positional", []string{"--project", "pilot=Pilot", "extra"}, "positional"},
+		{"invalid timezone", []string{"--tz", "Not/AZone"}, "not a recognised IANA timezone"},
+		{"pseudo zone", []string{"--tz", "Local"}, "not a recognised IANA timezone"},
+		{"positional", []string{"extra"}, "positional"},
 	}
 	for _, tc := range cases {
 		_, dir := pinSetupHome(t)
@@ -519,17 +468,6 @@ func TestSetupRejectsBadInputBeforeCreatingAnything(t *testing.T) {
 		if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("%s created %s despite the error", tc.name, dir)
 		}
-	}
-}
-
-func TestSetupInvalidProjectIdCreatesNothing(t *testing.T) {
-	_, dir := pinSetupHome(t)
-	_, err := runSetupOutput(t, "--project", "bad/id=Bad", "--tz", "UTC")
-	if err == nil || !strings.Contains(err.Error(), "config: project id is invalid") {
-		t.Fatalf("err = %v, want the loader's field error", err)
-	}
-	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("setup created %s despite the invalid config", dir)
 	}
 }
 
@@ -557,7 +495,7 @@ func TestSetupHelpIsNotAUsageFailure(t *testing.T) {
 
 func TestSetupEnvTemplateNeverCarriesValues(t *testing.T) {
 	_, dir := pinSetupHome(t)
-	if _, err := runSetupOutput(t, "--project", "pilot=Pilot", "--tz", "UTC"); err != nil {
+	if _, err := runSetupOutput(t, "--tz", "UTC"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	envBytes := readSetupBytes(t, filepath.Join(dir, ".env.local"))

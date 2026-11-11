@@ -89,7 +89,7 @@ func TestRestageMergedContributorRemovesItsOldInterval(t *testing.T) {
 		}
 		return res.(timesheet.DaySummary)
 	}
-	first, err := applyStage(h, parsed, "stage", testDate, "WORK", open())
+	first, err := applyStage(h, parsed, "stage", testDate, open())
 	if err != nil {
 		t.Fatalf("first stage: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRestageMergedContributorRemovesItsOldInterval(t *testing.T) {
 		{BlockID: "work-09:00-11:00", Date: testDate, Start: "09:00", End: "11:00", Kind: "work", Description: "Bridge PRs"},
 		{BlockID: "work-12:00-13:00", Date: testDate, Start: "10:00", End: "10:30", Kind: "work", Description: "Ops deploy"},
 	})
-	second, err := applyStage(h, parsed, "stage", testDate, "WORK", open())
+	second, err := applyStage(h, parsed, "stage", testDate, open())
 	if err != nil {
 		t.Fatalf("second stage: %v", err)
 	}

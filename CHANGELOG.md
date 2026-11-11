@@ -4,6 +4,39 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+Retire the local project (#185, ADR 0012). The remote has no project, so an
+interval no longer carries one.
+
+- **Breaking:** `--project` is removed from `init`, `log`, `next`, `tui`,
+  `judge`, `stage`, `classify` and `save`. Passing it exits `2` with one line
+  telling you to drop it. A configuration with several projects no longer
+  makes `stage` refuse or `next`/`log` ask.
+- **Breaking:** the `ask_human` kind `project` is retired. An
+  `ask-project.json` answer left in a day folder is ignored.
+- **Breaking:** the staged interval text grammar is
+  `DATE HH:MM-HH:MM DESCRIPTION`. The project token and the `/CLASSIFICATION`
+  suffix are gone; the `unknown_project` error code is retired.
+- **Breaking:** state schema `4`. An interval's `project` is optional: new
+  intervals have none, and intervals saved before keep theirs as an inert
+  legacy label, never rewritten. A schema 1-3 file is validated in its own
+  shape, upgraded in memory, and written as schema `4` by the next successful
+  write together with one `migration.schema_upgrades` receipt (from and to
+  schema, build version, days, intervals, legacy project labels,
+  `applied_at`). A build that only reads schema `3` rejects a schema `4` file
+  with `state_invalid`.
+- `init` needs no project and writes none. `--seed-config` no longer copies a
+  seed's `projects` or `migration.project_map`.
+- The configuration keys `projects` and `migration.project_map` are retired.
+  They are accepted and ignored, so an existing `config.json` keeps loading.
+- Classification comes from `gradion.default_classification` when configured
+  and otherwise from the ADR 0010 classification judgment. The retired
+  per-project `default_classification` only ever set a local label.
+- `migrate preview|apply` no longer requires a legacy project to map to a
+  configured one. The migrated interval carries no project, and the receipt's
+  legacy interval audit keeps the original value.
+- Remote write bodies are unchanged: a test pins the exact bytes a day's
+  writes send, captured before the change.
+
 Carry the after-midnight remainder of long overnight entries into the next day
 (#277, ADR 0011).
 

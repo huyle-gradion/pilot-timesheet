@@ -64,7 +64,7 @@ func TestNoProjectConfigStagesClassifiesSavesAndPlans(t *testing.T) {
 	t.Setenv("SYNTHETIC_GRADION_TOKEN", "synthetic-token")
 	cfg := writeNoProjectConfig(t, server.URL)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{timedBlock("work-1", "09:00", "10:00", "Build the bridge")})
-	seedCatalog(t, cfg, "cat-1", timesheet.ClassificationOption{ID: "cls-dev", Name: "Development", Code: "DEV"})
+	seedCatalog(t, cfg, "cat-1", timesheet.ClassificationOption{ID: "cls-dev", Name: "Development", Code: "DEV", ActivityType: "engineering"})
 	stage := runStageCapture(t, []string{"--config", cfg, "--date", testDate})
 	if len(stage.Staged) != 1 {
 		t.Fatalf("stage = %+v", stage)

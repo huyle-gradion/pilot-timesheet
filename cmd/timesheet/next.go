@@ -231,14 +231,6 @@ type nextObservation struct {
 	CarryDerived []timesheet.CarrySegment
 	Workflow     timesheet.WorkflowSnapshot
 
-	// Project is the exact project id the staged/classified/saved commands
-	// carry; ProjectBlocked means the configuration has several projects and
-	// none was chosen, so the planner will not guess one.
-	Project        string
-	ProjectBlocked bool
-	ProjectIDs     []string
-	// ProjectAskError is why a present project answer was not accepted.
-	ProjectAskError string
 	// Asks are the day folder's human answer files, keyed by file name.
 	Asks map[string]askAnswer
 

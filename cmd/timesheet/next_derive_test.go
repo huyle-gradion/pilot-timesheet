@@ -84,7 +84,6 @@ func unclassifiedDay() nextObservation {
 				{Source: timesheet.SourceCalendar, Status: timesheet.StatusComplete, CollectionID: "col-1", Attempted: true, Complete: true},
 			},
 		},
-		Project:        "WORK",
 		GradionEnabled: true,
 	}
 }
@@ -251,7 +250,7 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		if n.State != stateAction || n.Step != "stage" {
 			t.Fatalf("state/step = %q/%q, want action/stage", n.State, n.Step)
 		}
-		assertCmd(t, n, withArgs(baseArgv("stage"), "--project", "WORK"))
+		assertCmd(t, n, baseArgv("stage"))
 	})
 
 	t.Run("a stage map with a stale span count re-derives stage", func(t *testing.T) {
@@ -299,7 +298,7 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		if n.State != stateAction || n.Step != "classify" {
 			t.Fatalf("state/step = %q/%q, want action/classify", n.State, n.Step)
 		}
-		assertCmd(t, n, withArgs(baseArgv("classify"), "--file", o.ChoicesPath, "--project", "WORK"))
+		assertCmd(t, n, withArgs(baseArgv("classify"), "--file", o.ChoicesPath))
 	})
 
 	t.Run("a stale choices file is never handed to classify", func(t *testing.T) {
@@ -321,7 +320,7 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		if n.State != stateAction || n.Step != "save" {
 			t.Fatalf("state/step = %q/%q, want action/save", n.State, n.Step)
 		}
-		assertCmd(t, n, withArgs(baseArgv("save"), "--project", "WORK"))
+		assertCmd(t, n, baseArgv("save"))
 	})
 
 	t.Run("an edited description with the same interval id is re-judged, never saved", func(t *testing.T) {
@@ -524,7 +523,7 @@ func TestDeriveDayNextFinalizedTail(t *testing.T) {
 
 // TestDeriveDayNextEnvironmentAndProject pins the two derivable environment
 // facts: classification needs the live catalog, planning needs the remote
-// boundary, and a multi-project configuration is never guessed.
+// boundary, and no configuration makes the day ask for a project.
 func TestDeriveDayNextEnvironmentAndProject(t *testing.T) {
 	t.Run("classification is skipped without the catalog boundary", func(t *testing.T) {
 		o := unclassifiedDay()
@@ -544,23 +543,16 @@ func TestDeriveDayNextEnvironmentAndProject(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple projects without a choice asks the human instead of guessing", func(t *testing.T) {
+	t.Run("an unstaged day stages without asking for a project (ADR 0012)", func(t *testing.T) {
 		o := unclassifiedDay()
 		o.Artifacts.StageMap = nil
-		o.Project, o.ProjectBlocked = "", true
-		o.ProjectIDs = []string{"WORK", "OPS"}
+		// A project answer left from an earlier build is inert.
+		o.Asks = map[string]askAnswer{"ask-project.json": {Present: true, Answer: "WORK", Surface: "chat"}}
 		n := deriveDayNext(o)
-		q := n.Ask
-		if n.State != stateAskHuman || q.Kind != askProject || strings.Join(q.Options, ",") != "OPS,WORK" {
-			t.Fatalf("derivation = %+v, want the project question over the configured ids", n)
+		if n.State != stateAction || n.Step != "stage" || n.Ask != nil {
+			t.Fatalf("derivation = %+v, want action/stage with no question", n)
 		}
-		if !strings.Contains(q.Protocol, "--project") {
-			t.Fatalf("protocol = %q, want the --project override named", q.Protocol)
-		}
-		o.ProjectAskError = "answer \"X\" is not one of: OPS, WORK"
-		if got := deriveDayNext(o); got.Ask == nil || got.Ask.LastError != o.ProjectAskError {
-			t.Fatalf("rejected answer = %+v, want last_error", got)
-		}
+		assertCmd(t, n, baseArgv("stage"))
 	})
 }
 
@@ -672,7 +664,7 @@ func TestDeriveDayNextStaleSidecarWithoutCatalog(t *testing.T) {
 				t.Fatalf("reason = %q, want %q named", n.Reason, want)
 			}
 		}
-		if !strings.Contains(n.Reason, "--file") || !strings.Contains(n.Reason, "--project WORK") {
+		if !strings.Contains(n.Reason, "--file") || strings.Contains(n.Reason, "--project") {
 			t.Fatalf("reason = %q, want the exact offline clear argv", n.Reason)
 		}
 	})

@@ -33,13 +33,13 @@ Create the home store once with `init` (full walkthrough, modes and recovery
 rules: [first-run setup](../setup-linux.md)):
 
 ```bash
-bin/timesheet init --project 'pilot=Pilot Timesheet'
+bin/timesheet init
 ```
 
 Then `bin/timesheet log` runs the day (see [Running a day](#running-a-day)).
 
 `init` creates `~/.timesheet/` (`0700`), a valid `~/.timesheet/config.json`
-(`0600`) with your projects, host timezone, an absolute `state_path` and
+(`0600`) with your host timezone, an absolute `state_path` and
 `required_env` (`GITHUB_TOKEN`, `GCAL_ICS_URL`), and
 `~/.timesheet/.env.local` (`0600`) listing credential **names** as comments and
 no values. It never overwrites an existing file. Every command then finds its
@@ -59,8 +59,8 @@ URL, and do not reuse the owner's private configuration. See
 
 | Starting point | Purpose |
 | --- | --- |
-| `timesheet init` | Writes a valid configuration with your `projects`, `timezone`, an absolute `state_path` and `required_env: ["GITHUB_TOKEN", "GCAL_ICS_URL"]`, and no sources; add sections as needed. With `--seed-config` it copies the seed configuration instead, including its `sources`. |
-| `cmd/timesheet/timesheet.example.json` | Synthetic template with `projects`, `required_env`, GitHub and calendar `sources`, a disabled `migration` and a disabled `gradion` boundary; it has no `work_hours`, `judge` or `daily` section (see the key table below). Replace every placeholder, including the `/path/to/home` paths. |
+| `timesheet init` | Writes a valid configuration with your `timezone`, an absolute `state_path` and `required_env: ["GITHUB_TOKEN", "GCAL_ICS_URL"]`, and no sources; add sections as needed. With `--seed-config` it copies the seed configuration instead, including its `sources`. |
+| `cmd/timesheet/timesheet.example.json` | Synthetic template with `required_env`, GitHub and calendar `sources`, a disabled `migration` and a disabled `gradion` boundary; it has no `work_hours`, `judge` or `daily` section (see the key table below). Replace every placeholder, including the `/path/to/home` paths. |
 
 Top-level keys (all non-secret; the loader rejects any key not listed):
 
@@ -68,11 +68,11 @@ Top-level keys (all non-secret; the loader rejects any key not listed):
 | --- | --- |
 | `timezone` | **Required** IANA timezone that defines the recorded day. |
 | `state_path` | **Required** state file. An absolute path is recommended; a relative one resolves against the process cwd. |
-| `projects` | **Required** non-empty list of `{ id, name, default_classification }`; `id` has no slash, `name` and `default_classification` are optional. |
+| `projects` | Retired and ignored ([ADR 0012](../adr/0012-retire-the-local-project.md)); an interval carries no project. Remove it when convenient. |
 | `required_env` | Optional credential variable **names** to report when missing; never values. |
 | `sources` | Optional evidence collectors (GitHub, calendar); see below. |
 | `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification` object (`catalog_id`, `classification_id`, `code`, `name`, `activity_type`). |
-| `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `project_map`, `classification_map`). |
+| `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `classification_map`; a retired `project_map` is ignored). |
 | `work_hours` | Optional presentation-only main-work-time policy (`days`, `windows`). |
 | `judge` | Optional binary-owned judge (ADR 0010): `backend`, `command`, `base_url`, `model`, `api_key_env`, `timeout_seconds`, `daily_token_cap`, `tokens_csv`. |
 | `daily` | Optional scheduled-run policy: `log_after`, `days`, `desktop`, `desktop_command`, `webhook_env`, `webhook_kind`, `notify_empty`. |

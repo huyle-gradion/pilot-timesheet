@@ -9,6 +9,7 @@
 package timesheet
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -21,17 +22,18 @@ import (
 // Application identity.
 //
 // stateSchema is the schema this build writes. It still reads the accepted
-// state schemas 1 and 2: each legacy file loads, is validated in its own
+// state schemas 1, 2 and 3: each legacy file loads, is validated in its own
 // shape, is upgraded in memory through an explicit conversion, and the on-disk
-// file is only rewritten as schema 3 by a successful durable transaction, never
-// by startup. Older loaders fail closed on schema 3 with state_invalid, which
-// is intentional: they have no semantics for native approvals, write intents or
-// execution history.
+// file is only rewritten as schema 4 by a successful durable transaction, never
+// by startup. Older loaders fail closed on a later schema with state_invalid,
+// which is intentional: a schema-3 loader would otherwise reject a
+// project-less interval as incomplete instead of as an unsupported schema.
 const (
 	AppVersion        = "0.2.0"
-	stateSchema       = 3
+	stateSchema       = 4
 	legacyStateSchema = 1
 	schemaTwoState    = 2
+	schemaThreeState  = 3
 
 	maxDescriptionRunes = 500
 	maxEvidenceRefs     = 20
@@ -49,7 +51,6 @@ const (
 	CodeNonexistentTime  = "nonexistent_time"
 	CodeAmbiguousTime    = "ambiguous_time"
 	CodeOverlap          = "overlap"
-	CodeUnknownProject   = "unknown_project"
 	CodeUnknownDay       = "unknown_day"
 	CodeUnknownInterval  = "unknown_interval"
 	CodeStaleRevision    = "stale_revision"
@@ -126,11 +127,13 @@ func errorCode(err error) string {
 // Sources describes the optional R2 evidence collectors; a nil Sources is the
 // R1 manual-only configuration and must keep working unchanged.
 type Config struct {
-	Timezone    string         `json:"timezone"`
-	StatePath   string         `json:"state_path"`
-	Projects    []Project      `json:"projects"`
-	RequiredEnv []string       `json:"required_env,omitempty"`
-	Sources     *SourcesConfig `json:"sources,omitempty"`
+	Timezone  string `json:"timezone"`
+	StatePath string `json:"state_path"`
+	// RetiredProjects is the retired `projects` list (ADR 0012). It is
+	// accepted so an existing configuration keeps loading, and never read.
+	RetiredProjects json.RawMessage `json:"projects,omitempty"`
+	RequiredEnv     []string        `json:"required_env,omitempty"`
+	Sources         *SourcesConfig  `json:"sources,omitempty"`
 	// Migration is the disabled-by-default explicit legacy import provision.
 	// It names the authoritative legacy records root and the timezone that
 	// governed those records; old records do not carry their own timezone.
@@ -171,15 +174,17 @@ type WorkWindow struct {
 // containing the authoritative workflow/YYYY-MM-DD.json daily files and
 // LegacyTimezone must name the IANA timezone those records were written in.
 //
-// ProjectMap and ClassificationMap are the only permitted translation of a
-// legacy value the new configuration cannot represent directly. They are
-// explicit provisions: R3 never invents a replacement, and every original value
-// stays in audit.
+// ClassificationMap is the only permitted translation of a legacy value the
+// new configuration cannot represent directly. It is an explicit provision: R3
+// never invents a replacement, and every original value stays in audit.
+// RetiredProjectMap is the retired `project_map` (ADR 0012): accepted so an
+// existing configuration keeps loading, and never read, because a migrated
+// interval carries no project.
 type MigrationConfig struct {
 	Enabled           bool              `json:"enabled"`
 	LegacyRoot        string            `json:"legacy_root,omitempty"`
 	LegacyTimezone    string            `json:"legacy_timezone,omitempty"`
-	ProjectMap        map[string]string `json:"project_map,omitempty"`
+	RetiredProjectMap json.RawMessage   `json:"project_map,omitempty"`
 	ClassificationMap map[string]string `json:"classification_map,omitempty"`
 }
 
@@ -249,14 +254,6 @@ func (c *Config) EnabledSources() (github bool, calendar bool) {
 	return github, calendar
 }
 
-// Project is an explicit project/classification selection available to typed
-// interval input. DefaultClassification is applied only when none is supplied.
-type Project struct {
-	ID                    string `json:"id"`
-	Name                  string `json:"name,omitempty"`
-	DefaultClassification string `json:"default_classification,omitempty"`
-}
-
 // State is the durable local store. It contains confirmed work and, since R2,
 // per-date Evidence: collection families, topics, proposed meetings and
 // explicit review decisions. Evidence is written atomically by the
@@ -279,6 +276,12 @@ type Project struct {
 // A schema-3 file fails closed (state_invalid) in a schema-1/2-only loader,
 // which is intentional: it has no semantics for native approvals, write
 // intents or execution history.
+//
+// Schema 4 (ADR 0012) makes an interval's project optional: a new interval
+// carries none, and an existing one keeps its project as an inert legacy
+// label. A schema 1-3 file is validated in its own shape, where a confirmed
+// interval needs a project, and its upgrade is recorded as one
+// migration.schema_upgrades receipt that becomes durable with the first write.
 type State struct {
 	Schema     int                     `json:"schema"`
 	SavedAt    string                  `json:"saved_at,omitempty"`
@@ -323,19 +326,23 @@ type HistoryEntry struct {
 // which it starts. End earlier than Start (but not 00:00) means the interval
 // crosses midnight; End 00:00 with a later Start ends exactly at midnight.
 type Interval struct {
-	ID             string   `json:"id"`
-	Date           string   `json:"date"`
-	Start          string   `json:"start"`
-	End            string   `json:"end"`
-	Project        string   `json:"project"`
+	ID    string `json:"id"`
+	Date  string `json:"date"`
+	Start string `json:"start"`
+	End   string `json:"end"`
+	// Project is the retired local project (ADR 0012): an inert legacy label
+	// an interval written before schema 4 keeps. A new interval has none, and
+	// nothing decides on it. Classification is likewise a legacy local label;
+	// the remote classification is RemoteClassificationID.
+	Project        string   `json:"project,omitempty"`
 	Classification string   `json:"classification,omitempty"`
 	Description    string   `json:"description"`
 	EvidenceRefs   []string `json:"evidence_refs,omitempty"`
 
 	// RemoteClassificationID is the explicit reviewed Gradion catalog option
 	// bound to this interval by select_classification. It is the ONLY source of
-	// a previewed remote classification; a project default or a migrated hint
-	// is never selected silently.
+	// a previewed remote classification; a migrated hint is never selected
+	// silently.
 	RemoteClassificationID string `json:"remote_classification_id,omitempty"`
 	// RemoteCatalogID is the catalog identity of that reviewed choice (audit).
 	RemoteCatalogID string `json:"remote_catalog_id,omitempty"`
@@ -363,7 +370,7 @@ type Segment struct {
 	Start           string       `json:"start"`
 	End             string       `json:"end"`
 	Minutes         int          `json:"minutes"`
-	Project         string       `json:"project"`
+	Project         string       `json:"project,omitempty"`
 	Classification  string       `json:"classification,omitempty"`
 	Description     string       `json:"description"`
 	EvidenceRefs    []string     `json:"evidence_refs,omitempty"`
@@ -380,8 +387,8 @@ type View struct {
 }
 
 var (
-	intervalLineRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})[ \t]+(\d{2}):(\d{2})-(\d{2}):(\d{2})[ \t]+([^ \t]+)[ \t]+(.+)$`)
-	projectIDRE    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	intervalLineRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})[ \t]+(\d{2}):(\d{2})-(\d{2}):(\d{2})[ \t]+(.+)$`)
+	identifierRE   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	envNameRE      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	controlRune    = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 )
@@ -423,18 +430,21 @@ func parseClock(s string) (int, error) {
 
 // ParseInterval parses the documented typed/manual grammar:
 //
-//	DATE HH:MM-HH:MM PROJECT[/CLASSIFICATION] DESCRIPTION
+//	DATE HH:MM-HH:MM DESCRIPTION
+//
+// There is no project token (ADR 0012): everything after the span is the
+// description.
 //
 // expectedDate must match DATE. The endpoints are resolved in loc, the recorded
 // day's timezone, so nonexistent or ambiguous local times fail closed. Multiple
 // evidence references can be attached separately; they never add minutes.
-func ParseInterval(text, expectedDate string, cfg *Config, loc *time.Location) (Interval, error) {
+func ParseInterval(text, expectedDate string, loc *time.Location) (Interval, error) {
 	text = strings.TrimSpace(text)
 	m := intervalLineRE.FindStringSubmatch(text)
 	if m == nil || strings.ContainsAny(text, "\r\n") {
-		return Interval{}, newError(CodeInvalidGrammar, `interval must match "DATE HH:MM-HH:MM PROJECT[/CLASSIFICATION] DESCRIPTION"`)
+		return Interval{}, newError(CodeInvalidGrammar, `interval must match "DATE HH:MM-HH:MM DESCRIPTION"`)
 	}
-	date, start, end, projectToken, description := m[1], m[2]+":"+m[3], m[4]+":"+m[5], m[6], strings.TrimSpace(m[7])
+	date, start, end, description := m[1], m[2]+":"+m[3], m[4]+":"+m[5], strings.TrimSpace(m[6])
 	if date != expectedDate {
 		return Interval{}, newError(CodeInvalidInterval, "interval date must match the open day")
 	}
@@ -460,48 +470,16 @@ func ParseInterval(text, expectedDate string, cfg *Config, loc *time.Location) (
 		return Interval{}, newError(CodeInvalidInterval, "description must not contain control characters")
 	}
 
-	project, classification := projectToken, ""
-	if i := strings.IndexByte(projectToken, '/'); i >= 0 {
-		project, classification = projectToken[:i], projectToken[i+1:]
-		if classification == "" {
-			return Interval{}, newError(CodeInvalidInterval, "classification after '/' must not be empty")
-		}
-	}
-	if project == "" || !projectIDRE.MatchString(project) {
-		return Interval{}, newError(CodeInvalidInterval, "project is not a valid project identifier")
-	}
-	if classification != "" && !projectIDRE.MatchString(classification) {
-		return Interval{}, newError(CodeInvalidInterval, "classification is not a valid classification identifier")
-	}
-	proj, ok := cfg.project(project)
-	if !ok {
-		return Interval{}, newError(CodeUnknownProject, "project is not configured")
-	}
-	if classification == "" {
-		classification = proj.DefaultClassification
-	}
-
 	iv := Interval{
-		Date:           date,
-		Start:          start,
-		End:            end,
-		Project:        project,
-		Classification: classification,
-		Description:    description,
+		Date:        date,
+		Start:       start,
+		End:         end,
+		Description: description,
 	}
 	if _, _, err := iv.resolveEndpoints(loc); err != nil {
 		return Interval{}, err
 	}
 	return iv, nil
-}
-
-func (c *Config) project(id string) (Project, bool) {
-	for _, p := range c.Projects {
-		if p.ID == id {
-			return p, true
-		}
-	}
-	return Project{}, false
 }
 
 // dayLocation returns the recorded day's timezone. It never substitutes the
@@ -1192,6 +1170,25 @@ type MigrationState struct {
 	Receipts []MigrationReceipt `json:"receipts,omitempty"`
 	Sources  map[string]string  `json:"sources,omitempty"`
 	Carries  []MigratedCarry    `json:"carries,omitempty"`
+	// SchemaUpgrades records each state schema upgrade (ADR 0012). The
+	// receipt is added in memory when an older file loads and becomes durable
+	// only with the write that activates the new schema.
+	SchemaUpgrades []SchemaUpgradeReceipt `json:"schema_upgrades,omitempty"`
+}
+
+// SchemaUpgradeReceipt is the audit record of one state schema upgrade: the
+// schema the file declared, the schema it was written as, the build that
+// wrote it, and what it carried across. AppliedAt is stamped by the write that
+// activates the upgrade. LegacyProjectLabels counts the confirmed intervals
+// that keep a project as an inert legacy label.
+type SchemaUpgradeReceipt struct {
+	FromSchema          int    `json:"from_schema"`
+	ToSchema            int    `json:"to_schema"`
+	AppVersion          string `json:"app_version"`
+	Days                int    `json:"days"`
+	Intervals           int    `json:"intervals"`
+	LegacyProjectLabels int    `json:"legacy_project_labels"`
+	AppliedAt           string `json:"applied_at,omitempty"`
 }
 
 // MigrationReceipt is the durable audit record of one activated batch. It stores
@@ -1764,6 +1761,7 @@ func (m *MigrationState) cloneMigration() *MigrationState {
 	for i := range out.Carries {
 		out.Carries[i].EvidenceIDs = append([]string(nil), out.Carries[i].EvidenceIDs...)
 	}
+	out.SchemaUpgrades = append([]SchemaUpgradeReceipt(nil), m.SchemaUpgrades...)
 	return out
 }
 

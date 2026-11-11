@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"strings"
+	"path/filepath"
 	"testing"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
@@ -12,8 +12,8 @@ import (
 
 func dayModel() tuiModel {
 	return tuiModel{
-		env:  tuiEnv{day: "2026-10-20", project: "WORK"},
-		snap: loopSnapshot{day: "2026-10-20", project: "WORK", action: nextAction{Day: "2026-10-20"}},
+		env:  tuiEnv{day: "2026-10-20"},
+		snap: loopSnapshot{day: "2026-10-20", action: nextAction{Day: "2026-10-20"}},
 	}
 }
 
@@ -63,7 +63,7 @@ func TestUpdateEventsTable(t *testing.T) {
 	t.Run("tick replaces the snapshot and clears busy and error", func(t *testing.T) {
 		m := busyModel()
 		m.err = errors.New("older failure")
-		fresh := loopSnapshot{day: "d", project: "p", action: nextAction{Day: "d", State: stateStopped, Reason: "r"}}
+		fresh := loopSnapshot{day: "d", action: nextAction{Day: "d", State: stateStopped, Reason: "r"}}
 		m, eff := update(m, tickEvent{snap: fresh})
 		if eff != nil || m.busy || m.err != nil {
 			t.Fatalf("tick left busy/err/effect: %+v %v", m, eff)
@@ -189,8 +189,8 @@ func TestPreflightBuildsFirstSnapshot(t *testing.T) {
 	if m.snap.action.State != stateAction || m.snap.action.Step != "run" {
 		t.Fatalf("first snapshot = %+v, want action/run", m.snap.action)
 	}
-	if m.snap.day != "2026-10-20" || m.snap.project != "WORK" {
-		t.Fatalf("snapshot day/project = %q/%q, want the resolved day and project", m.snap.day, m.snap.project)
+	if m.snap.day != "2026-10-20" {
+		t.Fatalf("snapshot day = %q, want the resolved day", m.snap.day)
 	}
 	if m.env.h == nil || m.env.h.store == nil || m.env.h.session == nil {
 		t.Fatal("preflight built no held session over its own store")
@@ -221,16 +221,17 @@ func TestEnvTickRebuildsLoopSnapshot(t *testing.T) {
 	}
 }
 
-// TestPreflightPropagatesDerivationError pins the preflight's error path: a
-// first derivation that fails surfaces the derivation's own refusal, not a
-// generic no-state report, and the held store is released.
-func TestPreflightPropagatesDerivationError(t *testing.T) {
+// TestPreflightReleasesTheStoreOnError pins the preflight's error path: a
+// failure after the store is opened (here an unreadable env file; the
+// unknown --project that once triggered it is retired, ADR 0012) surfaces its
+// own refusal, and the held store is released.
+func TestPreflightReleasesTheStoreOnError(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
 	cfgPath := writeRunConfig(t)
-	_, err := preflightTui(&nextFlags{configPath: cfgPath, date: "2026-10-20", project: "NOPE"})
-	if err == nil || !strings.Contains(err.Error(), "--project NOPE is not configured") {
-		t.Fatalf("preflight error = %v, want the derivation's own unknown-project refusal", err)
+	missing := filepath.Join(t.TempDir(), "missing.env")
+	if _, err := preflightTui(&nextFlags{configPath: cfgPath, envFile: missing, date: "2026-10-20"}); err == nil {
+		t.Fatal("preflight with an unreadable env file succeeded")
 	}
 	cfg, err := timesheet.LoadConfig(cfgPath)
 	if err != nil {

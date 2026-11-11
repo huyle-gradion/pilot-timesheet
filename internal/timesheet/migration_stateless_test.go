@@ -125,12 +125,11 @@ func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 
 // TestMigrationApplyIsStaleWhenTheConfigChanged (PR #275 review): each
 // command reloads the config, so the migration_id must bind what apply would
-// commit, not only the source bytes and the target. A project_map edited
-// between preview and apply changes the migrated content and must be
+// commit, not only the source bytes and the target. A classification_map
+// edited between preview and apply changes the migrated content and must be
 // migration_stale with nothing written.
 func TestMigrationApplyIsStaleWhenTheConfigChanged(t *testing.T) {
 	cfg, _, _ := migrationFixture(t)
-	cfg.Projects = append(cfg.Projects, Project{ID: "P2", Name: "Other", DefaultClassification: "DEV"})
 	dates := []string{"2026-10-20"}
 	store, err := OpenStore(cfg.StatePath)
 	if err != nil {
@@ -146,7 +145,7 @@ func TestMigrationApplyIsStaleWhenTheConfigChanged(t *testing.T) {
 
 	edited := *cfg
 	mig := *cfg.Migration
-	mig.ProjectMap = map[string]string{"OLD-1": "P2"}
+	mig.ClassificationMap = map[string]string{"0f8fad5b-d9cb-469f-a165-70867728950e": "DEV"}
 	edited.Migration = &mig
 	s := NewSession(&edited, map[string]string{}, store)
 	requireCode(t, call(t, s, Request{ID: "a", Op: "migration_apply", Dates: dates, MigrationID: preview.MigrationID}), CodeMigrationStale)
@@ -158,7 +157,7 @@ func TestMigrationApplyIsStaleWhenTheConfigChanged(t *testing.T) {
 	var fresh MigrationPreview
 	decodeResult(t, call(t, s, Request{ID: "p2", Op: "migration_preview", Dates: dates}), &fresh)
 	if fresh.MigrationID == preview.MigrationID {
-		t.Fatal("a different project_map previewed the same migration_id")
+		t.Fatal("a different classification_map previewed the same migration_id")
 	}
 	var receipt MigrationApplyReceipt
 	decodeResult(t, call(t, s, Request{ID: "a2", Op: "migration_apply", Dates: dates, MigrationID: fresh.MigrationID}), &receipt)

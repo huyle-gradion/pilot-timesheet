@@ -386,7 +386,6 @@ func TestWindowedDayPassesSourceGateWithoutAcknowledge(t *testing.T) {
 	cfg := &Config{
 		Timezone:  "UTC",
 		StatePath: filepath.Join(t.TempDir(), "state.json"),
-		Projects:  []Project{{ID: "P1", Name: "Synthetic", DefaultClassification: "DEV"}},
 		Sources: &SourcesConfig{
 			Enabled: true,
 			Github: &GitHubSourceConfig{

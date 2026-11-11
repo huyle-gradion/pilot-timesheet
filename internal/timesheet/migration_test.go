@@ -47,12 +47,10 @@ func migrationFixture(t *testing.T) (*Config, string, string) {
 	cfg := &Config{
 		Timezone:  "UTC",
 		StatePath: filepath.Join(dir, "state.json"),
-		Projects:  []Project{{ID: "P1", Name: "Synthetic", DefaultClassification: "DEV"}},
 		Migration: &MigrationConfig{
 			Enabled:           true,
 			LegacyRoot:        legacyRoot,
 			LegacyTimezone:    "Europe/Amsterdam",
-			ProjectMap:        map[string]string{"OLD-1": "P1"},
 			ClassificationMap: map[string]string{},
 		},
 	}
@@ -99,7 +97,7 @@ func TestMigrationPreservesWorkAndIsRepeatSafe(t *testing.T) {
 	if day.Confirmed[0].ID != "legacy-1" || day.Confirmed[1].ID != "legacy-2" {
 		t.Fatalf("ids not preserved: %+v", day.Confirmed)
 	}
-	if day.Confirmed[0].Project != "P1" || day.Confirmed[0].MigratedClassificationID == "" ||
+	if day.Confirmed[0].Project != "" || day.Confirmed[0].MigratedClassificationID == "" ||
 		day.Confirmed[0].RemoteClassificationID != "" {
 		t.Fatalf("classification hint not preserved as unverified: %+v", day.Confirmed[0])
 	}
@@ -686,7 +684,10 @@ func TestMigrationRejectsChangedSourceAndOccupiedDestination(t *testing.T) {
 	}
 }
 
-func TestMigrationRejectsOverlapAndUnknownProject(t *testing.T) {
+// TestMigrationRejectsOverlapButNotAnUnmappedProject: overlap stays a
+// conflict; since ADR 0012 a legacy project needs no configured target and
+// survives only in the receipt's audit.
+func TestMigrationRejectsOverlapButNotAnUnmappedProject(t *testing.T) {
 	cfg, legacyRoot, _ := migrationFixture(t)
 	body := `{"schema_version":1,"date":"2026-10-20","revision":1,"updated_at":"2026-10-20T18:00:00Z",
 	  "confirmed":[
@@ -704,14 +705,22 @@ func TestMigrationRejectsOverlapAndUnknownProject(t *testing.T) {
 	}
 
 	unmapped := strings.Replace(body, `"OLD-1"`, `"NOPE"`, 1)
-	unmapped = strings.Replace(unmapped, `"description":"two"`, `"description":"two"`, 1)
+	unmapped = strings.Replace(unmapped, `"start_time":"09:30","end_time":"10:30"`, `"start_time":"11:00","end_time":"12:00"`, 1)
 	writeLegacy(t, legacyRoot, "2026-10-20", unmapped)
 	cand, err = buildMigrationCandidate(cfg, newState(), []string{"2026-10-20"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cand.Ready || !hasConflict(cand.Conflicts, "unknown_project") {
-		t.Fatalf("expected unknown_project conflict: %+v", cand.Conflicts)
+	if !cand.Ready {
+		t.Fatalf("an unmapped legacy project must not conflict: %+v", cand.Conflicts)
+	}
+	for _, iv := range cand.Days["2026-10-20"].Confirmed {
+		if iv.Project != "" {
+			t.Fatalf("migrated interval carries a project: %+v", iv)
+		}
+	}
+	if len(cand.Receipt.LegacyIntervals) == 0 || cand.Receipt.LegacyIntervals[0].LegacyProject != "NOPE" {
+		t.Fatalf("legacy project audit = %+v, want NOPE kept", cand.Receipt.LegacyIntervals)
 	}
 }
 
@@ -1065,7 +1074,7 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 	cfgUTC := *cfg
 	cfgUTC.Migration = &MigrationConfig{
 		Enabled: true, LegacyRoot: cfg.Migration.LegacyRoot, LegacyTimezone: "UTC",
-		ProjectMap: cfg.Migration.ProjectMap, ClassificationMap: cfg.Migration.ClassificationMap,
+		ClassificationMap: cfg.Migration.ClassificationMap,
 	}
 	sUTC := NewSession(&cfgUTC, map[string]string{}, reopened)
 	tzPreview, err := sUTC.migrationPreview(Request{ID: "5", Op: "migration_preview", Dates: []string{"2026-11-04"}})

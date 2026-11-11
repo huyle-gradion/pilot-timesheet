@@ -264,7 +264,7 @@ func TestApprovalSurvivesOnlyUnchangedPreconditions(t *testing.T) {
 
 	// Unsaved source work rejects the preview: zero remote mutations follow.
 	if _, err := s.addInterval(Request{ID: "1", Op: "add_interval", Day: date, Revision: intPtr(2),
-		Text: "2026-10-20 11:00-12:00 P1 Extra"}); err != nil {
+		Text: "2026-10-20 11:00-12:00 Extra"}); err != nil {
 		t.Fatal(err)
 	}
 	res, err := s.submitPlan(Request{ID: "2", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})

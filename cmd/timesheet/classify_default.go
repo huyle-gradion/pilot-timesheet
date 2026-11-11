@@ -14,7 +14,7 @@ func runClassifyDefault(f *finalizeFlags) error {
 		return err
 	}
 	defer h.done()
-	receipt, err := classifyDefaultDay(h, f.date, f.project)
+	receipt, err := classifyDefaultDay(h, f.date)
 	if err != nil {
 		return err
 	}
@@ -25,7 +25,7 @@ func runClassifyDefault(f *finalizeFlags) error {
 // held session: open the day, refuse a finalized one, and fill unselected
 // unsaved intervals with the configured cached default. The tui verb's
 // classify act is the same flow over its own held session.
-func classifyDefaultDay(h *headlessSession, date, project string) (ClassifyReceipt, error) {
+func classifyDefaultDay(h *headlessSession, date string) (ClassifyReceipt, error) {
 	res, err := h.call("open_day", timesheet.Request{Day: date})
 	if err != nil {
 		return ClassifyReceipt{}, err
@@ -37,18 +37,14 @@ func classifyDefaultDay(h *headlessSession, date, project string) (ClassifyRecei
 	if finalizedSummary(summary) {
 		return ClassifyReceipt{}, fmt.Errorf("classify --configured-default refuses finalized/saved days; use a reviewed classify --file decision to change saved classifications")
 	}
-	project, err = resolveProject("classify", h.cfg, project)
-	if err != nil {
-		return ClassifyReceipt{}, err
-	}
-	return classifyDefaultCore(h, h.cfg, date, project, summary)
+	return classifyDefaultCore(h, h.cfg, date, summary)
 }
 
 // classifyDefaultCore is classify --configured-default's core, shared by the
 // verb and the tui verb's classify act: unselected intervals take the
 // configured cached default, existing explicit selections are preserved, and
 // the sidecar is rewritten with every selection content-bound.
-func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date, project string, summary timesheet.DaySummary) (ClassifyReceipt, error) {
+func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date string, summary timesheet.DaySummary) (ClassifyReceipt, error) {
 	choice, err := h.session.ConfiguredDefault()
 	if err != nil {
 		return ClassifyReceipt{}, err
@@ -64,7 +60,7 @@ func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date, projec
 	if !sidecarBinds(date, artifacts.Choices, stagedBlocksFrom(units, artifacts.StageMap)) {
 		return ClassifyReceipt{}, fmt.Errorf("classify: stale classification sidecar; review the current staged content and repair with classify --file")
 	}
-	staged, err := applyStage(h, cfg, "classify", date, project, summary)
+	staged, err := applyStage(h, cfg, "classify", date, summary)
 	if err != nil {
 		return ClassifyReceipt{}, err
 	}

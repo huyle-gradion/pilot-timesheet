@@ -43,10 +43,10 @@ func stepAct(a nextAction) string {
 // act runs the one act the derived step licenses; the reducer re-derives
 // after every success. The body is the dispatcher's, so the tui and `next --do`
 // cannot diverge; the tui's held session is borrowed, never reopened.
-func (e tuiEnv) act(step, project string, cmd []string) any {
+func (e tuiEnv) act(step string, cmd []string) any {
 	notice, err := (actDispatcher{
 		cfg: e.cfg, configPath: e.configPath, envFile: e.envFile,
-		day: e.day, project: project, held: e.h, cmd: cmd,
+		day: e.day, held: e.h, cmd: cmd,
 	}).run(step)
 	return actDoneEvent{err: err, notice: notice}
 }
@@ -65,11 +65,11 @@ func stageNotice(r *StageReceipt) string {
 // tick rebuilds the loop snapshot: the same derivation `next` runs, over the
 // store the TUI holds; a stop document is a snapshot like any other.
 func (e tuiEnv) tick() (tickEvent, error) {
-	obs, stop, err := buildNextObservation(e.cfg, e.configPath, e.envFile, e.day, e.project, e.h.store)
+	obs, stop, err := buildNextObservation(e.cfg, e.configPath, e.envFile, e.day, e.h.store)
 	if err != nil {
 		return tickEvent{}, err
 	}
-	snap := loopSnapshot{day: e.day, project: obs.Project}
+	snap := loopSnapshot{day: e.day}
 	if stop != nil {
 		snap.action = *stop
 		return tickEvent{snap: snap}, nil

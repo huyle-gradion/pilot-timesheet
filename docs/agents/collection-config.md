@@ -77,9 +77,6 @@ loader does not expand `~`).
 {
   "timezone": "Europe/Amsterdam",
   "state_path": "/path/to/home/.timesheet/state.json",
-  "projects": [
-    { "id": "pilot", "name": "Pilot Timesheet" }
-  ],
   "required_env": ["GITHUB_TOKEN", "GCAL_ICS_URL"],
   "sources": {
     "enabled": true,
@@ -106,9 +103,6 @@ values. Edit it yourself and never paste a value into an agent prompt.
 {
   "timezone": "Europe/Amsterdam",
   "state_path": "/path/to/home/.timesheet/state.json",
-  "projects": [
-    { "id": "pilot", "name": "Pilot Timesheet" }
-  ],
   "sources": {
     "enabled": true,
     "github": {

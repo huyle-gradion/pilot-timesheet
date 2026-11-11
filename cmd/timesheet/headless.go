@@ -566,17 +566,14 @@ func runStatus(args []string) error {
 // no store). Nothing here approves or submits anything.
 
 // finalizeFlags carries the stage/confirm/save inputs: --config/--env-file/
-// --date always, plus the optional --project. Recorded entries carry no project
-// of their own, so the staged intervals take the configuration's single
-// project, or the --project named when several are defined. classify reuses
-// the same flag set plus --file.
+// --date. Intervals carry no project (ADR 0012). classify reuses the same flag
+// set plus --file.
 type finalizeFlags struct {
 	configuredDefault bool
 	fromHistory       bool
 	configPath        string
 	envFile           string
 	date              string
-	project           string
 	file              string
 	// revise is stage's explicit finalized-day revision flag: the confirmed
 	// set is replaced by a fresh derivation from the entries ledger (split
@@ -591,7 +588,6 @@ func parseFinalizeFlags(name string, args []string) (*finalizeFlags, error) {
 	flags.StringVar(&f.configPath, "config", "", "configuration path (optional; defaults to $HOME/.timesheet/config.json)")
 	flags.StringVar(&f.envFile, "env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
 	flags.StringVar(&f.date, "date", "", dateFlagUsage(name))
-	flags.StringVar(&f.project, "project", "", "project id for staged intervals (required when configuration defines multiple projects)")
 	flags.BoolVar(&f.revise, "revise", false, "stage only: replace a finalized day's confirmed intervals with a fresh derivation from the entries ledger and re-finalize at a new revision")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
@@ -608,21 +604,6 @@ func parseFinalizeFlags(name string, args []string) (*finalizeFlags, error) {
 		return nil, err
 	}
 	return f, nil
-}
-
-// resolveProject returns the project id staged intervals carry: the explicit
-// --project, or the configuration's only project when none was named. An
-// unknown project id fails later in add_interval's own validation, which the
-// command passes through untouched.
-func resolveProject(name string, cfg *timesheet.Config, explicit string) (string, error) {
-	explicit = strings.TrimSpace(explicit)
-	if explicit != "" {
-		return explicit, nil
-	}
-	if len(cfg.Projects) == 1 {
-		return cfg.Projects[0].ID, nil
-	}
-	return "", fmt.Errorf("%s: configuration defines %d projects; --project is required", name, len(cfg.Projects))
 }
 
 // acknowledgeFlags carries the acknowledge inputs. The collection_id must be
@@ -818,7 +799,7 @@ func stageCarries(carries []timesheet.CarrySegment) []StageCarry {
 // previous ones only because nothing was yet durable (the day's NextInterval
 // counter is not saved until confirm+save). The caller must have verified via
 // openFinalizeDay that the day carries no confirmed intervals.
-func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project string, summary timesheet.DaySummary) (*StageReceipt, error) {
+func applyStage(h *headlessSession, cfg *timesheet.Config, name, date string, summary timesheet.DaySummary) (*StageReceipt, error) {
 	revision := summary.Revision
 	stagedIDs := map[string]bool{}
 	segmentByID := map[string]timesheet.Segment{}
@@ -1014,11 +995,11 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 				for i, span := range spans {
 					ch, cs := chunkRef(i, len(spans))
 					seg := segmentByID[mapped[i]]
-					if seg.Start == span[0] && seg.End == span[1] && seg.Project == project && seg.Description == u.text {
+					if seg.Start == span[0] && seg.End == span[1] && seg.Description == u.text {
 						receipt.Unchanged = append(receipt.Unchanged, StageBlockRef{BlockID: id, IntervalID: mapped[i], Chunk: ch, Chunks: cs})
 						continue
 					}
-					text := fmt.Sprintf("%s %s-%s %s %s", date, span[0], span[1], project, u.text)
+					text := fmt.Sprintf("%s %s-%s %s", date, span[0], span[1], u.text)
 					if _, err := h.call("edit_interval", timesheet.Request{
 						Day: date, Revision: &revision, IntervalID: mapped[i], Text: text,
 					}); err != nil {
@@ -1044,7 +1025,7 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 		}
 		added := make([]string, 0, len(spans))
 		for i, span := range spans {
-			text := fmt.Sprintf("%s %s-%s %s %s", date, span[0], span[1], project, u.text)
+			text := fmt.Sprintf("%s %s-%s %s", date, span[0], span[1], u.text)
 			res, err := h.call("add_interval", timesheet.Request{Day: date, Revision: &revision, Text: text})
 			if err != nil {
 				return nil, err
@@ -1182,10 +1163,6 @@ func runStage(args []string) error {
 	if err != nil {
 		return err
 	}
-	project, err := resolveProject("stage", cfg, f.project)
-	if err != nil {
-		return err
-	}
 	h, err := openHeadless(f.configPath, f.envFile)
 	if err != nil {
 		return err
@@ -1205,9 +1182,9 @@ func runStage(args []string) error {
 			return fmt.Errorf(
 				"stage: %s already has confirmed intervals; the day is finalized and confirmed work is never restaged (stage --revise replaces the finalized set from the entries ledger and re-finalizes at a new revision)", f.date)
 		}
-		receipt, err = reviseStage(h, cfg, f.date, project, summary)
+		receipt, err = reviseStage(h, cfg, f.date, summary)
 	} else {
-		receipt, err = applyStage(h, cfg, "stage", f.date, project, summary)
+		receipt, err = applyStage(h, cfg, "stage", f.date, summary)
 	}
 	if err != nil {
 		return err
@@ -1225,7 +1202,7 @@ func runStage(args []string) error {
 // lose their intervals; the ledger itself is never modified. Every op refusal
 // (source gate, stale revision, interval validation) passes through verbatim
 // with the durable day untouched at its saved revision.
-func reviseStage(h *headlessSession, cfg *timesheet.Config, date, project string, summary timesheet.DaySummary) (*StageReceipt, error) {
+func reviseStage(h *headlessSession, cfg *timesheet.Config, date string, summary timesheet.DaySummary) (*StageReceipt, error) {
 	revision := summary.Revision
 	// The pre-derivation removals are the durable intervals this revision
 	// replaces; they predate the derivation, so they carry their old durable
@@ -1255,7 +1232,7 @@ func reviseStage(h *headlessSession, cfg *timesheet.Config, date, project string
 	if !ok {
 		return nil, fmt.Errorf("stage: unexpected open_day payload")
 	}
-	receipt, err := applyStage(h, cfg, "stage", date, project, fresh)
+	receipt, err := applyStage(h, cfg, "stage", date, fresh)
 	if err != nil {
 		return nil, err
 	}
@@ -1500,10 +1477,7 @@ func runClassify(args []string) error {
 		return err
 	}
 	defer h.done()
-	// f.project passes through unresolved: only the not-yet-finalized branch
-	// needs a project, and it resolves there, so a finalized day still
-	// classifies without --project under a multi-project configuration.
-	receipt, err := classifyFileDay(h, cfg, f.date, f.project, f.file)
+	receipt, err := classifyFileDay(h, cfg, f.date, f.file)
 	if err != nil {
 		return err
 	}
@@ -1513,10 +1487,9 @@ func runClassify(args []string) error {
 
 // classifyFileDay is classify --file's whole flow over one held session: read
 // the bound answer file, open the day, and either re-finalize the durable
-// intervals (no project needed) or resolve the project and re-derive the
-// staged set with the content-bound sidecar. The tui verb's classify act is
+// intervals or re-derive the staged set with the content-bound sidecar. The tui verb's classify act is
 // the same flow over its own held session.
-func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, project, answerFile string) (ClassifyReceipt, error) {
+func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, answerFile string) (ClassifyReceipt, error) {
 	data, err := os.ReadFile(answerFile)
 	if err != nil {
 		return ClassifyReceipt{}, fmt.Errorf("classify: the choices file cannot be read")
@@ -1539,12 +1512,8 @@ func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, project, a
 		}
 		return runClassifyFinalized(h, date, answerFile, summary, selections)
 	}
-	project, err = resolveProject("classify", cfg, project)
-	if err != nil {
-		return ClassifyReceipt{}, err
-	}
 	mergeHistorySelections(cfg.StatePath, date, data, selections)
-	receipt, err := classifyFileCore(h, cfg, date, project, summary, selections)
+	receipt, err := classifyFileCore(h, cfg, date, summary, selections)
 	if err != nil {
 		return ClassifyReceipt{}, err
 	}
@@ -1556,8 +1525,8 @@ func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, project, a
 // and the tui verb's classify act: re-derive the staged set, apply each
 // selection in interval_id order, and persist the selections content-bound to
 // the recorded blocks this derivation mapped them to.
-func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date, project string, summary timesheet.DaySummary, selections map[string]timesheet.ClassificationChoiceEntry) (ClassifyReceipt, error) {
-	staged, err := applyStage(h, cfg, "classify", date, project, summary)
+func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date string, summary timesheet.DaySummary, selections map[string]timesheet.ClassificationChoiceEntry) (ClassifyReceipt, error) {
+	staged, err := applyStage(h, cfg, "classify", date, summary)
 	if err != nil {
 		return ClassifyReceipt{}, err
 	}
@@ -1672,7 +1641,6 @@ func parseClassifyFlags(args []string) (*finalizeFlags, error) {
 	flags.StringVar(&f.configPath, "config", "", "configuration path (optional; defaults to $HOME/.timesheet/config.json)")
 	flags.StringVar(&f.envFile, "env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
 	flags.StringVar(&f.date, "date", "", "day to operate on, YYYY-MM-DD (required)")
-	flags.StringVar(&f.project, "project", "", "project id for staged intervals (required when configuration defines multiple projects)")
 	flags.StringVar(&f.file, "file", "", "choices JSON path: {\"selections\": {\"<interval_id>\": {\"catalog_id\": \"...\", \"classification_id\": \"...\"}}} (mutually exclusive with --configured-default)")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
@@ -1856,10 +1824,6 @@ func runConfirm(args []string) error {
 	if err != nil {
 		return err
 	}
-	project, err := resolveProject("confirm", cfg, f.project)
-	if err != nil {
-		return err
-	}
 	h, err := openHeadless(f.configPath, f.envFile)
 	if err != nil {
 		return err
@@ -1869,7 +1833,7 @@ func runConfirm(args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, _, err := stageAndReplay(h, cfg, "confirm", f.date, project, summary); err != nil {
+	if _, _, err := stageAndReplay(h, cfg, "confirm", f.date, summary); err != nil {
 		return err
 	}
 	receipt, _, err := confirmAndSave(h, "confirm", f.date, summary.Revision, false)
@@ -1883,8 +1847,8 @@ func runConfirm(args []string) error {
 // stageAndReplay is confirm and save's shared prefix: derive the staged set
 // from the entries ledger, then replay the persisted classification selections
 // against it, with both receipts' honesty notes on stderr.
-func stageAndReplay(h *headlessSession, cfg *timesheet.Config, name, date, project string, summary timesheet.DaySummary) (*StageReceipt, int, error) {
-	staged, err := applyStage(h, cfg, name, date, project, summary)
+func stageAndReplay(h *headlessSession, cfg *timesheet.Config, name, date string, summary timesheet.DaySummary) (*StageReceipt, int, error) {
+	staged, err := applyStage(h, cfg, name, date, summary)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -2115,16 +2079,12 @@ func runSave(args []string) error {
 	if err != nil {
 		return err
 	}
-	project, err := resolveProject("save", cfg, f.project)
-	if err != nil {
-		return err
-	}
 	h, err := openHeadless(f.configPath, f.envFile)
 	if err != nil {
 		return err
 	}
 	defer h.done()
-	saved, err := saveDay(h, cfg, "save", f.date, project)
+	saved, err := saveDay(h, cfg, "save", f.date)
 	if err != nil {
 		return err
 	}
@@ -2136,12 +2096,12 @@ func runSave(args []string) error {
 // (refusing a finalized one), derive the staged set, replay the persisted
 // selections, confirm, and commit durably. The tui verb's save act is the
 // same flow over its own held session.
-func saveDay(h *headlessSession, cfg *timesheet.Config, name, date, project string) (*timesheet.SaveReceipt, error) {
+func saveDay(h *headlessSession, cfg *timesheet.Config, name, date string) (*timesheet.SaveReceipt, error) {
 	summary, err := openFinalizeDay(h, name, date)
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := stageAndReplay(h, cfg, name, date, project, summary); err != nil {
+	if _, _, err := stageAndReplay(h, cfg, name, date, summary); err != nil {
 		return nil, err
 	}
 	_, saved, err := confirmAndSave(h, name, date, summary.Revision, true)

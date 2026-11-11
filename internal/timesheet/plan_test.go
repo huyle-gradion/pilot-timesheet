@@ -325,7 +325,6 @@ func intervalFixture(t *testing.T, text string) (*Session, *fakeMCP, *Store, str
 	cfg := &Config{
 		Timezone:  "UTC",
 		StatePath: filepath.Join(t.TempDir(), "state.json"),
-		Projects:  []Project{{ID: "P1", Name: "Synthetic", DefaultClassification: "DEV"}},
 		Gradion:   &GradionConfig{Enabled: true, Endpoint: server.URL, TokenEnv: DefaultGradionTokenEnv},
 	}
 	store, err := OpenStore(cfg.StatePath)
@@ -353,7 +352,7 @@ func intervalFixture(t *testing.T, text string) (*Session, *fakeMCP, *Store, str
 
 func planFixture(t *testing.T) (*Session, *fakeMCP, *Store, string) {
 	t.Helper()
-	return intervalFixture(t, "2026-10-20 09:00-10:00 P1 Synthetic work")
+	return intervalFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 }
 
 // classifiedFixture stages, verifies the catalog, selects the catalog option and
@@ -578,7 +577,7 @@ func hasBlocker(blockers []Blocker, code string) bool {
 // F1: a 23:00-01:00 interval renders as one 60-minute allocation per date. The
 // later date's preview observes the later date's remote entries.
 func TestCrossMidnightAllocationsSpanAndMinutes(t *testing.T) {
-	s, fake, store, day := classifiedFixture(t, "2026-10-20 23:00-01:00 P1 Overnight work")
+	s, fake, store, day := classifiedFixture(t, "2026-10-20 23:00-01:00 Overnight work")
 	if day != "2026-10-20" {
 		t.Fatal(day)
 	}
@@ -624,7 +623,7 @@ func TestCrossMidnightAllocationsSpanAndMinutes(t *testing.T) {
 // be bound to a different remote ID without stealing the other mapping, and both
 // bindings survive restart.
 func TestCrossMidnightBindsBothAllocationsIndependently(t *testing.T) {
-	s, fake, store, day := classifiedFixture(t, "2026-10-20 23:00-01:00 P1 Overnight work")
+	s, fake, store, day := classifiedFixture(t, "2026-10-20 23:00-01:00 Overnight work")
 	early := remoteEntry("r-night1", "23:00", "00:00", "Overnight work")
 	late := remoteEntry("r-late", "00:00", "01:00", "Overnight work")
 	fake.setMultiDays(map[string][]map[string]any{
@@ -707,7 +706,7 @@ func TestCrossMidnightBindsBothAllocationsIndependently(t *testing.T) {
 // bound-but-orphaned slot. It stays surfaced as an orphan and still blocks an
 // overlapping create across restart.
 func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
-	s, _, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 P1 Synthetic work")
+	s, _, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	rec, err := s.reconcileDate(day)
 	if err != nil {
 		t.Fatal(err)
@@ -747,7 +746,7 @@ func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
 	// A replacement local allocation overlapping the occupied slot must stay
 	// blocked with an explicit orphan identity blocker.
 	if _, err := s.addInterval(Request{ID: "6", Op: "add_interval", Day: day, Revision: intPtr(3),
-		Text: "2026-10-20 09:30-10:30 P1 Replacement work"}); err != nil {
+		Text: "2026-10-20 09:30-10:30 Replacement work"}); err != nil {
 		t.Fatal(err)
 	}
 	cat, err := s.classifications(Request{ID: "7", Op: "classifications"})
@@ -785,7 +784,7 @@ func TestRemovedIdentityOccupiedSlotBlocksCreate(t *testing.T) {
 // from blocking, without granting permission to overlap occupied time, and it
 // goes stale when the observation changes.
 func TestForeignDecisionResolvesEqualTextNotOverlap(t *testing.T) {
-	s, fake, _, day := classifiedFixture(t, "2026-10-20 09:00-10:00 P1 Synthetic work")
+	s, fake, _, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	// r-late is a DIFFERENT remote entry that repeats the local text but does
 	// not touch the local time.
 	fake.setWeek([]map[string]any{remoteEntry("r-late", "11:00", "12:00", "Synthetic work")})
@@ -850,7 +849,7 @@ func TestForeignDecisionResolvesEqualTextNotOverlap(t *testing.T) {
 // are DIFFERENT identities, even with identical work and remote bytes. The ready
 // record is durably persisted and the blocked record stays as history.
 func TestPlanIdentitySeparatesReadyFromBlocked(t *testing.T) {
-	s, fake, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 P1 Synthetic work")
+	s, fake, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	fake.setWeek([]map[string]any{remoteEntry("r-hint", "11:00", "12:00", "Synthetic work")})
 
 	blocked, err := s.previewPlan(day)
@@ -912,7 +911,7 @@ func TestPlanIdentitySeparatesReadyFromBlocked(t *testing.T) {
 // data, never an empty day. It replaces any previously complete observation and
 // cannot yield a ready create.
 func TestMissingEntriesContainerBlocks(t *testing.T) {
-	s, fake, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 P1 Synthetic work")
+	s, fake, store, day := classifiedFixture(t, "2026-10-20 09:00-10:00 Synthetic work")
 	rec, err := s.reconcileDate(day)
 	if err != nil {
 		t.Fatal(err)

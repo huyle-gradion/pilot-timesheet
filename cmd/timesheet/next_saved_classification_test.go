@@ -55,14 +55,6 @@ func TestSavedClassificationForeignIntervalStops(t *testing.T) {
 	}
 }
 
-func TestSavedClassificationDoesNotGuessProject(t *testing.T) {
-	o := savedClassificationObservation()
-	o.ProjectBlocked, o.Project = true, "WRONG"
-	o.ChoicesBinding = timesheet.SavedClassificationDigest(o.Day, o.Workflow.Revision, o.Workflow.Confirmed)
-	o.Choices = map[string]timesheet.ClassificationChoiceEntry{"iv-1": {CatalogID: "cat-1", ClassificationID: "cls-dev"}}
-	assertCmd(t, deriveDayNext(o), withArgs(baseArgv("classify"), "--file", o.ChoicesPath))
-}
-
 func TestNextFinalizedClassificationPartialProgressRejudgesRemaining(t *testing.T) {
 	cfg, args, _ := savedNextClassificationFixture(t)
 	plan := runPlanCapture(t, args)

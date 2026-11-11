@@ -22,12 +22,12 @@ func TestRenderDayGolden(t *testing.T) {
 	}{
 		{
 			name: "action renders the argv and why verbatim",
-			snap: loopSnapshot{day: "2026-10-20", project: "WORK", action: nextAction{Day: "2026-10-20"}.withAction(
+			snap: loopSnapshot{day: "2026-10-20", action: nextAction{Day: "2026-10-20"}.withAction(
 				"run",
 				[]string{"/bin/timesheet", "run", "--config", "/cfg/config.json", "--date", "2026-10-20"},
 				"no draft artifact exists at /tmp/x/draft.json for this day",
 			)},
-			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20   project WORK
+			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20
 state action   step run
 
 argv
@@ -40,7 +40,7 @@ why
 		},
 		{
 			name: "judgment renders the protocol and blocks verbatim",
-			snap: loopSnapshot{day: "2026-10-20", project: "WORK", action: nextAction{Day: "2026-10-20"}.withJudgment(
+			snap: loopSnapshot{day: "2026-10-20", action: nextAction{Day: "2026-10-20"}.withJudgment(
 				"review",
 				nextJudgment{
 					Kind:        judgmentBlockDescriptions,
@@ -50,7 +50,7 @@ why
 					Protocol:    "write {\"draft_digest\":\"abc123\"} to /tmp/x/descriptions.json",
 				},
 			)},
-			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20   project WORK
+			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20
 state judgment   step review
 
 kind         block_descriptions
@@ -64,7 +64,7 @@ protocol
 		},
 		{
 			name: "classification judgment renders the staged blocks",
-			snap: loopSnapshot{day: "2026-10-20", project: "WORK", action: nextAction{Day: "2026-10-20"}.withJudgment(
+			snap: loopSnapshot{day: "2026-10-20", action: nextAction{Day: "2026-10-20"}.withJudgment(
 				"classify",
 				nextJudgment{
 					Kind:         judgmentClassifications,
@@ -77,7 +77,7 @@ protocol
 					},
 				},
 			)},
-			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20   project WORK
+			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20
 state judgment   step classify
 
 kind         classifications
@@ -93,10 +93,10 @@ blocks
 		},
 		{
 			name: "stopped renders the reason verbatim",
-			snap: loopSnapshot{day: "2026-10-20", project: "WORK", action: nextAction{Day: "2026-10-20"}.withStop(
+			snap: loopSnapshot{day: "2026-10-20", action: nextAction{Day: "2026-10-20"}.withStop(
 				"the source gate is closed by an unacknowledged attempt",
 			)},
-			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20   project WORK
+			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20
 state stopped
 
 reason
@@ -107,7 +107,7 @@ reason
 		},
 		{
 			name: "human gates render the commands and store-wide counts",
-			snap: loopSnapshot{day: "2026-10-20", project: "WORK", action: nextAction{Day: "2026-10-20"}.withHuman(
+			snap: loopSnapshot{day: "2026-10-20", action: nextAction{Day: "2026-10-20"}.withHuman(
 				nextHumanGates{
 					ApproveCommand: "/bin/timesheet approve --config /cfg/config.json --date 2026-10-20",
 					SubmitCommand:  "/bin/timesheet submit --config /cfg/config.json --date 2026-10-20 --approval-id <approval_id>",
@@ -115,7 +115,7 @@ reason
 					Unresolved:     1, NativeUnresolved: 2,
 				},
 			)},
-			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20   project WORK
+			want: "pilot timesheet " + timesheet.AppVersion + `   day 2026-10-20
 state human_gates   step approve
 
 approve
@@ -212,7 +212,7 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 	}{
 		{
 			name: "action argv and why",
-			model: model(loopSnapshot{day: hostile, project: hostile, action: nextAction{Day: hostile}.withAction(
+			model: model(loopSnapshot{day: hostile, action: nextAction{Day: hostile}.withAction(
 				hostile, []string{"/bin/timesheet", hostile}, hostile)}),
 		},
 		{
@@ -221,7 +221,7 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 		},
 		{
 			name: "judgment protocol and blocks",
-			model: model(loopSnapshot{day: hostile, project: hostile, action: nextAction{Day: hostile}.withJudgment(
+			model: model(loopSnapshot{day: hostile, action: nextAction{Day: hostile}.withJudgment(
 				"review",
 				nextJudgment{
 					Kind: hostile, AnswerFile: hostile, DraftDigest: hostile,
@@ -232,7 +232,7 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 		},
 		{
 			name: "human gates rows",
-			model: model(loopSnapshot{day: hostile, project: hostile, action: nextAction{Day: hostile}.withHuman(
+			model: model(loopSnapshot{day: hostile, action: nextAction{Day: hostile}.withHuman(
 				nextHumanGates{ApproveCommand: hostile, SubmitCommand: hostile, StatusCommand: hostile},
 			), status: &timesheet.SubmissionStatusResult{
 				Unresolved: []timesheet.UnresolvedRow{{WriteRef: hostile, Origin: hostile, Status: hostile, ErrorCode: hostile, Detail: hostile}},
@@ -243,7 +243,7 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 		},
 		{
 			name: "ask human question",
-			model: model(loopSnapshot{day: hostile, project: hostile, action: nextAction{
+			model: model(loopSnapshot{day: hostile, action: nextAction{
 				Day: hostile, State: stateAskHuman, Ask: &askHuman{
 					Kind: hostile, Question: hostile, Options: []string{hostile, hostile},
 					AnswerFile: hostile, Digest: hostile, LastError: hostile, Protocol: hostile,

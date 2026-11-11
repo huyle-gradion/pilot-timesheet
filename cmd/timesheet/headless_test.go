@@ -15,8 +15,7 @@ func writeTestConfig(t *testing.T) string {
 	cfg := filepath.Join(dir, "config.json")
 	body := `{
   "timezone": "Asia/Ho_Chi_Minh",
-  "state_path": "` + filepath.Join(dir, "state.json") + `",
-  "projects": [{"id": "WORK", "name": "Work", "default_classification": "DEV"}]
+  "state_path": "` + filepath.Join(dir, "state.json") + `"
 }`
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

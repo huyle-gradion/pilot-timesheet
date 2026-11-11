@@ -99,7 +99,6 @@ func TestGithubEventsPaginationRunCLI(t *testing.T) {
 			envPath := filepath.Join(home, "synthetic.env")
 			cfg := timesheet.Config{
 				Timezone: "UTC", StatePath: statePath,
-				Projects: []timesheet.Project{{ID: "WORK", Name: "Work", DefaultClassification: "DEV"}},
 				Sources: &timesheet.SourcesConfig{Enabled: true, Github: &timesheet.GitHubSourceConfig{
 					Enabled: true, User: "user", Repositories: []string{"o/r"}, APIBase: server.URL,
 				}},

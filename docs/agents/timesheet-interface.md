@@ -2,7 +2,7 @@
 
 Application version: `0.2.0` (released as `v0.2.0`; the previous stable line
 is `0.1.1`).
-State schema: `3`.
+State schema: `4`.
 
 This document is the public interface for the current release. The
 implemented surface is the accepted R1-R5 slices: the local review-first
@@ -40,9 +40,9 @@ complete observation.
 The public surface (`timesheet help` prints it):
 
 ```text
-timesheet init [--project <id>=<name>[=<classification>]]... [--seed-config <path>] [--tz <IANA>]
-timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>] [--max-actions <n>]
-timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet init [--seed-config <path>] [--tz <IANA>]
+timesheet log [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--max-actions <n>]
+timesheet next [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
 timesheet status [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
 timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
 timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
@@ -51,9 +51,9 @@ timesheet submit resolve [--config <path>] [--env-file <path>] --file <decision.
 timesheet submit revoke [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
 timesheet migrate preview [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>...
 timesheet migrate apply [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>... --migration-id <id>
-timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
 timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
-timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
+timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>]
 timesheet eval export [--config <path>] [--out <file outside any repository>]
 timesheet eval run --golden <file> [--out <file outside any repository>] [--config <path>] [--env-file <path>]
 timesheet eval score --golden <file> [--candidate <file>]
@@ -73,7 +73,11 @@ next command rebuilds and compares.
 
 A removed command (`setup`, `approve`, `agent-submit`, `submit-status`,
 `resolve-write`, `collect`, `draft`, `confirm`, `serve`) exits `2` with one line
-naming its replacement. `serve`, the long-lived JSONL protocol process, retired
+naming its replacement. A removed flag (`--project` on `init`, `log`, `next`,
+`tui`, `judge`, `stage`, `classify` and `save`, ADR 0012) also exits `2` with
+one line telling you to drop it. The `ask_human` kind `project` is retired with
+it; an `ask-project.json` answer left in a day folder is ignored.
+`serve`, the long-lived JSONL protocol process, retired
 in issue #272; its serve-only ops went to stateless commands or were dropped:
 
 - `migration_preview` / `migration_apply` became `migrate preview` /
@@ -399,7 +403,7 @@ decision.
 ## Typed interval grammar
 
 ```text
-DATE HH:MM-HH:MM PROJECT[/CLASSIFICATION] DESCRIPTION
+DATE HH:MM-HH:MM DESCRIPTION
 ```
 
 - `DATE` is `YYYY-MM-DD` and must equal the open day.
@@ -407,17 +411,18 @@ DATE HH:MM-HH:MM PROJECT[/CLASSIFICATION] DESCRIPTION
 - Times are resolved in the open day's recorded IANA timezone. A newly opened day
   takes the configured timezone; a saved day always keeps the timezone stored in
   its record, so changing configuration never reinterprets saved work.
-- `PROJECT` must match a configured project ID.
-- `CLASSIFICATION` is optional. If omitted, the project's configured
-  `default_classification` is used. The selected value is stored explicitly.
+- There is no project token and no `/CLASSIFICATION` suffix
+  ([ADR 0012](../adr/0012-retire-the-local-project.md)). The remote
+  classification is the reviewed selection (`classify`), never part of the
+  text.
 - `DESCRIPTION` is the remaining text. One pair of surrounding single or double
   quotes is stripped. Empty descriptions are rejected.
 
 Examples:
 
 ```text
-2026-10-22 09:00-10:00 SYN-1 Synthetic review
-2026-10-22 10:30-11:15 SYN-1/DEV "Synthetic follow-up"
+2026-10-22 09:00-10:00 Synthetic review
+2026-10-22 10:30-11:15 "Synthetic follow-up"
 2026-10-22 22:30-01:15 SYN-2 Late synthetic session
 ```
 
@@ -538,8 +543,9 @@ store one.
 }
 ```
 
-Each segment shows its interval ID, date, start/end, minutes, project,
-classification, description, evidence references, origin date, `locked`, and
+Each segment shows its interval ID, date, start/end, minutes, the legacy
+`project` and `classification` labels when an interval saved before schema 4
+carries them, description, evidence references, origin date, `locked`, and
 cross-midnight allocations when relevant. Interval IDs are unique across the
 store (`iv-YYYYMMDD-n` in R1) and remain stable through staged edits. The
 review also lists confirmed revision `history` (revision, confirmation time,
@@ -596,6 +602,29 @@ synchronized. Failures are split at the rename boundary:
 
 ## Durable state, migration, remote reads, and approval (R3/R4)
 
+### State schema 4
+
+State schema `4` retires the local project
+([ADR 0012](../adr/0012-retire-the-local-project.md)). It keeps every schema `3`
+section below unchanged and makes a confirmed interval's `project` optional
+(`omitempty`): a new interval has none, and an interval saved before schema `4`
+keeps its `project` (and its local `classification` label) as an inert legacy
+label that nothing reads. A schema `1`, `2` or `3` file is still validated in
+its own shape, where every confirmed interval needs a project, then upgraded in
+memory. The upgrade adds one receipt to `migration.schema_upgrades`:
+
+```json
+{"from_schema": 3, "to_schema": 4, "app_version": "0.2.0", "days": 12,
+ "intervals": 40, "legacy_project_labels": 40, "applied_at": "2026-11-11T09:00:00Z"}
+```
+
+The receipt becomes durable in the same atomic write that activates schema `4`
+(the first successful save or transaction, never startup), and `applied_at` is
+stamped by that write. A new store gets no receipt. A file that declares an
+older schema but already carries `schema_upgrades` is `state_invalid`. A
+schema-3-only loader rejects a schema `4` file with `state_invalid` and leaves
+it intact.
+
 ### State schema 3
 
 State schema `3` is the durable contract for migration, remote identity, plan
@@ -626,9 +655,9 @@ and adds three more:
 
 A schema-1 file is validated in its own shape, upgraded **in memory**, and left
 byte-identical on disk. Schema `2` files are converted in memory to schema `3`
-(above). Schema `3` is activated only by a successful durable save
-or transaction (the same atomic rename + directory-sync path as a work save), never
-by startup. `status` reports `store_schema: 3` (the running schema) and
+(above), and from there to schema `4`. The current schema is activated only by
+a successful durable save or transaction (the same atomic rename + directory-sync
+path as a work save), never by startup. `status` reports `store_schema: 4` (the running schema) and
 `durable_schema` (what is actually on disk: the declared header schema until that
 first write).
 
@@ -652,7 +681,6 @@ Configuration:
     "enabled": true,
     "legacy_root": "/Users/you/records",
     "legacy_timezone": "Europe/Amsterdam",
-    "project_map": {"LEGACY-PROJECT": "SYN-1"},
     "classification_map": {"legacy-classification-value": "DEV"}
   }
 }
@@ -690,8 +718,7 @@ file's bytes, the durable target fingerprint AND the exact payload apply would
 commit (days, bindings, outcomes, carries, receipt and conflicts). It is
 therefore a binding to the reviewed result, like `submit --chat`'s
 `plan_id`/`review_id` under ADR 0009, not a stored grant: an edited
-`project_map`, `classification_map` or project list changes the payload and
-the id. So a preview grants no standing authority, and a changed selection,
+`classification_map` changes the payload and the id. So a preview grants no standing authority, and a changed selection,
 configuration, source or durable target is `migration_stale` with nothing written. A
 conflicted candidate is `migration_conflict`; an already-migrated selection is
 `no_change` on both preview and apply. Activation requires
@@ -701,7 +728,7 @@ can be left stale. The whole candidate is activated in one atomic state write.
 Preserved:
 
 - Confirmed work, stable interval IDs (or a deterministic legacy-to-new mapping,
-  recorded as a DATE-SCOPED crosswalk in the receipt), projects, descriptions,
+  recorded as a DATE-SCOPED crosswalk in the receipt), descriptions,
   explicit classification values, evidence references plus their non-secret
   provenance pointers, and legacy source revisions/`updated_at` as audit.
   Preserved audit rows are date-associated. A legacy local ID repeated inside one
@@ -756,7 +783,7 @@ successful `no_change` return, so a source or target changed since the preview
 is a structured failure, never a false revalidation receipt. Invalid dates, an
 unknown source schema, an
 ambiguous/nonexistent endpoint, overlapping confirmed work, dangling or
-non-one-to-one identities, an unrepresentable project/classification, and
+non-one-to-one identities, an unrepresentable classification, and
 malformed carry/outcome records reject the whole candidate without partially
 importing the batch. Preserved audit rows are bounded per category
 (2000 provenance pointers, 2000 interval audits, 500 plan audits, 500 approval
@@ -816,8 +843,8 @@ structured envelope with no text rendering, is `complete: false`; such a catalog
 can only show that an option was not returned, never that it is absent.
 `select_classification` accepts only an option that this catalog actually
 returned, records both the option and catalog identity on the staged interval, and
-becomes durable only through `confirm` and `save`. A project default and a
-migrated legacy classification are suggestions, never silent remote selections;
+becomes durable only through `confirm` and `save`. A migrated legacy
+classification is a suggestion, never a silent remote selection;
 `classification_id` is never derived from a title or model text.
 
 ### Reconciliation and explicit resolution
@@ -1055,9 +1082,6 @@ echoing file contents.
 {
   "timezone": "Europe/Amsterdam",
   "state_path": "/Users/you/.timesheet/state.json",
-  "projects": [
-    {"id": "SYN-1", "name": "Synthetic Project", "default_classification": "DEV"}
-  ],
   "required_env": ["GITHUB_TOKEN", "GCAL_ICS_URL"],
   "sources": {
     "enabled": true,
@@ -1076,7 +1100,6 @@ echoing file contents.
     "enabled": true,
     "legacy_root": "/Users/you/records",
     "legacy_timezone": "Europe/Amsterdam",
-    "project_map": {"LEGACY-PROJECT": "SYN-1"},
     "classification_map": {"legacy-classification-value": "DEV"}
   },
   "gradion": {
@@ -1098,7 +1121,7 @@ echoing file contents.
 | --- | --- | --- |
 | `timezone` | yes | IANA timezone for newly opened day records. Saved days keep their recorded timezone. |
 | `state_path` | yes | Private local state file. Parent directories are created `0700`. |
-| `projects` | yes | At least one project. IDs match `[A-Za-z0-9][A-Za-z0-9._-]*` and cannot contain `/`. |
+| `projects` | retired | Accepted and ignored so an existing configuration keeps loading ([ADR 0012](../adr/0012-retire-the-local-project.md)). `init` no longer writes it. |
 | `required_env` | no | Credential variable **names** for collection. R1-era local operations still do not require them. |
 | `sources` | no | Optional collection source config. Omitting `sources` entirely reproduces exact R1 behavior (`no_sources` collection, no gate). |
 | `sources.enabled` | yes if present | Master switch; when false, collection reports per-source `disabled` and no gate applies. |
@@ -1110,7 +1133,8 @@ echoing file contents.
 | `migration` | no | Disabled-by-default explicit legacy migration provision. Omitted or `enabled: false` means no legacy file is read. |
 | `migration.legacy_root` | if enabled | Records root containing the authoritative `workflow/YYYY-MM-DD.json` files. Read-only; never created or written. |
 | `migration.legacy_timezone` | if enabled | IANA timezone that governed the legacy records. Recorded on migrated days; never replaced by the current `timezone`. |
-| `migration.project_map` / `migration.classification_map` | no | Explicit legacy-value translations. A value not directly representable and not mapped is a visible conflict, never an invented replacement. |
+| `migration.classification_map` | no | Explicit legacy-value translation. A value not directly representable and not mapped is a visible conflict, never an invented replacement. |
+| `migration.project_map` | retired | Accepted and ignored. A migrated interval carries no project; the receipt's legacy interval audit keeps the original value. |
 | `gradion` | no | Disabled-by-default remote boundary. Reads verify capability-only; writes exist only behind the approval ledger. |
 | `gradion.endpoint` | if enabled | Operator-configured MCP endpoint. Never echoed into a response, receipt, error or state document. |
 | `gradion.token_env` | no | Credential variable **name**, default `GRADION_MCP_TOKEN`. Only the binary resolves its value. |
@@ -1195,7 +1219,6 @@ dotenv lines, authenticated URLs, or a full config dump.
 | `invalid_interval` | Zero/negative duration, invalid time, empty description, or bad evidence reference. |
 | `nonexistent_time` | The local start/end wall time is skipped by a timezone transition. |
 | `ambiguous_time` | The local start/end wall time occurs twice; this build does not choose an occurrence. |
-| `unknown_project` | Project is not configured. |
 | `overlap` | Intervals collide in absolute time and require human resolution. |
 | `unknown_day` | Day was not opened in this session. |
 | `unknown_interval` | Interval ID is not in the staged draft. |
@@ -1213,7 +1236,7 @@ dotenv lines, authenticated URLs, or a full config dump.
 | `migration_disabled` | Explicit legacy migration is not enabled in configuration. |
 | `migration_invalid` | The date selection is missing, invalid, or above the documented bound. |
 | `migration_stale` | The preview identity, source bytes, or target state changed; nothing was activated. |
-| `migration_conflict` | The candidate has conflicts (overlap, occupied destination, unknown project, malformed identity, changed source); nothing was activated. |
+| `migration_conflict` | The candidate has conflicts (overlap, occupied destination, malformed identity, changed source); nothing was activated. |
 | `session_open` | Migration activation was requested while a day is open; activation requires a fresh process with no open day. |
 | `remote_disabled` | The read-only remote boundary is not enabled in configuration. |
 | `remote_unavailable` | A required read tool or the named credential is missing. Carries names/codes only. |
@@ -1272,10 +1295,11 @@ dotenv lines, authenticated URLs, or a full config dump.
   human against the current observation. Preserved legacy approvals remain inert
   (`usable: false`) and cannot authorize anything; a state file claiming approval
   authority fails closed.
-- State schema is `3`. A schema-1 file loads unchanged and is upgraded in memory;
+- State schema is `4`. A schema-1 file loads unchanged and is upgraded in memory;
   a schema-2 file is converted in memory (never by startup activation) after its
-  own validation; schema `3` is written only by a successful durable
-  save/transaction. A schema-1-only loader rejects a later-schema file with
+  own validation; a schema-3 file is upgraded in memory with a pending
+  `migration.schema_upgrades` receipt; schema `4` is written only by a
+  successful durable save/transaction. A schema-1-only loader rejects a later-schema file with
   `state_invalid` and leaves it intact. A pre-R2 build rejects an R2 evidence
   file the same way.
 - Historical note (superseded by R6): when R4 was reviewed, the then-production

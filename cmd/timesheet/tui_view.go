@@ -82,9 +82,6 @@ func renderDay(m tuiModel) string {
 	s := m.env.styles
 	var head strings.Builder
 	head.WriteString(s.title.Render("pilot timesheet "+timesheet.AppVersion) + recorded("   day %s", m.snap.day))
-	if m.snap.project != "" {
-		head.WriteString(recorded("   project %s", m.snap.project))
-	}
 	head.WriteString("\n")
 
 	a := m.snap.action

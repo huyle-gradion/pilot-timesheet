@@ -442,9 +442,8 @@ func TestPRsInlineCompactFitsIntervalDescriptionLimit(t *testing.T) {
 	if got := len([]rune(composed)); got > maxDescriptionRunes {
 		t.Fatalf("composed description = %d runes, want <= %d", got, maxDescriptionRunes)
 	}
-	cfg := &Config{Projects: []Project{{ID: "assignment"}}}
 	loc := time.FixedZone("ICT", 7*3600)
-	if _, err := ParseInterval("2026-10-20 10:00-11:00 assignment "+composed, "2026-10-20", cfg, loc); err != nil {
+	if _, err := ParseInterval("2026-10-20 10:00-11:00 "+composed, "2026-10-20", loc); err != nil {
 		t.Fatalf("ParseInterval rejected the composed description: %v", err)
 	}
 	// Determinism: the same input twice is byte-identical.

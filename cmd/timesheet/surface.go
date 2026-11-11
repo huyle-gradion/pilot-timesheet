@@ -34,6 +34,32 @@ func retiredCommandError(name string) error {
 	return fmt.Errorf("`%s` was removed; use `%s`", name, retiredCommands[name])
 }
 
+// retiredFlags maps a removed flag to what replaces it. Like a retired
+// command, a retired flag fails with one line instead of being ignored, so a
+// script or skill that still passes it learns to drop it.
+var retiredFlags = map[string]string{
+	"project": "intervals no longer carry a project (ADR 0012); drop the flag, classification comes from gradion.default_classification or the classification judgment",
+}
+
+// retiredFlagError reports the first retired flag in args, in any of the
+// flag package's spellings (-name, --name, --name=value). Arguments after a
+// bare "--" are not flags.
+func retiredFlagError(command string, args []string) error {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if why, ok := retiredFlags[name]; ok {
+			return fmt.Errorf("`%s --%s` was removed: %s", command, name, why)
+		}
+	}
+	return nil
+}
+
 // runLog logs a day end to end: next --do, answering judgments with the
 // configured judge when there is one. Without a judge it stops at the first
 // judgment for the agent path, exactly as next --do does.

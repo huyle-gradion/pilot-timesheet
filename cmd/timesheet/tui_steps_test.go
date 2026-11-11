@@ -294,7 +294,7 @@ func TestStaleRevisionRecovery(t *testing.T) {
 
 	// A fresh snapshot still asking for the same judgment reopens the form.
 	m.bench = benchState{}
-	fresh := loopSnapshot{day: "d", project: "p", action: nextAction{Day: "d"}.withJudgment("classify",
+	fresh := loopSnapshot{day: "d", action: nextAction{Day: "d"}.withJudgment("classify",
 		nextJudgment{Kind: judgmentClassifications, AnswerFile: "/c.json", LedgerDigest: "ld"})}
 	m, eff = update(m, tickEvent{snap: fresh, reopen: judgmentClassifications})
 	if m.bench.screen != screenBench || eff == nil {
@@ -314,7 +314,7 @@ func TestActPlanFailsClosedWithoutRemote(t *testing.T) {
 		t.Fatalf("preflight: %v", err)
 	}
 	defer func() { _ = m.env.h.store.Close() }()
-	ev := m.env.act("plan", "WORK", nil)
+	ev := m.env.act("plan", nil)
 	done, ok := ev.(actDoneEvent)
 	if !ok {
 		t.Fatalf("act returned %T, want actDoneEvent", ev)
