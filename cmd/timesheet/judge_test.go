@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -349,5 +351,71 @@ func TestNewJudgeBackendCommandEnvIsNeverNil(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestJudgeUsageFormatReachesTheCommandBackend(t *testing.T) {
+	cfg := writeTestConfig(t)
+	addJudge(t, cfg, map[string]any{"command": []string{"harness", "-p", "--output-format", "json"}, "usage_format": "claude-json"})
+	c, err := timesheet.LoadConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := newJudgeBackend(c, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb, ok := b.(llm.CommandBackend); !ok || cb.UsageFormat != llm.UsageFormatClaudeJSON {
+		t.Fatalf("backend = %#v, want the command backend reading the claude-json envelope", b)
+	}
+	addJudge(t, cfg, map[string]any{"command": []string{"harness"}, "usage_format": "stream-json"})
+	if _, err := timesheet.LoadConfig(cfg); err == nil || !strings.Contains(err.Error(), "judge.usage_format") {
+		t.Fatalf("unknown usage_format: err = %v, want a config error at load", err)
+	}
+}
+
+func TestJudgeCapLeavesOutTheHarnessCacheTokens(t *testing.T) {
+	dir := t.TempDir()
+	stdout := filepath.Join(dir, "stdout")
+	writeAnswerFile(t, stdout, `{"type":"result","subtype":"success","is_error":false,"result":"rejected",`+
+		`"usage":{"input_tokens":40,"cache_read_input_tokens":18000,"cache_creation_input_tokens":0,"output_tokens":30}}`)
+	backend := llm.CommandBackend{Argv: []string{"sh", "-c", `cat >/dev/null; cat "$0"`, stdout}, Env: llm.CommandEnv(nil), Timeout: 5 * time.Second, UsageFormat: llm.UsageFormatClaudeJSON}
+	if err := os.MkdirAll(filepath.Join(dir, judgeResponsesDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &timesheet.Config{Judge: &timesheet.JudgeConfig{DailyTokenCap: 10000}}
+	reject := func(string) (string, error) { return "", fmt.Errorf("%w: synthetic", llm.ErrInvalidReply) }
+	p := llm.Prompt{Text: "describe", Key: strings.Repeat("a", 64)}
+	r := judgeReceipt{}
+	_, err := askCached(context.Background(), cfg, dir, testDate, "kind", p, "", backend, reject, time.Now(), &r)
+	var capErr judgeCapError
+	if !errors.Is(err, llm.ErrInvalidReply) || errors.As(err, &capErr) {
+		t.Fatalf("err = %v; want the rejected reply after the repair retry, not the cap", err)
+	}
+	want := llm.Usage{Calls: 2, InputTokens: 80, OutputTokens: 60, CacheTokens: 36000, Exact: true}
+	if r.Usage != want || r.Usage.Total() != 140 {
+		t.Fatalf("usage = %+v (total %d), want %+v: 70 per call toward the cap, cache reported apart", r.Usage, r.Usage.Total(), want)
+	}
+	if spent, err := judgeTokensSpent(dir); err != nil || spent != 140 {
+		t.Fatalf("spent = %d, %v; want 140", spent, err)
+	}
+}
+
+func TestAutoTokenRowWritesTheCacheTokens(t *testing.T) {
+	csv := filepath.Join(t.TempDir(), "tokens.csv")
+	cfg := &timesheet.Config{Judge: &timesheet.JudgeConfig{TokensCSV: csv}}
+	if err := appendAutoTokenRow(cfg, testDate, llm.Usage{Calls: 1, InputTokens: 40, OutputTokens: 30, CacheTokens: 18000}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(csv)
+	if err != nil || !strings.HasSuffix(strings.TrimSpace(string(data)), ",40,30,18000,18070") {
+		t.Fatalf("tokens.csv = %q, %v; want the cache_tokens column filled and counted in total_tokens", data, err)
+	}
+}
+
+func TestAddUsageKeepsTheCacheTokens(t *testing.T) {
+	got := addUsage(llm.Usage{Calls: 1, InputTokens: 1, CacheTokens: 10, Exact: true}, llm.Usage{Calls: 1, OutputTokens: 2, CacheTokens: 5, Exact: true})
+	if got != (llm.Usage{Calls: 2, InputTokens: 1, OutputTokens: 2, CacheTokens: 15, Exact: true}) || got.Total() != 3 {
+		t.Fatalf("addUsage = %+v", got)
 	}
 }

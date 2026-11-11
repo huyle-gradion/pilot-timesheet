@@ -130,7 +130,7 @@ func newJudgeBackend(cfg *timesheet.Config, envFile string) (llm.Backend, error)
 		}
 		return llm.OpenAIBackend{BaseURL: j.BaseURL, Model: j.Model, APIKey: key, Timeout: timeout}, nil
 	default:
-		return llm.CommandBackend{Argv: j.Command, Env: llm.CommandEnv(timesheet.ReservedCredentialNames(cfg)), Timeout: timeout}, nil
+		return llm.CommandBackend{Argv: j.Command, Env: llm.CommandEnv(timesheet.ReservedCredentialNames(cfg)), Timeout: timeout, UsageFormat: j.UsageFormat}, nil
 	}
 }
 
@@ -306,7 +306,8 @@ func judgeTokensSpent(dir string) (int, error) {
 func addUsage(a, b llm.Usage) llm.Usage {
 	return llm.Usage{
 		Calls: a.Calls + b.Calls, InputTokens: a.InputTokens + b.InputTokens,
-		OutputTokens: a.OutputTokens + b.OutputTokens, Exact: a.Exact && (b.Calls == 0 || b.Exact),
+		OutputTokens: a.OutputTokens + b.OutputTokens, CacheTokens: a.CacheTokens + b.CacheTokens,
+		Exact: a.Exact && (b.Calls == 0 || b.Exact),
 	}
 }
 
@@ -336,6 +337,6 @@ func appendAutoTokenRow(cfg *timesheet.Config, day string, u llm.Usage, now time
 		}
 	}
 	session := "timesheet-auto:" + now.UTC().Format("20060102T150405Z")
-	_, err = fmt.Fprintf(f, "%s,%s,%d,%d,0,%d\n", day, session, u.InputTokens, u.OutputTokens, u.InputTokens+u.OutputTokens)
+	_, err = fmt.Fprintf(f, "%s,%s,%d,%d,%d,%d\n", day, session, u.InputTokens, u.OutputTokens, u.CacheTokens, u.InputTokens+u.OutputTokens+u.CacheTokens)
 	return err
 }

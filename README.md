@@ -197,7 +197,8 @@ gates are unchanged. See [the approval policy](docs/adr/0009-chat-confirmed-subm
 ### Token usage
 
 The binary reports its own usage: every `log` report that used the judge carries
-`usage` (calls, input and output tokens), each judge call is logged in the
+`usage` (calls, input and output tokens, any harness `cache_tokens`, and
+`exact`), each judge call is logged in the
 day folder, and `judge.tokens_csv` appends one row per run to a local
 `benchmarks/tokens.csv` (git-ignored; token data is personal). The skill no
 longer scrapes agent session stores. `scripts/tokens.py` stays only to import
@@ -209,7 +210,8 @@ back with a one-line note of what was wrong. A transient backend failure
 (timeout, HTTP 429 or 5xx) is sent again unchanged after a second, or after
 the provider's `Retry-After` when that is longer, up to ten seconds; a longer
 `Retry-After` gets no retry. A permanent failure (HTTP 401, 403 or 404, a 200
-that is not a chat completion, a missing harness executable) is not retried.
+that is not a chat completion, a missing harness executable, harness output
+that is not the configured `usage_format` envelope) is not retried.
 The daily token cap is checked on an estimate before each call, the retry
 included, and usage counts every call made; a harness call that ran but
 failed counts its estimated input tokens.
@@ -262,7 +264,28 @@ For tokens, compare `run`'s `max_day_tokens` (and each entry of `days`) with
 their original cost in `tokens` and against the cap, and reports only new
 calls in `fresh_tokens`. A cap hit or a judge failure stops the run, keeps the
 partial candidate and exits non-zero. The cap is checked on an estimate before
-each call, so read the numbers rather than the exit code. Without `--out`
+each call, so read the numbers rather than the exit code.
+
+Tokens are exact (`usage.exact` is true in `run`'s output and in each day's
+entry) only when the backend reports them. The
+`openai` backend always reads the endpoint's `usage`. The `command` backend
+estimates both counts from the prompt and reply sizes (about four bytes a
+token, `exact: false`) unless the harness prints a usage envelope and
+`judge.usage_format` names it. For a harness run as
+`claude -p --output-format json`, set `"usage_format": "claude-json"`: the
+binary reads the reply from the envelope's `result` and the counts from its
+`modelUsage`, summed over every model, or from `usage` when `modelUsage` is
+absent. A count the envelope lacks is estimated and the total is marked
+inexact; a run mixing exact and estimated calls is inexact.
+
+`tokens`, `max_day_tokens` and `daily_token_cap` count only non-cache input
+and output tokens, the part the binary's prompt and the reply control. A
+harness also re-sends its own setup (system prompt, tool schemas), mostly as
+prompt-cache reads; those cache creation and cache read tokens are reported
+separately as `usage.cache_tokens` (and in the `cache_tokens` column of
+`tokens.csv`) and never count toward the cap or the per-day target.
+
+Without `--out`
 (export's default dataset path is `<state dir>/eval/golden.json`), the
 candidate and `judge-cache/` land beside the dataset in that state folder,
 outside the store's day folders.

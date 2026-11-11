@@ -9,6 +9,7 @@ import (
 func TestValidateJudge(t *testing.T) {
 	ok := []*JudgeConfig{
 		{Command: []string{"harness", "--print"}},
+		{Command: []string{"harness", "--print"}, UsageFormat: "claude-json"},
 		{Backend: "openai", BaseURL: "http://127.0.0.1:11434/v1/", Model: "local-model"},
 		{Backend: "openai", BaseURL: "https://api.example.test/v1", Model: "m", APIKeyEnv: "JUDGE_API_KEY"},
 	}
@@ -22,13 +23,15 @@ func TestValidateJudge(t *testing.T) {
 		}
 	}
 	bad := map[string]*JudgeConfig{
-		"harness executable": {Backend: "command"},
-		"http(s) URL":        {Backend: "openai", BaseURL: "ftp://x", Model: "m"},
-		"carry credentials":  {Backend: "openai", BaseURL: "https://user:pw@x", Model: "m"},
-		"judge.model":        {Backend: "openai", BaseURL: "https://x"},
-		"api_key_env":        {Backend: "openai", BaseURL: "https://x", Model: "m", APIKeyEnv: "bad name"},
-		"judge.backend":      {Backend: "grpc"},
-		"timeout_seconds":    {Command: []string{"h"}, TimeoutSeconds: 5000},
+		"harness executable":     {Backend: "command"},
+		"http(s) URL":            {Backend: "openai", BaseURL: "ftp://x", Model: "m"},
+		"carry credentials":      {Backend: "openai", BaseURL: "https://user:pw@x", Model: "m"},
+		"judge.model":            {Backend: "openai", BaseURL: "https://x"},
+		"api_key_env":            {Backend: "openai", BaseURL: "https://x", Model: "m", APIKeyEnv: "bad name"},
+		"judge.backend":          {Backend: "grpc"},
+		"timeout_seconds":        {Command: []string{"h"}, TimeoutSeconds: 5000},
+		`empty or "claude-json"`: {Command: []string{"h"}, UsageFormat: "stream-json"},
+		"only to the command":    {Backend: "openai", BaseURL: "https://x", Model: "m", UsageFormat: "claude-json"},
 	}
 	for want, j := range bad {
 		c := &Config{Judge: j}
