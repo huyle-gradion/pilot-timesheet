@@ -202,3 +202,54 @@ func TestStoreCommitRefusesAStaleSavedRevision(t *testing.T) {
 		t.Fatalf("the refused save changed the stored day: revision %d", got)
 	}
 }
+
+func TestResolveAdoptRefusesIdentityConflicts(t *testing.T) {
+	s, fake, store, date := editReadyFixture(t)
+	if _, err := s.addInterval(Request{ID: "1", Op: "add_interval", Day: date, Revision: intPtr(2),
+		Text: date + " 11:00-12:00 Second piece"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.confirm(Request{ID: "2", Op: "confirm", Day: date, Revision: intPtr(2)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.save(Request{ID: "3", Op: "save", Day: date, Revision: intPtr(3)}); err != nil {
+		t.Fatal(err)
+	}
+	fake.setWeek([]map[string]any{
+		remoteEntry("r-1", "08:00", "10:00", "Synthetic work"),
+		remoteEntry("r-2", "11:00", "12:00", "Second piece"),
+	})
+	if _, err := s.reconcileDate(date); err != nil {
+		t.Fatal(err)
+	}
+	revision := store.State().Days[date].Revision
+	if n := len(store.State().Remote.Bindings); n != 1 {
+		t.Fatalf("precondition: one binding (r-1), got %d", n)
+	}
+	refuse := func(name, remote, local string) {
+		t.Helper()
+		obsID := store.State().Remote.Observations[date].ObservationID
+		_, err := s.resolveRemoteRequest(Request{ID: name, Op: "resolve_remote", Day: date, Revision: intPtr(revision),
+			ObservationID: obsID, RemoteID: remote, LocalID: local, Decision: DecisionAdopt})
+		if errorCode(err) != CodeIdentityConflict {
+			t.Errorf("%s: err = %v, want identity_conflict", name, err)
+		}
+		if b := store.State().Remote.Bindings; len(b) != 1 || b[0].RemoteID != "r-1" || b[0].LocalID != "iv-20261020-1" {
+			t.Fatalf("%s: bindings changed: %+v", name, b)
+		}
+	}
+	refuse("rebind an already bound allocation", "r-2", "iv-20261020-1")
+	refuse("steal a remote bound elsewhere", "r-1", "iv-20261020-2")
+
+	next := store.State().cloneState()
+	obs := next.Remote.Observations[date]
+	for i := range obs.Entries {
+		if obs.Entries[i].RemoteID == "r-2" {
+			obs.Entries[i].Date = "2026-10-21"
+		}
+	}
+	if err := store.CommitState(next); err != nil {
+		t.Fatal(err)
+	}
+	refuse("adopt an entry dated on another day", "r-2", "iv-20261020-2")
+}
