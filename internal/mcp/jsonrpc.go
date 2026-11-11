@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"unicode/utf8"
 )
 
 type rpcRequest struct {
@@ -139,16 +140,21 @@ func parseCallResult(result json.RawMessage, maxBytes int64) (CallResult, error)
 	return out, nil
 }
 
+// boundString returns s unchanged when max <= 0 or s fits in max bytes.
+// Otherwise it returns the longest prefix of s of at most max bytes that ends
+// on a rune boundary. A cut prefix is always valid UTF-8: it stops before the
+// first invalid byte, so it never ends in or carries a broken sequence.
 func boundString(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	b := []byte(s[:max])
-	for len(b) > 0 && (b[len(b)-1]&0xc0) == 0x80 {
-		b = b[:len(b)-1]
+	n := 0
+	for n < len(s) {
+		r, size := utf8.DecodeRuneInString(s[n:])
+		if (r == utf8.RuneError && size == 1) || n+size > max {
+			break
+		}
+		n += size
 	}
-	if len(b) > 0 && (b[len(b)-1]&0x80) != 0 {
-		b = b[:len(b)-1]
-	}
-	return string(b)
+	return s[:n]
 }

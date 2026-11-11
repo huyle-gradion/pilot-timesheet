@@ -4,6 +4,9 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- `internal/mcp` text bounding keeps a multi-byte rune that ends exactly at
+  the byte cap (#289). A cut stops before the first invalid UTF-8 byte, so
+  bounded text is always valid UTF-8.
 - `internal/timesheet` comments are removed (#258). New tests pin the
   constraints they stated, including that a write left in flight blocks the
   plan, its approval and any new submit after a restart.
