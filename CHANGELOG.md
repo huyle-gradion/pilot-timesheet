@@ -2,7 +2,7 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
-## Unreleased
+## 0.5.0
 
 - The `command` judge backend can record the harness's own token counts
   (#286). Opt in with `judge.usage_format: "claude-json"` for a harness run as
