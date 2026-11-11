@@ -2,15 +2,15 @@
 
 Application version: `0.2.0-dev.11` (published as the pre-release
 `v0.2.0-dev.11`; the previous stable line is `0.1.1`).
-Protocol schema: `1`. State schema: `3`.
+State schema: `3`.
 
 This document is the public interface for the current release. The
 implemented surface is the accepted R1-R5 slices: the local review-first
 workflow, R2 verification-only evidence collection, the R3 migration/read-only
 boundary, the R4 native approval ledger and ONE verified submission path, and
 the R5 pinned Pi consumer (retired in `0.2.0-dev.10`: the native `tui` verb is
-the operator surface; `serve` stays as an internal command for the ops no
-public command reaches, see below). R6 changes no
+the operator surface; the internal `serve` protocol command retired after it,
+see [the historical protocol section](#historical-the-retired-serve-protocol)). R6 changes no
 protocol, schema or store behavior: it
 retires the legacy CLI, moves the one entry point to `cmd/timesheet` and makes
 `bin/timesheet` the production-named child. The stage descriptions below remain
@@ -48,6 +48,9 @@ timesheet submit [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--ap
 timesheet submit --chat [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--plan-id <id> --review-id <id> --confirm-chat]
 timesheet submit status [--config <path>] [--env-file <path>] --date <YYYY-MM-DD>
 timesheet submit resolve [--config <path>] [--env-file <path>] --file <decision.json>
+timesheet submit revoke [--config <path>] [--env-file <path>] --date <YYYY-MM-DD> [--approval-id <id>]
+timesheet migrate preview [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>...
+timesheet migrate apply [--config <path>] [--env-file <path>] --date <YYYY-MM-DD|FROM..TO>... --migration-id <id>
 timesheet tui [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
 timesheet daily [--config <path>] [--env-file <path>] [--print-units systemd|launchd]
 timesheet judge [--config <path>] [--env-file <path>] [--date <YYYY-MM-DD>] [--project <id>]
@@ -58,60 +61,60 @@ timesheet version
 
 Internal commands stay callable but are not part of the public surface: the
 steps `next` derives (`run`, `record`, `stage`, `classifications`, `classify`,
-`save`, `plan`, `acknowledge`, `decide`, `reconcile`, `resolve`) and the
-JSONL protocol command:
+`save`, `plan`, `acknowledge`, `decide`, `reconcile`, `resolve`).
 
-```text
-timesheet serve --config <path> --env-file <path>
-```
+Every command is one stateless process (issue #272): it opens the store, runs
+its ops through the in-process session dispatcher, prints its result and
+exits. Nothing carries between invocations except the store, so every id one
+command hands to another (`plan_id`, `review_id`, `approval_id`,
+`migration_id`) is either a durable ledger record or a content binding the
+next command rebuilds and compares.
 
 A removed command (`setup`, `approve`, `agent-submit`, `submit-status`,
-`resolve-write`, `collect`, `draft`, `confirm`) exits `2` with one line naming
-its replacement.
+`resolve-write`, `collect`, `draft`, `confirm`, `serve`) exits `2` with one line
+naming its replacement. `serve`, the long-lived JSONL protocol process, retired
+in issue #272; its serve-only ops went to stateless commands or were dropped:
 
-`version` prints the application version and protocol schema and exits 0. It
-loads no configuration, environment file, credentials, or evidence.
+- `migration_preview` / `migration_apply` became `migrate preview` /
+  `migrate apply` (see [Explicit legacy migration](#explicit-legacy-migration)).
+- `revoke_approval` became `submit revoke`: terminal-only behind a typed
+  `approval_id` confirmation, like the other `submit` steps, and never
+  reachable through `--chat` or the skill. Without `--approval-id` it takes
+  the day's single active approval, and lists and refuses when there are
+  several. An already consumed or revoked approval is refused with
+  `stale_approval`. The hint after a stopped terminal `submit` names it.
+- `check_environment` is reported by `status` under `environment`: required
+  variable **names**, which are missing and which are present, never values.
+- `cancel` was dropped: staged edits live only in the process that made them,
+  and every command is one process, so they are discarded when it exits and
+  there is nothing to cancel.
 
-`serve` is internal. It is the only route to a few ops that no command
-dispatches: legacy migration (`migration_preview`, `migration_apply`; there is
-no CLI verb for migration), `cancel`, `check_environment` and
-`revoke_approval` (notably, revoking an approval kept after a stopped
-`submit`). Most other ops in the protocol tables below are driven in-process,
-through the same session dispatcher, by `tui` and the internal steps `next`
-derives; that is not a promise that every op has a public command. `serve`
-starts one persistent process. It reads one JSON request per line from stdin
-and writes one JSON response per line to stdout. Diagnostics go to stderr and
-are sanitized. The process never launches a shell. The protocol is pinned by
-in-repo end-to-end tests (`internal/timesheet/serve_test.go`,
-`cmd/timesheet/serve_test.go`).
+`version` prints the application version and exits 0. It loads no
+configuration, environment file, credentials, or evidence. There is no
+separate protocol schema any more: no process speaks a wire protocol to the
+binary.
 
-`--config` and `--env-file` are process inputs for `serve`, `tui` and the
-headless subcommands. There are no request fields for paths, executable names,
-or arbitrary operations. Both flags are required for `serve`; the headless
-subcommands require `--config` and treat `--env-file` as optional (no file
-values when omitted).
+`--config` and `--env-file` are process inputs for `tui` and the headless
+subcommands. There are no request fields for paths, executable names, or
+arbitrary operations. The subcommands default `--config` and treat
+`--env-file` as optional (no file values when omitted and no home default
+exists).
 
-Exit codes: `0` for a normal `version` run, a normal `serve` close/EOF and
-`serve` help; `2` for a missing or unknown top-level command and extra
-`version` arguments; `1` for `serve` argument validation (unknown flag, extra
-positional, missing required flag), startup failure (for example an invalid
-config or locked state) and stream failure (for example an unreadable stream).
-The headless subcommands follow the same convention: `0` on success, `2` for
-usage errors, `1` for validation, collection and recording failures reported
+Exit codes: `0` for a normal `version` run and on success; `2` for a missing or
+unknown top-level command, a removed command, extra `version` arguments and
+usage errors; `1` for validation, collection and recording failures reported
 as `timesheet: <code>: <message>` on stderr.
 
-Only one process may open a given state file. A second `serve` against the same
-state fails with `store_locked`; it does not race or overwrite the first.
-`run`, `status` and the other store-opening commands open the store the same way, so they also fail
-with `store_locked` while a `serve` process holds the state. `record` opens no
-store and never interferes with a running `serve`.
+Only one process may open a given state file. A second store-opening command
+against the same state fails with `store_locked`; it does not race or
+overwrite the first. `record` opens no store.
 
 ## The `tui` verb: a native terminal UI over the loop
 
 `tui` is a native Go terminal UI (issue #221) over the same store, session and
 derivation every other command uses. It opens the store once and holds the
-exclusive lock for the whole process, mirroring `serve`; a second process
-meets `store_locked` exactly as it would against `serve`. It refuses to start
+exclusive lock for the whole process; a second store-opening process meets
+`store_locked`. It refuses to start
 unless BOTH stdin and stdout are terminals, and every refusal (non-terminal
 stdio, `store_locked`, configuration failure) happens before the alternate
 screen starts. There is no AI harness and no model call on this path: each
@@ -180,8 +183,8 @@ Interactive scrolling is not part of this release.
 
 `run`, `record`, `status` and the other steps `next` derives are the
 deterministic [Script] layer of the timesheet skill (`.agents/skills/timesheet/`). They construct
-the same session `serve` uses and drive its request dispatcher in-process;
-there is no second protocol and no new request grammar.
+one session per invocation and drive its request dispatcher in-process; there
+is no wire protocol and no new request grammar.
 
 Draft blocks and the staged intervals derived from them share one merge rule
 (issue #183): work and evidence blocks that overlap become one block over the
@@ -246,59 +249,6 @@ appends one row per run to `benchmarks/tokens.csv`. `scripts/tokens.py`
 remains only to import usage from historical agent-session transcripts
 (Claude Code, Pi and pig stores) into the same file; it keeps existing rows,
 never blocks the day, and copies no transcript content.
-
-## Protocol envelope
-
-Request fields are strict. Unknown fields, missing `id`/`op`, trailing JSON, and
-fields not allowed for the selected operation are rejected.
-
-```json
-{"id":"1","op":"open_day","day":"2026-10-22"}
-```
-
-Responses always echo the request ID and carry either `result` or `error`:
-
-```json
-{"id":"1","ok":true,"result":{...}}
-{"id":"1","ok":false,"error":{"code":"overlap","message":"..."}}
-```
-
-If the request cannot be decoded, the response `id` is empty. IDs must be
-non-empty, at most 128 bytes, and contain no control characters.
-
-### Operations
-
-| `op` | Fields | Effect |
-| --- | --- | --- |
-| `open_day` | `day` | Loads or creates the local day record and starts a staged draft. |
-| `add_interval` | `day`, `revision`, `text`, optional `evidence_refs` | Parses one typed interval and stages it. |
-| `edit_interval` | `day`, `revision`, `interval_id`, `text` | Replaces a staged interval. Evidence references are preserved. |
-| `remove_interval` | `day`, `revision`, `interval_id` | Removes a staged interval. |
-| `review` | `day` | Returns confirmed and staged segments, totals, cross-midnight allocation, and the `evidence` review object (topics, proposed meetings with decisions, per-source coverage). |
-| `confirm` | `day`, `revision` | Promotes the staged draft to a new confirmed revision in memory. Fails `source_unacknowledged` while an incomplete collection attempt on this day is unacknowledged. |
-| `save` | `day`, `revision` | Persists confirmed work locally (same gate as `confirm`). Staged changes are not saved. |
-| `collect` | `day` | Runs all enabled source collectors for that day's local window (verify-only, no minutes). Receipts carry per-source status/counts. |
-| `acknowledge_source` | `day`, `source`, `collection_id` | Explicit human acknowledgment, verified against the exact reviewed collection attempt ID. Missing or stale IDs fail (`bad_request` / `stale_collection`). |
-| `decide_meeting` | `day`, `meeting_id`, `decision`, `collection_id` | Records `attended`/`skipped`/`pending` for one proposed meeting. The meeting's provider identity must be present in this day's evidence (`unknown_meeting` otherwise). `collection_id` is required and must match the day's calendar attempt (`bad_request` when missing, `stale_collection` on mismatch); the action is rejected without mutation otherwise. Decisions carry across recollections matched by `UID|Start`. |
-| `migration_preview` | `dates` | Validates one explicit legacy date selection without activating anything. Returns bounded counts, conflicts, source hashes and a `migration_id` bound to the source bytes, dates/timezone and current durable target state. |
-| `migration_apply` | `migration_id` | Re-reads and re-verifies the exact preview inputs, then atomically activates the whole candidate. Requires that no day is open. The fresh candidate is validated (source identity, durable target, conflicts) before any successful `no_change` return; a repeated identical source is `no_change`, and stale or conflicting input is rejected without mutation. |
-| `classifications` | `query` (optional) | One bounded authoritative classification read. Returns a stored `catalog_id`, options and an explicit `complete` flag. A filtered or truncated catalog cannot prove an option absent. |
-| `select_classification` | `day`, `revision`, `interval_id`, `catalog_id`, `classification_id` | Records an explicit reviewed remote classification choice for an option the catalog returned, in staged work. Follows confirm/save semantics. |
-| `reconcile_remote` | `day` | One fresh read-only observation of the day. Persists the observation and reports mapped, changed, missing and orphaned identities, unbound remotes, overlap/text candidates, unresolved-write history and blockers. A read never binds an identity. |
-| `resolve_remote` | `day`, `revision`, `observation_id`, `remote_id`, `local_id` (omitted for `foreign`), `decision` | Records one explicit identity/content decision (`adopt`, `accept_observed`, `foreign`) against the current observation. Rejects stale revision/observation IDs and identity conflicts without mutation. |
-| `preview_plan` | `day` | Renders exact create/edit operations and blockers from saved confirmed durable work, explicit classification choices and a fresh read-only observation. Never plans from an unsaved day, never saves a draft. Reports `approved`/`approval_available` as DERIVED ledger facts (never persisted authorities). |
-| `approve_plan` | `day`, `plan_id` | Creates one NEW native approval occurrence (a unique `approval_id`) bound to the exact current rendered plan identity, after fresh precondition proof. Creates no remote write and never auto-submits. |
-| `revoke_approval` | `day`, `approval_id` | Explicitly revokes one unconsumed approval. Revocation is immutable audit. |
-| `submit_plan` | `day`, `approval_id` | Revalidates every precondition fresh, then executes the approved batch: one durable pre-write intent per operation, one dispatch, one verification read-back per write. Returns a bounded receipt; never retries a dispatched write. |
-| `submission_status` | `day` | Lists this date's approval ledger, execution audit and every unresolved write reference (native `wr-…` and migrated `mw-…`). Unresolved references block all further writing. |
-| `resolve_write` | `write_ref`, `observation_id`, `decision` (`adopt` requires `remote_id`) | Explicitly resolves ONE unresolved write reference against the CURRENT COMPLETE observation: `adopt` binds the observed remote ID (one-to-one checks apply), `not_applied` records a human attestation that the intended effect is absent (refused when a matching effect is visible). Never dispatches. |
-| `cancel` | `day`, `revision` | Discards staged edits and restores the last confirmed revision. |
-| `status` | none | Reports loaded days, protocol identity, `store_schema`/`durable_schema`, `durability_uncertain`, and compact migration/binding/unresolved-write/plan/approval counts (`approvals`, `native_unresolved_writes`). |
-| `check_environment` | none | Reports required variable **names** and which are missing. |
-| `close` | none | Replies, then ends the process. Unsaved state is not written. |
-
-A day must be opened before its other operations. `revision` is required for
-every mutation and for `save`/`cancel`; a mismatch fails with `stale_revision`.
 
 ## Collection and the incomplete-source gate
 
@@ -563,8 +513,8 @@ slices; it grants no remote authority.
   day. Review and status are session views and may include unsaved confirmations
   on other open days, but those are absent from save receipts and from disk until
   their own save succeeds.
-- `cancel` resets the draft to confirmed work. It leaves the confirmed revision,
-  saved state, and revision number unchanged.
+- Staged edits are discarded when the process that made them exits; there is
+  no `cancel` op since `serve` retired (#272).
 - `close` never implies save.
 - Restart loads only saved confirmed work. Staged edits, and confirmations not
   followed by a successful save, do not survive a restart.
@@ -665,7 +615,8 @@ path, no symlinked `workflow` directory or source file, no escape from the
 resolved root, and no write into the legacy root. The old store constructor is
 never called.
 
-Dates are selected explicitly through `migration_preview{dates}` and are bounded
+Dates are selected explicitly with `timesheet migrate preview --date <day>`
+(repeatable, or an inclusive `FROM..TO`) and are bounded
 (`62` dates). An over-bound or invalid selection is rejected; it is never silently
 truncated. Legacy records do not carry their governing timezone, so
 `legacy_timezone` is required and recorded on the migrated days; a changed new
@@ -678,10 +629,15 @@ multi-file read is atomic with an independent writer.
 
 Preview validates the complete candidate without activation and returns bounded
 counts/conflicts plus a `migration_id` bound to `{source hashes, dates, timezone,
-current durable target fingerprint}`. `migration_apply{migration_id}` requires a
-preview from the same process (a preview grants no standing authority and does not
-survive a restart), re-reads and re-hashes the sources, recomputes the candidate,
-and rejects a stale or conflicting input without mutation. Activation requires
+current durable target fingerprint}`. `timesheet migrate apply --date <same
+days> --migration-id <id>` keeps nothing from the preview: it re-reads and
+re-hashes the sources, rebuilds the candidate from the store, and activates it
+only when the rebuilt `migration_id` equals `<id>`. The id is a content
+binding, like `submit --chat`'s `plan_id`/`review_id` under ADR 0009, not a
+stored grant: a preview grants no standing authority, and a changed selection,
+source or durable target is `migration_stale` with nothing written. A
+conflicted candidate is `migration_conflict`; an already-migrated selection is
+`no_change` on both preview and apply. Activation requires
 that **no day is open**, so a draft can never be discarded and no session pointer
 can be left stale. The whole candidate is activated in one atomic state write.
 
@@ -1105,7 +1061,7 @@ echoing file contents.
 | `work_hours.days` | if present | Non-empty list of exactly `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` (lowercase, three letters; nothing is normalized). |
 | `work_hours.windows` | if present | One to four same-day `HH:MM` windows, each with `start` before `end`, none overlapping. |
 
-`check_environment` returns `required`, `missing`, and `present` **names** only.
+`status` reports, under `environment` (the retired `check_environment` op), the `required`, `missing`, and `present` **names** only.
 It performs no network call. An inherited empty value overrides a file value, so
 that name is reported missing; a file-only value is reported present. A `save`
 never requires a remote credential.
@@ -1167,7 +1123,7 @@ number and a reason; it never echoes the raw line or value.
 
 Inherited process environment values override file values for the same name,
 including explicitly empty values. Validation is lazy: missing required values
-are reported by `check_environment` (or a future operation that needs them), not
+are reported by `status` under `environment` (or an operation that needs them), not
 by local review. Diagnostics and errors never contain credential values, raw
 dotenv lines, authenticated URLs, or a full config dump.
 
@@ -1213,7 +1169,7 @@ dotenv lines, authenticated URLs, or a full config dump.
 | `unknown_classification` | The option was not returned by the named catalog; a partial catalog cannot prove it absent. |
 | `stale_catalog` | The catalog identity is not stored; fetch the catalog again. |
 | `no_confirmed_work` | There is no saved confirmed work that renders on the requested date. |
-| `dirty_session` | An open session's saved or staged allocation footprint touches the plan's affected dates (unsaved changes); save or cancel before previewing a plan. |
+| `dirty_session` | An open session's saved or staged allocation footprint touches the plan's affected dates (unsaved changes); save it, or let the process holding the draft exit, before previewing a plan. |
 | `stale_plan` | The current rendered plan differs from the plan the request/approval binds (`approve_plan`, `submit_plan`); zero remote mutations follow. |
 | `plan_not_ready` | The plan is blocked or its remote coverage is not complete and readable; approval is refused. |
 | `classification_unverified` | The current authoritative catalog does not prove a selected classification exists; dispatch is refused. |
@@ -1226,7 +1182,7 @@ dotenv lines, authenticated URLs, or a full config dump.
 
 ## Security boundaries and R4 limits
 
-- stdout is protocol output only in `serve` mode; diagnostics stay on stderr.
+- stdout carries only each command's JSON result; diagnostics stay on stderr.
 - Requests cannot supply paths, executable names, shell commands, or arbitrary
   dispatch.
 - No shell is launched. Network access is collection/submission-only and goes
@@ -1273,6 +1229,70 @@ dotenv lines, authenticated URLs, or a full config dump.
   authoritative interface.
 - Later slices must add Pi integration. R4's native approval/submission path is
   the implemented one; legacy approval rows are inert audit, never approvals.
+
+## Historical: the retired `serve` protocol
+
+> **Historical.** `serve` retired in issue #272 and nothing speaks this JSONL
+> protocol to the binary any more. The envelope and op table are kept because
+> the same ops still run in-process, through `Session.HandleLine`, for `tui`
+> and the commands; read them as the reference for op semantics, not as a
+> wire interface. Since the retirement, `migration_apply` also takes `dates`
+> and is stateless (see [Explicit legacy migration](#explicit-legacy-migration)),
+> `cancel` no longer exists, and `check_environment` is reached through
+> `status`.
+
+### Protocol envelope
+
+Request fields are strict. Unknown fields, missing `id`/`op`, trailing JSON, and
+fields not allowed for the selected operation are rejected.
+
+```json
+{"id":"1","op":"open_day","day":"2026-10-22"}
+```
+
+Responses always echo the request ID and carry either `result` or `error`:
+
+```json
+{"id":"1","ok":true,"result":{...}}
+{"id":"1","ok":false,"error":{"code":"overlap","message":"..."}}
+```
+
+If the request cannot be decoded, the response `id` is empty. IDs must be
+non-empty, at most 128 bytes, and contain no control characters.
+
+### Operations
+
+| `op` | Fields | Effect |
+| --- | --- | --- |
+| `open_day` | `day` | Loads or creates the local day record and starts a staged draft. |
+| `add_interval` | `day`, `revision`, `text`, optional `evidence_refs` | Parses one typed interval and stages it. |
+| `edit_interval` | `day`, `revision`, `interval_id`, `text` | Replaces a staged interval. Evidence references are preserved. |
+| `remove_interval` | `day`, `revision`, `interval_id` | Removes a staged interval. |
+| `review` | `day` | Returns confirmed and staged segments, totals, cross-midnight allocation, and the `evidence` review object (topics, proposed meetings with decisions, per-source coverage). |
+| `confirm` | `day`, `revision` | Promotes the staged draft to a new confirmed revision in memory. Fails `source_unacknowledged` while an incomplete collection attempt on this day is unacknowledged. |
+| `save` | `day`, `revision` | Persists confirmed work locally (same gate as `confirm`). Staged changes are not saved. |
+| `collect` | `day` | Runs all enabled source collectors for that day's local window (verify-only, no minutes). Receipts carry per-source status/counts. |
+| `acknowledge_source` | `day`, `source`, `collection_id` | Explicit human acknowledgment, verified against the exact reviewed collection attempt ID. Missing or stale IDs fail (`bad_request` / `stale_collection`). |
+| `decide_meeting` | `day`, `meeting_id`, `decision`, `collection_id` | Records `attended`/`skipped`/`pending` for one proposed meeting. The meeting's provider identity must be present in this day's evidence (`unknown_meeting` otherwise). `collection_id` is required and must match the day's calendar attempt (`bad_request` when missing, `stale_collection` on mismatch); the action is rejected without mutation otherwise. Decisions carry across recollections matched by `UID|Start`. |
+| `migration_preview` | `dates` | Validates one explicit legacy date selection without activating anything. Returns bounded counts, conflicts, source hashes and a `migration_id` bound to the source bytes, dates/timezone and current durable target state. |
+| `migration_apply` | `migration_id` | Re-reads and re-verifies the exact preview inputs, then atomically activates the whole candidate. Requires that no day is open. The fresh candidate is validated (source identity, durable target, conflicts) before any successful `no_change` return; a repeated identical source is `no_change`, and stale or conflicting input is rejected without mutation. |
+| `classifications` | `query` (optional) | One bounded authoritative classification read. Returns a stored `catalog_id`, options and an explicit `complete` flag. A filtered or truncated catalog cannot prove an option absent. |
+| `select_classification` | `day`, `revision`, `interval_id`, `catalog_id`, `classification_id` | Records an explicit reviewed remote classification choice for an option the catalog returned, in staged work. Follows confirm/save semantics. |
+| `reconcile_remote` | `day` | One fresh read-only observation of the day. Persists the observation and reports mapped, changed, missing and orphaned identities, unbound remotes, overlap/text candidates, unresolved-write history and blockers. A read never binds an identity. |
+| `resolve_remote` | `day`, `revision`, `observation_id`, `remote_id`, `local_id` (omitted for `foreign`), `decision` | Records one explicit identity/content decision (`adopt`, `accept_observed`, `foreign`) against the current observation. Rejects stale revision/observation IDs and identity conflicts without mutation. |
+| `preview_plan` | `day` | Renders exact create/edit operations and blockers from saved confirmed durable work, explicit classification choices and a fresh read-only observation. Never plans from an unsaved day, never saves a draft. Reports `approved`/`approval_available` as DERIVED ledger facts (never persisted authorities). |
+| `approve_plan` | `day`, `plan_id` | Creates one NEW native approval occurrence (a unique `approval_id`) bound to the exact current rendered plan identity, after fresh precondition proof. Creates no remote write and never auto-submits. |
+| `revoke_approval` | `day`, `approval_id` | Explicitly revokes one unconsumed approval. Revocation is immutable audit. |
+| `submit_plan` | `day`, `approval_id` | Revalidates every precondition fresh, then executes the approved batch: one durable pre-write intent per operation, one dispatch, one verification read-back per write. Returns a bounded receipt; never retries a dispatched write. |
+| `submission_status` | `day` | Lists this date's approval ledger, execution audit and every unresolved write reference (native `wr-…` and migrated `mw-…`). Unresolved references block all further writing. |
+| `resolve_write` | `write_ref`, `observation_id`, `decision` (`adopt` requires `remote_id`) | Explicitly resolves ONE unresolved write reference against the CURRENT COMPLETE observation: `adopt` binds the observed remote ID (one-to-one checks apply), `not_applied` records a human attestation that the intended effect is absent (refused when a matching effect is visible). Never dispatches. |
+| `cancel` | `day`, `revision` | Discards staged edits and restores the last confirmed revision. |
+| `status` | none | Reports loaded days, protocol identity, `store_schema`/`durable_schema`, `durability_uncertain`, and compact migration/binding/unresolved-write/plan/approval counts (`approvals`, `native_unresolved_writes`). |
+| `check_environment` | none | Reports required variable **names** and which are missing. |
+| `close` | none | Replies, then ends the process. Unsaved state is not written. |
+
+A day must be opened before its other operations. `revision` is required for
+every mutation and for `save`/`cancel`; a mismatch fails with `stale_revision`.
 
 ## R5 — first pinned Pi consumer (`0.1.0-dev.14` → `0.1.0-dev.16`, historical stage)
 
@@ -1509,8 +1529,8 @@ integrity are unchanged.
   example with synthetic placeholders.
 - The optional pinned Pi launcher and its adapter (`pi/`) retired in
   `0.2.0-dev.10`. The native `tui` verb is the operator surface, and `serve`
-  remains as an internal command: the only route to legacy migration,
-  `cancel`, `check_environment` and `revoke_approval`. The local daily flow, migration,
+  remained as an internal command, the only route to legacy migration,
+  `cancel`, `check_environment` and `revoke_approval`, until it retired in issue #272. The local daily flow, migration,
   reconciliation, approval, submission and recovery remain the current
   contract.
 - Readiness is unchanged and honest: the dev.17 proof is Linux, hermetic and

@@ -130,6 +130,7 @@ func TestRetiredCommandsNameTheirReplacement(t *testing.T) {
 		"setup": "timesheet init", "approve": "timesheet submit", "agent-submit": "timesheet submit --chat",
 		"submit-status": "timesheet submit status", "resolve-write": "timesheet submit resolve",
 		"collect": "timesheet log", "draft": "timesheet log", "confirm": "timesheet log",
+		"serve": "timesheet migrate preview",
 	} {
 		cmd := exec.Command(binary, old, "--date", testDate)
 		var stderr bytes.Buffer

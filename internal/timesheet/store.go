@@ -13,7 +13,7 @@ import (
 )
 
 // Store owns the durable local state file and an exclusive advisory lock for
-// the whole serve lifetime. A second process that tries to write the same state
+// the whole lifetime of the process that opened it. A second process that tries to write the same state
 // fails with store_locked instead of racing or losing the first writer's work.
 //
 // durableSchema is the schema actually on disk: the loaded schema until a

@@ -600,8 +600,8 @@ func TestResolveMigratedOutcomeClearsOnlyItsOwnBlocker(t *testing.T) {
 // TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit (R4F2): an open staged
 // draft on the origin day must not silently affect the plan's affected day.
 // The guard uses each open session's saved AND staged allocation footprint, so
-// a prior-day spill draft blocks both approval and consumption; cancellation
-// restores eligibility. Zero writes are made while blocked.
+// a prior-day spill draft blocks both approval and consumption; discarding
+// the draft restores eligibility. Zero writes are made while blocked.
 func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 
@@ -614,11 +614,10 @@ func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cancelDraft := func() {
-		if _, err := s.cancel(Request{ID: "d2", Op: "cancel", Day: "2026-10-19", Revision: intPtr(0)}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	// Staged edits live only in the process that made them (there is no
+	// cancel op since serve retired, #272): dropping the open day is the
+	// draft's process ending.
+	cancelDraft := func() { delete(s.days, "2026-10-19") }
 
 	// Approval is refused while the affected draft exists.
 	draft()

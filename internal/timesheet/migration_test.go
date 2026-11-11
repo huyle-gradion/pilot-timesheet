@@ -343,7 +343,7 @@ func TestMigrationRejectsDuplicateLocalID(t *testing.T) {
 	if preview.Ready {
 		t.Fatal("an ambiguous source must never preview as ready")
 	}
-	_, applyErr := s.migrationApply(Request{ID: "2", Op: "migration_apply", MigrationID: preview.MigrationID})
+	_, applyErr := s.migrationApply(Request{ID: "2", Op: "migration_apply", Dates: []string{"2026-10-26"}, MigrationID: preview.MigrationID})
 	if applyErr == nil {
 		t.Fatalf("an ambiguous source must never activate: %+v", preview)
 	}
@@ -531,7 +531,7 @@ func TestMigrationCapacityRejectsInsteadOfTruncating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", MigrationID: preview.MigrationID}); !isErrorCode(err, CodeMigrationConflict) {
+	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", Dates: []string{"2026-10-29"}, MigrationID: preview.MigrationID}); !isErrorCode(err, CodeMigrationConflict) {
 		t.Fatalf("an over-bound candidate must refuse activation: %v", err)
 	}
 	after, err := os.ReadFile(cfg.StatePath)
@@ -793,10 +793,10 @@ func TestMigrationPreviewApplyThroughSession(t *testing.T) {
 	if !preview.Ready || preview.MigrationID == "" {
 		t.Fatalf("preview not ready: %+v", preview)
 	}
-	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", MigrationID: "bogus"}); err == nil {
+	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: "bogus"}); err == nil {
 		t.Fatal("an unpreviewed migration id must be rejected")
 	}
-	applied, err := s.migrationApply(Request{ID: "3", Op: "migration_apply", MigrationID: preview.MigrationID})
+	applied, err := s.migrationApply(Request{ID: "3", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: preview.MigrationID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +815,7 @@ func TestMigrationPreviewApplyThroughSession(t *testing.T) {
 	if !again.NoChange {
 		t.Fatalf("repeat preview must be no_change: %+v", again)
 	}
-	noop, err := s.migrationApply(Request{ID: "5", Op: "migration_apply", MigrationID: again.MigrationID})
+	noop, err := s.migrationApply(Request{ID: "5", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: again.MigrationID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -835,7 +835,7 @@ func TestMigrationPreviewApplyThroughSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.migrationApply(Request{ID: "8", Op: "migration_apply", MigrationID: third.MigrationID}); err == nil {
+	if _, err := s.migrationApply(Request{ID: "8", Op: "migration_apply", Dates: []string{"2026-10-21"}, MigrationID: third.MigrationID}); err == nil {
 		t.Fatal("activation with an opened day must be rejected")
 	}
 }
@@ -930,7 +930,7 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", MigrationID: first.MigrationID}); err != nil {
+	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: first.MigrationID}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -942,7 +942,7 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 	if !repeat.NoChange {
 		t.Fatalf("identical repeat must be no_change: %+v", repeat)
 	}
-	noop, err := s.migrationApply(Request{ID: "4", Op: "migration_apply", MigrationID: repeat.MigrationID})
+	noop, err := s.migrationApply(Request{ID: "4", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: repeat.MigrationID})
 	if err != nil || noop.Status != MigrationNoChange || noop.ReceiptID != first.MigrationID {
 		t.Fatalf("identical repeat apply must stay no_change: %+v (%v)", noop, err)
 	}
@@ -962,10 +962,10 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.migrationApply(Request{ID: "o2", Op: "migration_apply", MigrationID: otherPreview.MigrationID}); err != nil {
+	if _, err := other.migrationApply(Request{ID: "o2", Op: "migration_apply", Dates: []string{"2026-11-10"}, MigrationID: otherPreview.MigrationID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.migrationApply(Request{ID: "6", Op: "migration_apply", MigrationID: revalidation.MigrationID}); !isErrorCode(err, CodeMigrationStale) {
+	if _, err := s.migrationApply(Request{ID: "6", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: revalidation.MigrationID}); !isErrorCode(err, CodeMigrationStale) {
 		t.Fatalf("the old pending preview must not succeed against changed target state: %v", err)
 	}
 
@@ -979,7 +979,7 @@ func TestMigrationApplyRevalidatesBeforeNoChange(t *testing.T) {
 		t.Fatalf("pre-change repeat must be no_change: %+v", staleSource)
 	}
 	writeLegacy(t, legacyRoot, "2026-10-20", strings.Replace(legacyDayOne, "Synthetic legacy work", "Changed legacy work", 1))
-	if _, err := s.migrationApply(Request{ID: "8", Op: "migration_apply", MigrationID: staleSource.MigrationID}); !isErrorCode(err, CodeMigrationStale) {
+	if _, err := s.migrationApply(Request{ID: "8", Op: "migration_apply", Dates: []string{"2026-10-20"}, MigrationID: staleSource.MigrationID}); !isErrorCode(err, CodeMigrationStale) {
 		t.Fatalf("stale source under a pending no-change preview must fail: %v", err)
 	}
 	disclosed, err := s.migrationPreview(Request{ID: "9", Op: "migration_preview", Dates: []string{"2026-10-20"}})
@@ -1024,7 +1024,7 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 	if !batch.Ready || batch.NoChange {
 		t.Fatalf("two-date batch must be ready: %+v", batch)
 	}
-	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", MigrationID: batch.MigrationID}); err != nil {
+	if _, err := s.migrationApply(Request{ID: "2", Op: "migration_apply", Dates: []string{"2026-11-03", "2026-11-04"}, MigrationID: batch.MigrationID}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1042,7 +1042,7 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 	if !subset.NoChange || subset.ExistingReceipt != batch.MigrationID {
 		t.Fatalf("repeated subset must be no_change evidence of the covering receipt: %+v", subset)
 	}
-	if _, err := s.migrationApply(Request{ID: "4", Op: "migration_apply", MigrationID: subset.MigrationID}); err != nil {
+	if _, err := s.migrationApply(Request{ID: "4", Op: "migration_apply", Dates: []string{"2026-11-04"}, MigrationID: subset.MigrationID}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -1075,7 +1075,7 @@ func TestMigrationRepeatIdentityCoversTimezoneAndSubsets(t *testing.T) {
 	if tzPreview.NoChange || !hasConflict(tzPreview.Conflicts, "interpretation_conflict") {
 		t.Fatalf("a different declared timezone must be an interpretation conflict: %+v", tzPreview)
 	}
-	if _, err := sUTC.migrationApply(Request{ID: "6", Op: "migration_apply", MigrationID: tzPreview.MigrationID}); !isErrorCode(err, CodeMigrationConflict) {
+	if _, err := sUTC.migrationApply(Request{ID: "6", Op: "migration_apply", Dates: []string{"2026-11-04"}, MigrationID: tzPreview.MigrationID}); !isErrorCode(err, CodeMigrationConflict) {
 		t.Fatalf("interpretation-conflicting apply must fail: %v", err)
 	}
 	day := ampsterdamState.Days["2026-11-04"]

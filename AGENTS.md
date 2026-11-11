@@ -4,7 +4,7 @@
 
 - Use GitHub account `huyle-gradion` and repository-local Git identity `Huy Le <huy.leminh@gradion.com>`. Verify author, committer and authenticated account before publication; on this host use `GH_CONFIG_DIR=$HOME/.config/gh` because the agent runtime's XDG config selects a different account. Confirm `gh api user --jq .login` is `huyle-gradion`. Keep global Git settings unchanged.
 - Use **Pilot Timesheet** as the public product name and neutral product terminology in source, documentation and release metadata.
-- Every shipped application changeset updates SemVer consistently across Go, adapter negotiation, package/root-lock stamps, changelog and release tag.
+- Every shipped application changeset updates SemVer consistently across Go, package/root-lock stamps, changelog and release tag.
 - Preserve published commits and tags unless the owner explicitly authorizes changing history.
 - Any Go toolchain matching `go.mod` builds the repository; a mise-managed Go path is local environment troubleshooting, not a project dependency.
 

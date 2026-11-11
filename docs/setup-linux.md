@@ -86,8 +86,6 @@ Rules that matter in daily use:
   visible without opening files.
 - `--env-file` still defaults only to `~/.timesheet/.env.local`; there is no
   project-local env tier.
-- `serve` keeps requiring both `--config` and `--env-file` verbatim because it
-  is the protocol server, not because a launcher supplies them.
 - Existing configurations are loaded exactly as before. A relative
   `state_path` keeps today's meaning (resolved against the process cwd); only
   setup-generated configs bake an absolute path.
