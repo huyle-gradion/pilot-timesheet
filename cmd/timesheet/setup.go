@@ -89,7 +89,7 @@ func parseSetupFlags(args []string) (setupOptions, error) {
 		return setupOptions{}, err
 	}
 	if flags.NArg() != 0 {
-		return setupOptions{}, setupUsagef("init does not accept positional arguments")
+		return setupOptions{}, setupUsagef("setup does not accept positional arguments")
 	}
 	opts := setupOptions{seedConfigPath: strings.TrimSpace(*seedConfig), timezone: strings.TrimSpace(*tz)}
 	for _, raw := range rawProjects {
@@ -262,9 +262,9 @@ func executeSetup(opts setupOptions, out io.Writer) error {
 
 	if createdFiles > 0 {
 		if needEnv {
-			lines = append(lines, "next: credential values are yours to add, then run 'timesheet log'")
+			lines = append(lines, "next: credential values are yours to add, then run 'timesheet run'")
 		} else {
-			lines = append(lines, "next: run 'timesheet log'")
+			lines = append(lines, "next: run 'timesheet run'")
 		}
 	}
 

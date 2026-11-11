@@ -56,11 +56,9 @@ bin/timesheet init --project 'pilot=Personal Pilot Timesheet'
   relative paths against the seed file's own directory. Pass either `--project`
   or `--seed-config`, not both.
 
-After `init`, log the day with `bin/timesheet log` (it defaults to today in
-the configured timezone). It runs every step until a question for you
-(`ask_human`), a stop or the ready plan (`human_gates`); the skill runs the
-same command. `bin/timesheet next` shows the one step it would take without
-running it.
+After setup, start the day with `bin/timesheet next` (it defaults to today in
+the configured timezone) and follow its one typed state until `stopped` or
+`human_gates`; the skill does the same loop.
 
 Then add credential values yourself:
 

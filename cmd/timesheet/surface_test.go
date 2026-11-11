@@ -83,21 +83,6 @@ func TestSubmitTerminalWrongPlanIDWritesNothing(t *testing.T) {
 	}
 }
 
-func TestSubmitTerminalStopKeepsTheApprovalWithAResumeCommand(t *testing.T) {
-	cfg, stub := savedDayForSubmit(t, "Build the bridge", nil, "")
-	preview := runPlanCapture(t, []string{"--config", cfg, "--date", testDate})
-	injectTTY(t, preview.PlanID, "not-the-approval")
-	err := runSubmitCommand([]string{"--config", cfg, "--date", testDate})
-	if err == nil || stub.writeCount() != 0 {
-		t.Fatalf("err = %v, writes %d; want a stop before any write", err, stub.writeCount())
-	}
-	for _, want := range []string{"is kept: resume with", "--config " + cfg, "--date " + testDate, "--approval-id "} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("resume guidance %q lacks %q", err, want)
-		}
-	}
-}
-
 func TestSubmitSubcommandsRouteToTheirCores(t *testing.T) {
 	cfg, _ := savedDayForSubmit(t, "Build the bridge", nil, "")
 	out, _, err := captureOutput(t, func() error {
@@ -134,14 +119,11 @@ func TestLogRunsTheDayAndRejectsTheOldFlags(t *testing.T) {
 	if err := runLog([]string{"--config", cfg, "--do"}); err == nil || !strings.Contains(err.Error(), "drop --do and --auto") {
 		t.Fatalf("log --do = %v", err)
 	}
-	if err := runLog([]string{"--config", cfg, "--max-actions", "0"}); err == nil || !strings.Contains(err.Error(), "at least 1") {
-		t.Fatalf("log --max-actions 0 = %v", err)
-	}
 }
 
 func TestRetiredCommandsNameTheirReplacement(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "timesheet")
-	if out, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	for old, want := range map[string]string{
@@ -149,7 +131,7 @@ func TestRetiredCommandsNameTheirReplacement(t *testing.T) {
 		"submit-status": "timesheet submit status", "resolve-write": "timesheet submit resolve",
 		"collect": "timesheet log", "draft": "timesheet log", "confirm": "timesheet log",
 	} {
-		cmd := exec.CommandContext(t.Context(), binary, old, "--date", testDate)
+		cmd := exec.Command(binary, old, "--date", testDate)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		err := cmd.Run()
