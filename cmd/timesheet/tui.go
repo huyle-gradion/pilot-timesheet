@@ -124,6 +124,8 @@ func (m tuiModel) View() string {
 		return renderBench(m)
 	case screenGate:
 		return renderGate(m)
+	case screenAsk:
+		return renderAskForm(m)
 	default:
 		return renderDay(m)
 	}

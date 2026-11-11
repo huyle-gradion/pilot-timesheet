@@ -49,8 +49,8 @@ func TestDailyMessageCoversEveryOutcome(t *testing.T) {
 	if msg, send := dailyMessage(cfg, policy, "d", advanceReport{nextAction: gates}, nil); !send || !strings.Contains(msg, "ready to submit") || !strings.Contains(msg, "timesheet approve --date d") {
 		t.Fatalf("gates = %q %v", msg, send)
 	}
-	ask := nextAction{Day: "d", State: stateAskHuman, Ask: &askHuman{Question: "acknowledge github?", Options: []string{"acknowledge"}, AnswerFile: "/s/ask.json"}}
-	if msg, _ := dailyMessage(cfg, policy, "d", advanceReport{nextAction: ask}, nil); !strings.Contains(msg, "acknowledge github?") || !strings.Contains(msg, "/s/ask.json") {
+	ask := nextAction{Day: "d", State: stateAskHuman, Ask: &askHuman{Kind: askSourceAck, Question: "acknowledge github?", Options: []string{"acknowledge"}, AnswerFile: "/s/ask.json"}}
+	if msg, _ := dailyMessage(cfg, policy, "d", advanceReport{nextAction: ask}, nil); !strings.Contains(msg, "acknowledge github?") || !strings.Contains(msg, "timesheet answer --date d") {
 		t.Fatalf("ask = %q", msg)
 	}
 	empty := nextAction{Day: "d", State: stateStopped, Reason: "the draft artifact at x carries no blocks, so record would reject the day"}

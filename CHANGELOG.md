@@ -4,6 +4,11 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- `timesheet answer --date <day> [--kind <kind>] <answer>` and a TUI answer
+  form let you answer an `ask_human` question without an agent (#288). Both
+  write the same digest-bound answer file the agent path writes, checked
+  against the question's closed options; `log` consumes it unchanged. `answer`
+  is terminal-only. The `ask_human` notification names the command.
 - `internal/timesheet` comments are removed (#258). New tests pin the
   constraints they stated, including that a write left in flight blocks the
   plan, its approval and any new submit after a restart.

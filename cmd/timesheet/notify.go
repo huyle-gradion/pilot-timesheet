@@ -38,8 +38,16 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 		if len(r.Ask.Options) > 0 {
 			msg += " Options: " + strings.Join(r.Ask.Options, ", ") + "."
 		}
-		return clipNotice(msg + " Answer it in your agent, or write the answer file " + r.Ask.AnswerFile +
-			" as its protocol shows, then run: timesheet log --date " + day), true
+		if answerable(r.Ask) != nil {
+			return clipNotice(msg + " Answer it in your agent, or write the answer file " + r.Ask.AnswerFile +
+				" as its protocol shows, then run: timesheet log --date " + day), true
+		}
+		pick := "<answer>"
+		if len(r.Ask.Options) == 1 {
+			pick = r.Ask.Options[0]
+		}
+		return clipNotice(msg + " Answer it in a terminal: timesheet answer --date " + day + " --kind " + r.Ask.Kind + " " + pick +
+			" (or in timesheet tui --date " + day + ", or your agent), then run: timesheet log --date " + day), true
 	case r.State == stateStopped && strings.Contains(r.Reason, noEvidenceMarker):
 		return day + ": nothing to log (no evidence was collected).", *policy.NotifyEmpty
 	case r.State == stateStopped:
