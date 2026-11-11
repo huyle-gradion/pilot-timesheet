@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// SavedClassificationDigest binds an answer to durable intervals and their revision.
 func SavedClassificationDigest(date string, revision int, confirmed []Interval) string {
 	intervals := slices.Clone(confirmed)
 	slices.SortFunc(intervals, func(a, b Interval) int { return strings.Compare(a.ID, b.ID) })

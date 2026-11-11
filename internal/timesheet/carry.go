@@ -11,17 +11,10 @@ import (
 	"time"
 )
 
-// --- Overnight carry (issue #277, ADR 0011) ------------------------------------
-//
-// An overnight stage unit that runs more than 240 real minutes past its date's
-// midnight keeps the part up to midnight plus up to 240 minutes after it; the
-// remainder is carried into the next date, where it stages like that day's own
-// entries. The source ledger is never modified. The carry is a derived,
-// durable record keyed to its source unit: entries/<source date>.carry.json,
-// replaced whole by every derivation of the source day. Like the stage map it
-// carries no state-schema weight and is never read by the session dispatcher or
-// the plan builder; nothing reaches the remote except through the target day's
-// own human-gated submission.
+// The source ledger is never modified. Like the stage map it carries no
+// state-schema weight and is never read by the session dispatcher or the plan
+// builder; nothing reaches the remote except through the target day's own
+// human-gated submission.
 
 // CarrySegment is one carried part of a source-day stage unit. Start and End
 // are clocks on Date (the source date's next date) in Timezone (the source
@@ -38,7 +31,6 @@ type CarrySegment struct {
 	Timezone      string `json:"timezone"`
 }
 
-// carriedPrefix starts every carried block id on the target day.
 const carriedPrefix = "carried-"
 
 // BlockID is the carried segment's block id on the target day:
@@ -49,7 +41,6 @@ func (c CarrySegment) BlockID() string {
 	return carriedPrefix + c.SourceDate + "-" + c.SourceBlockID
 }
 
-// Entry is the carried segment as one stage input entry of the target day.
 func (c CarrySegment) Entry() EntryRecord {
 	return EntryRecord{
 		BlockID: c.BlockID(), Date: c.Date, Start: c.Start, End: c.End,
@@ -78,11 +69,6 @@ func PreviousDate(date string) string {
 	return t.AddDate(0, 0, -1).Format("2006-01-02")
 }
 
-// StageSpans chunks one stage-time span recorded under date to the Gradion
-// four-hour policy (issue #167) and returns the spans staged on date. A
-// same-day span is exactly SplitEntrySpans. An overnight span with 240 real
-// minutes or fewer after midnight is LegacyStageSpans (#176). A longer one is
-// cut at its carry cutoff (ADR 0011); SplitCluster returns the carried rest.
 func StageSpans(date, timezone, start, end string) [][2]string {
 	spans, _, _ := splitSpan(date, timezone, start, end)
 	return spans
@@ -90,7 +76,7 @@ func StageSpans(date, timezone, start, end string) [][2]string {
 
 // SplitCluster splits one stage-time cluster resolved under date into the spans
 // staged on date and the segment carried into the next date (nil when nothing
-// is carried). A cluster that starts after midnight (NextDay) is carried whole.
+// is carried).
 func SplitCluster(date, timezone string, c EntryCluster) ([][2]string, *CarrySegment) {
 	seg := CarrySegment{
 		SourceDate: date, SourceBlockID: c.BlockID, Date: nextDate(date),
@@ -109,13 +95,9 @@ func SplitCluster(date, timezone string, c EntryCluster) ([][2]string, *CarrySeg
 	return spans, &seg
 }
 
-// splitSpan is the carry arithmetic. The source day is chunked in real minutes
-// greedily from the start in 240-minute steps while the next chunk would still
-// start before midnight; the last chunk that starts before midnight runs a
-// full 240 minutes (it crosses midnight or ends exactly at it), and its end is
-// the cutoff. [cutoff, end] is the carry. Any boundary that does not resolve
-// to one instant falls back to the single original span and no carry, so
-// plan's remote_entry_too_long guard reports it loudly.
+// Any boundary that does not resolve to one instant falls back to the single
+// original span and no carry, so plan's remote_entry_too_long guard reports it
+// loudly.
 func splitSpan(date, timezone, start, end string) ([][2]string, *[2]string, int) {
 	sm, okS := draftClock(start)
 	em, okE := draftClock(end)
@@ -185,7 +167,6 @@ func wallOrRealMinutes(date, timezone, start, end string) int {
 	return em - sm
 }
 
-// CarryFile is the durable carry record of one source day.
 type CarryFile struct {
 	SourceDate string         `json:"source_date"`
 	AppVersion string         `json:"app_version"`
@@ -193,14 +174,11 @@ type CarryFile struct {
 	Carries    []CarrySegment `json:"carries"`
 }
 
-// CarryPath returns the source day's carry record path:
-// entries/<source date>.carry.json, next to its entries file and stage map.
 func CarryPath(statePath, sourceDate string) string {
 	return strings.TrimSuffix(EntriesPath(statePath, sourceDate), ".json") + ".carry.json"
 }
 
-// ReadCarry loads the carry record written by sourceDate's derivation. A
-// missing file is (nil, nil).
+// A missing file is (nil, nil).
 func ReadCarry(statePath, sourceDate string) ([]CarrySegment, error) {
 	data, err := os.ReadFile(CarryPath(statePath, sourceDate))
 	if errors.Is(err, os.ErrNotExist) {
@@ -221,7 +199,6 @@ func ReadCarry(statePath, sourceDate string) ([]CarrySegment, error) {
 	return f.Carries, nil
 }
 
-// ReadCarryInto returns the segments carried into date from the date before.
 func ReadCarryInto(statePath, date string) ([]CarrySegment, error) {
 	prev := PreviousDate(date)
 	if prev == "" {
@@ -231,8 +208,7 @@ func ReadCarryInto(statePath, date string) ([]CarrySegment, error) {
 }
 
 // WriteCarry replaces sourceDate's carry record atomically with carries, in
-// source block id order. No carry removes the record, so a day with nothing to
-// carry has no file and re-staging never leaves a stale or duplicate carry.
+// source block id order.
 func WriteCarry(statePath, appVersion, sourceDate string, carries []CarrySegment, now time.Time) error {
 	path := CarryPath(statePath, sourceDate)
 	if len(carries) == 0 {
@@ -264,8 +240,6 @@ func WriteCarry(statePath, appVersion, sourceDate string, carries []CarrySegment
 	return nil
 }
 
-// CheckCarryTimezone refuses carried segments computed in a timezone other
-// than the target day's: their clocks would be read in the wrong zone.
 func CheckCarryTimezone(carries []CarrySegment, timezone string) error {
 	for _, c := range carries {
 		if c.Timezone != timezone {

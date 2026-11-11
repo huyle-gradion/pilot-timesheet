@@ -11,9 +11,6 @@ import (
 	"time"
 )
 
-// noOverlapReview is a single-POW day: two meetings, their separate confirmed
-// work intervals, one topic per block and one unallocated topic. No block
-// overlaps another, so issue #183 rule 7 requires a byte-identical draft.
 func noOverlapReview() Review {
 	return draftReview(
 		[]ProposedMeeting{
@@ -42,9 +39,6 @@ func noOverlapReview() Review {
 	)
 }
 
-// TestBuildDraftNoOverlapGolden pins the exact draft JSON a no-overlap day
-// renders. The golden encodes the carve: every block keeps its own span, and the
-// lone evening instant backs its span up from the proof of work.
 func TestBuildDraftNoOverlapGolden(t *testing.T) {
 	raw, err := json.Marshal(BuildDraft(noOverlapReview(), "test"))
 	if err != nil {
@@ -92,10 +86,6 @@ func item(kind, title, at string) EvidenceItem {
 	return EvidenceItem{Kind: kind, Repo: "acme/api", Title: title, Time: "2026-10-26T" + at + ":00+07:00"}
 }
 
-// TestBuildDraftOverlappingWorkBlocksMerge: two concurrent POWs from different
-// projects become one block over the union span, naming both titles, carrying
-// both topic candidate sets and both source sets, with the id of the head
-// (earliest start).
 func TestBuildDraftOverlappingWorkBlocksMerge(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{segment("Bridge PRs", "09:00", "11:00"), segment("Ops deploy", "10:00", "12:00")},
@@ -143,8 +133,6 @@ func TestBuildDraftOverlappingWorkBlocksMerge(t *testing.T) {
 	}
 }
 
-// TestBuildDraftChainedOverlapIsOneBlock: A overlaps B and B overlaps C, so all
-// three are one cluster over the union span.
 func TestBuildDraftChainedOverlapIsOneBlock(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{
@@ -163,8 +151,6 @@ func TestBuildDraftChainedOverlapIsOneBlock(t *testing.T) {
 	}
 }
 
-// TestBuildDraftTouchingBlocksStaySeparate: end == start is not overlap, so
-// the two blocks keep their own spans and ids.
 func TestBuildDraftTouchingBlocksStaySeparate(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{segment("First", "09:00", "10:00"), segment("Second", "10:00", "11:00")},
@@ -182,9 +168,6 @@ func TestBuildDraftTouchingBlocksStaySeparate(t *testing.T) {
 	}
 }
 
-// TestBuildDraftMeetingKeepsItsSpanAndCarvesWork: a confirmed interval that
-// runs past a meeting is one work block, and the meeting keeps exactly the
-// minutes the calendar gave it.
 func TestBuildDraftMeetingKeepsItsSpanAndCarvesWork(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -218,9 +201,6 @@ func TestBuildDraftMeetingKeepsItsSpanAndCarvesWork(t *testing.T) {
 	}
 }
 
-// TestBuildDraftCarvesEvidenceAroundMeetings is the 2026-10-21 shape: one long
-// evidence stretch crossing two meetings. Each meeting keeps its own span and
-// the evidence is carved around them, instead of one block swallowing the day.
 func TestBuildDraftCarvesEvidenceAroundMeetings(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{
@@ -257,10 +237,6 @@ func TestBuildDraftCarvesEvidenceAroundMeetings(t *testing.T) {
 	}
 }
 
-// TestRecordEntriesMergesOverlappingBlocks is issue #183 rule 5: a reviewed
-// file that still carries the two overlapping work blocks an older draft
-// rendered records one merged entry whose span, topics and re-attached sources
-// are the ones the current draft shows for the same evidence.
 func TestRecordEntriesMergesOverlappingBlocks(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{segment("Bridge PRs", "09:00", "11:00"), segment("Ops deploy", "10:00", "12:00")},
@@ -317,8 +293,6 @@ func TestRecordEntriesMergesOverlappingBlocks(t *testing.T) {
 			t.Fatalf("recorded sources = %+v, want the draft's %+v", got.Sources, want.Sources)
 		}
 	}
-	// Merging is idempotent: recording the already merged file again keeps one
-	// entry, so a retried run never duplicates the day.
 	merged := ReviewedDraft{Date: "2026-10-26", Timezone: "Asia/Ho_Chi_Minh", Blocks: []ReviewedBlock{
 		{DraftBlock: DraftBlock{BlockID: got.BlockID, Kind: got.Kind, Start: got.Start, End: got.End}, Description: got.Description},
 	}}
@@ -331,12 +305,6 @@ func TestRecordEntriesMergesOverlappingBlocks(t *testing.T) {
 	}
 }
 
-// --- issue #183 fix round: F-1, F-2, F-3, F-4 --------------------------------
-
-// absorbedEvidenceReview is the F-1 shape: one meeting and three evidence
-// topics whose topic anchors sit outside the meeting's span while their item
-// anchors sit inside it, so the draft's evidence seed overlaps the meeting and
-// is absorbed into it.
 func absorbedEvidenceReview() Review {
 	untimed := []EvidenceItem{}
 	for i := 0; i < 7; i++ {
@@ -354,10 +322,6 @@ func absorbedEvidenceReview() Review {
 	)
 }
 
-// draftAsReviewed turns the draft the skill hands the judgment step into the
-// reviewed file record receives: one description per block (the title, with the
-// PRs list composed in) and none of the audit-only sources the draft never
-// serializes.
 func draftAsReviewed(t *testing.T, d Draft) ReviewedDraft {
 	t.Helper()
 	out := ReviewedDraft{Date: d.Date, Timezone: d.Timezone}
@@ -376,9 +340,6 @@ func draftAsReviewed(t *testing.T, d Draft) ReviewedDraft {
 	return out
 }
 
-// recordedSourcesEqualDraft is the F-1 invariant: for the same evidence the
-// recorded entry carries exactly the draft block's sources, in order, with the
-// same truncation flag.
 func recordedSourcesEqualDraft(t *testing.T, got EntryRecord, want DraftBlock) {
 	t.Helper()
 	if len(got.Sources) != len(want.Sources) {
@@ -394,10 +355,6 @@ func recordedSourcesEqualDraft(t *testing.T, got EntryRecord, want DraftBlock) {
 	}
 }
 
-// TestRecordSourcesMatchDraftWhenEvidenceStraddlesMeetingEdge: a topic whose
-// item sits inside a meeting and a topic whose item sits just past it record
-// exactly the sources the draft attached to their own blocks, for both reviewed
-// file shapes record accepts — the older hand-authored blocks and the draft.
 func TestRecordSourcesMatchDraftWhenEvidenceStraddlesMeetingEdge(t *testing.T) {
 	review := absorbedEvidenceReview()
 	draft := BuildDraft(review, "test")
@@ -448,9 +405,6 @@ func TestRecordSourcesMatchDraftWhenEvidenceStraddlesMeetingEdge(t *testing.T) {
 	}
 }
 
-// TestBuildDraftMeetingKeepsItsSpanWithDescriptionOnlyWork: a confirmed interval
-// overlapping a meeting is carved at the meeting boundary, and its human-written
-// description stays on the work piece instead of renaming the meeting.
 func TestBuildDraftMeetingKeepsItsSpanWithDescriptionOnlyWork(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -470,8 +424,6 @@ func TestBuildDraftMeetingKeepsItsSpanWithDescriptionOnlyWork(t *testing.T) {
 	}
 }
 
-// TestBuildDraftTopicBackedWorkKeepsItsOwnTopics: a carved work piece carries the
-// topics whose items landed past the meeting, and the meeting stays clean.
 func TestBuildDraftTopicBackedWorkKeepsItsOwnTopics(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -493,8 +445,6 @@ func TestBuildDraftTopicBackedWorkKeepsItsOwnTopics(t *testing.T) {
 	}
 }
 
-// TestBuildDraftSplitsWorkTopicsAtTheCarve: a work block owns the item inside it
-// and the evidence block owns the later one, so neither topic is duplicated.
 func TestBuildDraftSplitsWorkTopicsAtTheCarve(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{segment("Project A work", "09:00", "10:00")},
@@ -518,8 +468,6 @@ func TestBuildDraftSplitsWorkTopicsAtTheCarve(t *testing.T) {
 	}
 }
 
-// TestFoldReviewedClusterNamesEveryMeetingTitle: a recovery file that happens to
-// carry two overlapping meeting blocks keeps both names when they fold.
 func TestFoldReviewedClusterNamesEveryMeetingTitle(t *testing.T) {
 	got := MergeOverlappingBlocks([]ReviewedBlock{
 		{DraftBlock: DraftBlock{BlockID: "meeting-09:00-10:00", Kind: "meeting", Start: "09:00", End: "10:00", Title: "Intern Academy"},
@@ -538,10 +486,6 @@ func TestFoldReviewedClusterNamesEveryMeetingTitle(t *testing.T) {
 	}
 }
 
-// TestRecordAndDraftUseOneMergedBlockID: a multi-member cluster's id is the
-// union-derived kind-start-end on both paths, so recording the draft after a
-// recovery merge replaces the same entry instead of duplicating it (finding
-// F-4).
 func TestRecordAndDraftUseOneMergedBlockID(t *testing.T) {
 	review := draftReview(nil,
 		[]Segment{segment("Bridge PRs", "09:00", "11:00"), segment("Ops deploy", "10:00", "12:00")},
@@ -565,7 +509,6 @@ func TestRecordAndDraftUseOneMergedBlockID(t *testing.T) {
 	if f == nil || len(f.Entries) != 1 || f.Entries[0].BlockID != draft.Blocks[0].BlockID {
 		t.Fatalf("recorded = %+v, want the draft's id %s", f, draft.Blocks[0].BlockID)
 	}
-	// Recording the drafted block afterwards is a replace of the same entry.
 	if _, err := RecordEntries(statePath, "test", draftAsReviewed(t, draft), false, time.Now()); err != nil {
 		t.Fatalf("re-record draft: %v", err)
 	}
@@ -573,7 +516,6 @@ func TestRecordAndDraftUseOneMergedBlockID(t *testing.T) {
 	if f2 == nil || len(f2.Entries) != 1 || f2.Entries[0].BlockID != draft.Blocks[0].BlockID {
 		t.Fatalf("after recording the draft = %+v, want one entry under %s", f2, draft.Blocks[0].BlockID)
 	}
-	// Re-recording the same pre-merge content in merge mode changes nothing.
 	if _, err := RecordEntries(statePath, "test", preMerge, false, time.Now()); err != nil {
 		t.Fatalf("re-record same content: %v", err)
 	}
@@ -584,9 +526,6 @@ func TestRecordAndDraftUseOneMergedBlockID(t *testing.T) {
 	}
 }
 
-// TestRecordReplaceReportsObsoleteMergedContributors: replace mode still
-// reports the entries a merge makes obsolete, even though the merged block's
-// id changed to the union-derived one (finding F-4).
 func TestRecordReplaceReportsObsoleteMergedContributors(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
@@ -621,10 +560,6 @@ func TestRecordReplaceReportsObsoleteMergedContributors(t *testing.T) {
 	}
 }
 
-// TestMergeOverlappingBlocksResolvesUnionIDCollisions: a union-derived id that
-// collides with an existing singleton id takes the next free suffix, in
-// ascending id order, while the singleton keeps its own id. The draft, record
-// and stage projection all use the same resolver.
 func TestMergeOverlappingBlocksResolvesUnionIDCollisions(t *testing.T) {
 	got := MergeOverlappingBlocks([]ReviewedBlock{
 		{DraftBlock: DraftBlock{BlockID: "work-09:00-11:00", Kind: "work", Start: "09:00", End: "11:00"}, Description: "A"},
@@ -642,8 +577,6 @@ func TestMergeOverlappingBlocksResolvesUnionIDCollisions(t *testing.T) {
 	}
 }
 
-// --- issue #183 F-1, third round: recompute the draft's ownership ------------
-
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -656,10 +589,6 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-// interleavedOwnershipReview is N-1: one meeting-owned topic sits between two
-// unallocated endpoint topics, and the untimed topic tails the evidence. The
-// evidence seed's item anchors cross into the meeting, so the meeting absorbs
-// it and the draft replays every topic in evidence order.
 func interleavedOwnershipReview() Review {
 	return draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -674,9 +603,6 @@ func interleavedOwnershipReview() Review {
 	)
 }
 
-// TestRecordSourcesFollowEvidenceOrderWhenOwnershipInterleaves: the meeting owns
-// the two items inside it and the evidence block owns the two outside, in topic
-// order. Both reviewed-file shapes must record exactly those sources.
 func TestRecordSourcesFollowEvidenceOrderWhenOwnershipInterleaves(t *testing.T) {
 	review := interleavedOwnershipReview()
 	draft := BuildDraft(review, "test")
@@ -730,11 +656,6 @@ func TestRecordSourcesFollowEvidenceOrderWhenOwnershipInterleaves(t *testing.T) 
 	}
 }
 
-// collapsedEvidenceReview is N-2: topic A has no topic anchors and one item
-// inside the meeting, topic B's anchors start where the union block ends, and
-// topic C is untimed with an item that carries no time. All three become
-// evidence; the evidence span crosses into the meeting, so the meeting absorbs
-// the block and the union ends at B's item anchor.
 func collapsedEvidenceReview() Review {
 	return draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -751,9 +672,6 @@ func collapsedEvidenceReview() Review {
 	)
 }
 
-// TestRecordSourcesKeepEvidencePastTheMeeting: both shapes must record all three
-// topics. The meeting takes the item inside it, and the carved evidence block
-// takes the later item plus the topic that carries no anchors at all.
 func TestRecordSourcesKeepEvidencePastTheMeeting(t *testing.T) {
 	review := collapsedEvidenceReview()
 	draft := BuildDraft(review, "test")
@@ -806,10 +724,6 @@ func TestRecordSourcesKeepEvidencePastTheMeeting(t *testing.T) {
 	}
 }
 
-// TestRecordReportsBlocksOutsideTheRecomputedDraft: a reviewed block the
-// recompute cannot place still records, keeps its own (empty) sources, and says
-// so once on the diagnostic stream. A block the recompute does produce prints
-// nothing and receives its sources.
 func TestRecordReportsBlocksOutsideTheRecomputedDraft(t *testing.T) {
 	topics := []TopicCandidate{{
 		Title:   "Evening evidence",
@@ -845,8 +759,6 @@ func TestRecordReportsBlocksOutsideTheRecomputedDraft(t *testing.T) {
 		t.Fatalf("recorded sources = %+v, want none", f.Entries[0].Sources)
 	}
 
-	// The same evidence's own draft block resolves, so it prints nothing and
-	// receives the source.
 	draft := BuildDraft(draftReview(nil, nil, topics, nil), "test")
 	if len(draft.Blocks) != 1 {
 		t.Fatalf("draft blocks = %+v, want the evidence block", draft.Blocks)

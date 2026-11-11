@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// --- TOPIC-OVERFLOW-1: durable per-topic evidence overflow (issue #146) -----
-
-// overflowFixtureItem builds one synthetic attributable provider item.
 func overflowFixtureItem(seq int, kind, at, repo, resource string) EvidenceItem {
 	return EvidenceItem{
 		Ref:      fmt.Sprintf("ev-%s-%04d", kind, seq),
@@ -24,9 +21,6 @@ func overflowFixtureItem(seq int, kind, at, repo, resource string) EvidenceItem 
 	}
 }
 
-// TestBuildGithubTopicsOverflowRetention: a 60-item topic retains exactly 50
-// Items plus 10 OverflowItems, both time-sorted; FirstAt/LastAt stay computed
-// from the retained Items only (overflow never extends the span).
 func TestBuildGithubTopicsOverflowRetention(t *testing.T) {
 	var items []EvidenceItem
 	for i := 0; i < 50; i++ {
@@ -34,8 +28,6 @@ func TestBuildGithubTopicsOverflowRetention(t *testing.T) {
 			fmt.Sprintf("2026-10-20T%02d:%02d:00+07:00", 10+i/60, i%60),
 			"acme/api", "pr:acme/api:12"))
 	}
-	// The ten overflow items carry later timestamps than every retained item,
-	// so a span extension would be visible in LastAt.
 	for i := 0; i < 10; i++ {
 		items = append(items, overflowFixtureItem(50+i, "issue_comment",
 			fmt.Sprintf("2026-10-20T18:%02d:00+07:00", i),
@@ -73,9 +65,6 @@ func TestBuildGithubTopicsOverflowRetention(t *testing.T) {
 	}
 }
 
-// TestBuildGithubTopicsPerTopicOverflowCeiling: a 250-item single topic
-// retains 50 Items + 150 OverflowItems and records the 50 items beyond the
-// per-topic overflow ceiling as an honest DroppedItems loss.
 func TestBuildGithubTopicsPerTopicOverflowCeiling(t *testing.T) {
 	var items []EvidenceItem
 	for i := 0; i < 250; i++ {
@@ -102,11 +91,6 @@ func TestBuildGithubTopicsPerTopicOverflowCeiling(t *testing.T) {
 	}
 }
 
-// TestBuildGithubTopicsTotalOverflowCeiling: enough topics to exceed the
-// 600-item attempt-wide overflow pool. Eight topics of 130 items each leave
-// 80 beyond-cap items per topic (640 total); the pool fills in de-duplicated
-// item arrival order, so topics 1-7 retain their full 80 and topic 8 retains
-// the last 40 with its remaining 40 counted lost.
 func TestBuildGithubTopicsTotalOverflowCeiling(t *testing.T) {
 	var items []EvidenceItem
 	for topic := 0; topic < 8; topic++ {
@@ -146,11 +130,6 @@ func TestBuildGithubTopicsTotalOverflowCeiling(t *testing.T) {
 	}
 }
 
-// TestBuildGithubTopicsDedupProvenanceMergeWithOverflow: the same provider
-// event seen through two endpoint families is merged before grouping even
-// when the duplicate straddles the retained Items cap — the merged
-// provenance survives on the retained item and the duplicate never becomes
-// an overflow item.
 func TestBuildGithubTopicsDedupProvenanceMergeWithOverflow(t *testing.T) {
 	var items []EvidenceItem
 	for i := 0; i < 49; i++ {
@@ -158,8 +137,6 @@ func TestBuildGithubTopicsDedupProvenanceMergeWithOverflow(t *testing.T) {
 			fmt.Sprintf("2026-10-20T10:%02d:00+07:00", i),
 			"acme/api", "pr:acme/api:12"))
 	}
-	// Item 50 (the last retained one) and item 51 (the first overflow
-	// candidate) share one provider event ref seen via two families.
 	retained := overflowFixtureItem(49, "pull_request", "2026-10-20T10:49:00+07:00", "acme/api", "pr:acme/api:12")
 	retained.Ref = "shared-event"
 	retained.Provenance = "pull_requests"
@@ -191,9 +168,6 @@ func TestBuildGithubTopicsDedupProvenanceMergeWithOverflow(t *testing.T) {
 	}
 }
 
-// TestStoreOverflowRoundTrip: overflow items survive a full durable
-// round-trip (commit, close, reload) exactly, and the same collection input
-// builds a byte-identical state projection twice.
 func TestStoreOverflowRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
@@ -240,7 +214,6 @@ func TestStoreOverflowRoundTrip(t *testing.T) {
 		t.Fatalf("reloaded topic differs from the built topic")
 	}
 
-	// Determinism: the same input built twice marshals byte-identically.
 	topics2 := buildGithubTopics(items)
 	again, err := json.Marshal(topics2)
 	if err != nil {
@@ -251,9 +224,6 @@ func TestStoreOverflowRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStoreLoadsLegacyStateWithoutOverflowField: a pre-#146 state file (no
-// overflow fields anywhere) loads unchanged, and re-marshaling its evidence
-// reproduces the fixture bytes exactly (legacy field order preserved).
 func TestStoreLoadsLegacyStateWithoutOverflowField(t *testing.T) {
 	legacyTopics := []TopicCandidate{{
 		Ref: "tc:gh:acme/api#pr:12", Title: "Pull request #12 (acme/api)", Provider: "github",
@@ -295,9 +265,6 @@ func TestStoreLoadsLegacyStateWithoutOverflowField(t *testing.T) {
 	}
 }
 
-// TestStoreValidatesOverflowItems: overflow items are durable evidence and
-// pass the same fail-closed identity validation as retained Items; a
-// negative loss count is structurally invalid.
 func TestStoreValidatesOverflowItems(t *testing.T) {
 	dir := t.TempDir()
 	seq := 0
@@ -346,9 +313,6 @@ func TestStoreValidatesOverflowItems(t *testing.T) {
 	}
 }
 
-// overflowDraftTopic builds one truncated synthetic topic: three retained
-// items, ten overflow items of two kinds spanning 14:05-16:20 local, and an
-// honest five-item loss beyond the ceilings.
 func overflowDraftTopic() TopicCandidate {
 	overflow := []EvidenceItem{}
 	for i := 0; i < 6; i++ {
@@ -374,10 +338,6 @@ func overflowDraftTopic() TopicCandidate {
 	}
 }
 
-// TestBuildDraftTruncatedTopicOverflowSummary: a truncated topic's
-// topic_candidates line carries the kind counts, the honest lost count and
-// the first/last overflow timestamps in a deterministic format; the same
-// input builds a byte-identical draft twice.
 func TestBuildDraftTruncatedTopicOverflowSummary(t *testing.T) {
 	review := draftReview(nil, nil, []TopicCandidate{overflowDraftTopic()}, nil)
 	d := BuildDraft(review, "test")
@@ -403,9 +363,6 @@ func TestBuildDraftTruncatedTopicOverflowSummary(t *testing.T) {
 	}
 }
 
-// TestBuildDraftOverflowLostOnlySummary: a topic truncated past the overflow
-// ceilings with nothing retained renders its loss honestly (no kept part, no
-// span), still deterministically.
 func TestBuildDraftOverflowLostOnlySummary(t *testing.T) {
 	topic := overflowDraftTopic()
 	topic.OverflowItems = nil
@@ -418,9 +375,6 @@ func TestBuildDraftOverflowLostOnlySummary(t *testing.T) {
 	}
 }
 
-// TestBuildDraftNonTruncatedTopicsByteIdentical: topics without overflow
-// render byte-identically to the pre-#146 renderer — the bare title, no
-// overflow marker anywhere in the draft.
 func TestBuildDraftNonTruncatedTopicsByteIdentical(t *testing.T) {
 	topic := overflowDraftTopic()
 	topic.OverflowItems = nil
@@ -443,21 +397,17 @@ func TestBuildDraftNonTruncatedTopicsByteIdentical(t *testing.T) {
 	}
 }
 
-// TestBuildDraftGroupedTruncatedPRsCarryCombinedSummary: several truncated
-// per-PR topics in one repository collapse into ONE grouped line (the #148
-// grouping invariant) that carries the combined overflow summary — summed
-// kept counts per kind, summed lost count, and the union span.
 func TestBuildDraftGroupedTruncatedPRsCarryCombinedSummary(t *testing.T) {
 	var topics []TopicCandidate
-	keptPerTopic := []int{10, 11, 12, 13, 14} // sums to 60
-	lostPerTopic := []int{1, 2, 3, 4, 5}      // sums to 15
+	keptPerTopic := []int{10, 11, 12, 13, 14}
+	lostPerTopic := []int{1, 2, 3, 4, 5}
 	for i := 0; i < 5; i++ {
 		num := 10 + i
 		var overflow []EvidenceItem
 		for k := 0; k < keptPerTopic[i]; k++ {
 			hour, minute := 9+i, 0
 			if i == 4 && k == keptPerTopic[i]-1 {
-				hour, minute = 16, 50 // push the union span's last timestamp
+				hour, minute = 16, 50
 			}
 			overflow = append(overflow, overflowFixtureItem(i*100+k, "commit",
 				fmt.Sprintf("2026-10-26T%02d:%02d:00+07:00", hour, minute),
@@ -483,9 +433,6 @@ func TestBuildDraftGroupedTruncatedPRsCarryCombinedSummary(t *testing.T) {
 	}
 }
 
-// TestBuildDraftCollapsedRepeatsCarryCombinedSummary: identically titled
-// truncated topics collapse into one "N× title" line carrying the combined
-// overflow summary of every occurrence.
 func TestBuildDraftCollapsedRepeatsCarryCombinedSummary(t *testing.T) {
 	mk := func(seq, lost, kept int, at string) TopicCandidate {
 		return TopicCandidate{
@@ -510,10 +457,6 @@ func TestBuildDraftCollapsedRepeatsCarryCombinedSummary(t *testing.T) {
 	}
 }
 
-// TestBuildDraftMoreLineCarriesAggregateLoss: when the 12-line cap omits
-// rendered lines that carried overflow or loss, the "+N more" line itself
-// carries their aggregate, so the headline loss count is never hidden
-// behind the cap.
 func TestBuildDraftMoreLineCarriesAggregateLoss(t *testing.T) {
 	var topics []TopicCandidate
 	for i := 0; i < 12; i++ {
@@ -525,8 +468,6 @@ func TestBuildDraftMoreLineCarriesAggregateLoss(t *testing.T) {
 			}},
 		})
 	}
-	// Three distinct truncated titles render after the twelve: they are the
-	// lines the cap omits, and their losses must surface on "+N more".
 	for i := 0; i < 3; i++ {
 		topics = append(topics, TopicCandidate{
 			Title: fmt.Sprintf("Incident review %d (acme/api)", i),
@@ -558,10 +499,6 @@ func TestBuildDraftMoreLineCarriesAggregateLoss(t *testing.T) {
 	}
 }
 
-// TestBuildDraftBusyDayWithOverflowStaysBounded: the #148 busy-day fixture
-// with every topic truncated (150 kept overflow items + 50 lost each) still
-// renders under the 3,000-byte synthetic budget, with each repository's
-// grouped PR line carrying the combined overflow summary for its ten topics.
 func TestBuildDraftBusyDayWithOverflowStaysBounded(t *testing.T) {
 	review := busyDayReview()
 	for i := range review.Evidence.Topics {

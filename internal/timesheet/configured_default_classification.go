@@ -2,8 +2,6 @@ package timesheet
 
 import "strings"
 
-// ConfiguredDefaultClassification binds an operator-approved default to an
-// authoritative cached option. It is not a project-level suggestion.
 type ConfiguredDefaultClassification struct {
 	CatalogID        string `json:"catalog_id"`
 	ClassificationID string `json:"classification_id"`

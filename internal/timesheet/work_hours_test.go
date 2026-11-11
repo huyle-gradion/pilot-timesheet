@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// workHoursPolicy is the documented split-day policy: Monday to Friday,
-// 09:00-12:00 and 13:00-18:00.
 func workHoursPolicy() *WorkHoursConfig {
 	return &WorkHoursConfig{
 		Days: []string{"mon", "tue", "wed", "thu", "fri"},
@@ -29,11 +27,8 @@ func vnLoc(t *testing.T) *time.Location {
 	return loc
 }
 
-// TestAnnotateWorkHoursClassification covers every reason token: inside a
-// window is untouched, and blocks before, between, after, partially overlapping
-// and outside the policy week are marked without changing their span.
 func TestAnnotateWorkHoursClassification(t *testing.T) {
-	d := Draft{Date: "2026-10-26", Blocks: []DraftBlock{ // Monday
+	d := Draft{Date: "2026-10-26", Blocks: []DraftBlock{
 		{BlockID: "inside", Kind: "work", Start: "09:00", End: "10:30"},
 		{BlockID: "before", Kind: "work", Start: "07:00", End: "08:00"},
 		{BlockID: "lunch", Kind: "work", Start: "12:00", End: "13:00"},
@@ -68,10 +63,8 @@ func TestAnnotateWorkHoursClassification(t *testing.T) {
 	}
 }
 
-// TestAnnotateWorkHoursWeekend proves a Saturday block is day_not_in_policy
-// even though its clock time falls inside the daily windows.
 func TestAnnotateWorkHoursWeekend(t *testing.T) {
-	d := Draft{Date: "2026-10-31", Blocks: []DraftBlock{ // Saturday
+	d := Draft{Date: "2026-10-31", Blocks: []DraftBlock{
 		{BlockID: "sat", Kind: "work", Start: "10:00", End: "11:00"},
 	}}
 	AnnotateWorkHours(&d, workHoursPolicy(), vnLoc(t))
@@ -80,8 +73,6 @@ func TestAnnotateWorkHoursWeekend(t *testing.T) {
 	}
 }
 
-// TestAnnotateWorkHoursNilPolicyByteIdentical proves that, with no policy, the
-// annotation leaves the marshalled draft byte-for-byte unchanged.
 func TestAnnotateWorkHoursNilPolicyByteIdentical(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -106,9 +97,6 @@ func TestAnnotateWorkHoursNilPolicyByteIdentical(t *testing.T) {
 	}
 }
 
-// TestAnnotateWorkHoursSerializesReason proves the annotation appears in the
-// draft JSON under the documented field names, and that absent annotations stay
-// omitted.
 func TestAnnotateWorkHoursSerializesReason(t *testing.T) {
 	d := Draft{Date: "2026-10-26", Blocks: []DraftBlock{
 		{BlockID: "in", Kind: "work", Start: "09:00", End: "10:00"},
@@ -144,8 +132,6 @@ func TestAnnotateWorkHoursSerializesReason(t *testing.T) {
 	if fields.Blocks[1]["outside_work_hours"] != true || fields.Blocks[1]["work_hours_reason"] != "after_window" {
 		t.Fatalf("outside block annotations = %v, want true/after_window", fields.Blocks[1])
 	}
-	// The policy that produced the claim is echoed once, so a reader can check
-	// the reason against it rather than trusting the token alone.
 	var echo struct {
 		WorkHours *WorkHoursConfig `json:"work_hours"`
 	}
@@ -160,22 +146,14 @@ func TestAnnotateWorkHoursSerializesReason(t *testing.T) {
 	}
 }
 
-// TestBuildDraftConvertsMeetingInstantsToLocalWallClock is the regression for
-// the review finding that blocked #174: a meeting proposal carries an absolute
-// RFC3339 instant in the provider's offset (usually UTC), so rendering its hour
-// directly produced a block seven hours early for an Asia/Ho_Chi_Minh day and
-// any outside-work-hours claim was computed from that wrong clock. The block
-// must read as local wall clock on the recorded day, which also makes the
-// annotation truthful.
 func TestBuildDraftConvertsMeetingInstantsToLocalWallClock(t *testing.T) {
 	review := Review{
-		Date:     "2026-10-20", // Tuesday
+		Date:     "2026-10-20",
 		Timezone: "Asia/Ho_Chi_Minh",
 		Evidence: &EvidenceReview{
 			Meetings: []ProposedMeeting{{
 				Ref:   "cal:synthetic@20261020T070000Z",
 				Title: "Daily sync",
-				// 07:00Z is 14:00 in Asia/Ho_Chi_Minh: inside 13:00-18:00.
 				Start: "2026-10-20T07:00:00Z",
 				End:   "2026-10-20T08:00:00Z",
 			}},
@@ -196,8 +174,6 @@ func TestBuildDraftConvertsMeetingInstantsToLocalWallClock(t *testing.T) {
 	}
 }
 
-// TestBuildDraftKeepsBareLocalMeetingClock: a proposal that already carries a
-// bare HH:MM clock is local by definition and must not be shifted again.
 func TestBuildDraftKeepsBareLocalMeetingClock(t *testing.T) {
 	review := Review{
 		Date:     "2026-10-20",
@@ -221,15 +197,9 @@ func TestBuildDraftKeepsBareLocalMeetingClock(t *testing.T) {
 	}
 }
 
-// TestBuildDraftResolvesTopicAnchorsInDayTimezone is the regression for the
-// second round of the #174/#181 review: converting only meeting anchors was
-// inconsistent. Topic anchors are absolute provider instants too, so on an
-// Asia/Ho_Chi_Minh day a 07:20Z item really happened at 14:20 local and must
-// attach to the 14:00-15:00 meeting — not become a separate early evidence
-// block — and its annotation must reflect the local clock.
 func TestBuildDraftResolvesTopicAnchorsInDayTimezone(t *testing.T) {
 	review := Review{
-		Date:     "2026-10-20", // Tuesday
+		Date:     "2026-10-20",
 		Timezone: "Asia/Ho_Chi_Minh",
 		Confirmed: View{Segments: []Segment{{
 			IntervalID: "iv-1", Start: "14:30", End: "15:30", Description: "overlapping work",
@@ -268,11 +238,6 @@ func TestBuildDraftResolvesTopicAnchorsInDayTimezone(t *testing.T) {
 	}
 }
 
-// TestBuildDraftMeetingCarvesWorkAtItsSpan: a 14:30-15:30 confirmed interval
-// inside the 14:00-15:00 local meeting is carved there, so the meeting keeps its
-// calendar span and the remainder becomes its own work block. A merely touching
-// 15:00-16:00 block stays separate too. The comparison uses local minutes on
-// both sides (#181).
 func TestBuildDraftMeetingCarvesWorkAtItsSpan(t *testing.T) {
 	meeting := ProposedMeeting{
 		Ref: "cal:synthetic@20261020T070000Z", Title: "Daily sync",

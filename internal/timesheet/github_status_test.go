@@ -1,21 +1,5 @@
 package timesheet
 
-// github_status_test.go locks the repo-events honesty semantics of the GitHub
-// collector (issue #149) against synthetic loopback providers only — no live
-// GitHub access, no network outside the process:
-//
-//   - a 422 on the events page past the provider's retained window is family
-//     `incomplete` (bounded provider coverage, retained count kept, sanitized
-//     status+body diagnostic), never `failed`;
-//   - a fully-walked repo_events family (busy or quiet) reports the dedicated
-//     `windowed` status, never `empty`/`complete`/`incomplete`;
-//   - the aggregate source detail counts only `failed` + `incomplete`
-//     families, so a fully collected day reads complete, not "1 of 7";
-//   - a genuine 403 still reports `failed`;
-//   - the three search families run under maxSearchResultPages, not the shared
-//     REST ceiling;
-//   - a windowed-only day passes the source gate without any acknowledgment.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -36,9 +20,6 @@ const (
 
 var statusTestWindow = time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
 
-// syntheticGithubEvent builds one attributable events-timeline document
-// (WatchEvent falls through to the collector's default branch, which retains
-// any attributable event with a provider id).
 func syntheticGithubEvent(id int, login, at string) map[string]any {
 	return map[string]any{
 		"id":         "evt-" + strconv.Itoa(id),
@@ -48,10 +29,6 @@ func syntheticGithubEvent(id int, login, at string) map[string]any {
 	}
 }
 
-// syntheticEventPage returns n events for one page. Only every 7th event is
-// attributable to the configured user, so a clean walk retains few items and
-// stays clear of the 50-item topic cap — these tests pin status semantics,
-// not topic volume. Pagination still counts all n documents per page.
 func syntheticEventPage(n int) []map[string]any {
 	items := make([]map[string]any, n)
 	for i := range items {
@@ -64,8 +41,6 @@ func syntheticEventPage(n int) []map[string]any {
 	return items
 }
 
-// syntheticAttributablePage returns n events all attributable to the
-// configured user, so a retained count can be pinned exactly (the 422 walk).
 func syntheticAttributablePage(n int) []map[string]any {
 	items := make([]map[string]any, n)
 	for i := range items {
@@ -74,13 +49,6 @@ func syntheticAttributablePage(n int) []map[string]any {
 	return items
 }
 
-// githubStatusFixture is a loopback provider serving clean defaults for all
-// seven collector families. eventsHandler, when non-nil, replaces the default
-// repo-events handler; searchHandler likewise replaces the clean
-// /search/issues default. issueCommentsHandler and issueLookupHandler replace
-// the issue-comments and issue-document handlers when set before the first
-// request (issue #175 classification tests). Counters record how many requests
-// each saw.
 type githubStatusFixture struct {
 	mux                  *http.ServeMux
 	server               *httptest.Server
@@ -139,7 +107,6 @@ func newGithubStatusFixture(t *testing.T, eventsHandler, searchHandler http.Hand
 			eventsHandler(w, r)
 			return
 		}
-		// Default clean walk: a full page then a partial page (finished).
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		jsonOK(w)
 		if page == 1 {
@@ -164,11 +131,6 @@ func (f *githubStatusFixture) run(t *testing.T) *githubRun {
 	}
 }
 
-// TestRepoEvents422PastRetainedWindowIsIncomplete locks the #149 pin: pages
-// 1..3 return exactly 100 items, page 4 returns GitHub's documented 422 for
-// the page past the retained 300-event window; the family must report
-// `incomplete` with the retained count and a sanitized diagnostic (HTTP status
-// plus bounded body snippet, no URLs), never `failed`.
 func TestRepoEvents422PastRetainedWindowIsIncomplete(t *testing.T) {
 	requests := 0
 	f := newGithubStatusFixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -211,10 +173,6 @@ func TestRepoEvents422PastRetainedWindowIsIncomplete(t *testing.T) {
 	}
 }
 
-// TestRepoEvents422AggregateCountsOneLimitedFamily pins the aggregate wording:
-// a 422-limited repo_events family among otherwise clean families reads
-// "1 of 7 family queries reported limited or failed coverage" and the source
-// stays incomplete.
 func TestRepoEvents422AggregateCountsOneLimitedFamily(t *testing.T) {
 	f := newGithubStatusFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -242,11 +200,6 @@ func TestRepoEvents422AggregateCountsOneLimitedFamily(t *testing.T) {
 	}
 }
 
-// TestRepoEventsCleanWalkIsWindowedAndAggregateComplete locks the steady
-// state: a fully-walked busy events feed reports the documented `windowed`
-// status (bounded by the provider's design, not empty/complete/incomplete),
-// and the aggregate over otherwise-complete families reads source status
-// `complete` with no "limited or failed coverage" wording.
 func TestRepoEventsCleanWalkIsWindowedAndAggregateComplete(t *testing.T) {
 	f := newGithubStatusFixture(t, nil, nil)
 
@@ -284,9 +237,6 @@ func TestRepoEventsCleanWalkIsWindowedAndAggregateComplete(t *testing.T) {
 	}
 }
 
-// TestRepoEventsQuietFeedIsWindowed pins that a fully-walked quiet feed is
-// `windowed`, not `empty`: the window is bounded by the provider's design
-// regardless of how few items it retained.
 func TestRepoEventsQuietFeedIsWindowed(t *testing.T) {
 	f := newGithubStatusFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -302,8 +252,6 @@ func TestRepoEventsQuietFeedIsWindowed(t *testing.T) {
 	}
 }
 
-// TestRepoEvents403StaysFailed pins that a genuine permission failure keeps
-// the `failed` classification unchanged.
 func TestRepoEvents403StaysFailed(t *testing.T) {
 	f := newGithubStatusFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "synthetic permission failure", http.StatusForbidden)
@@ -318,16 +266,11 @@ func TestRepoEvents403StaysFailed(t *testing.T) {
 	}
 }
 
-// TestSearchFamiliesBoundToMaxSearchResultPages pins that the dead constant
-// now binds: each search family stops after maxSearchResultPages pages with
-// more pages available, and reports the 10-page ceiling in its detail.
 func TestSearchFamiliesBoundToMaxSearchResultPages(t *testing.T) {
 	alwaysFullPage := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		items := make([]map[string]any, 100)
 		for i := range items {
-			// number:0 candidates are never expanded into review verification
-			// calls, so one handler serves both search families.
 			items[i] = map[string]any{"number": 0, "title": "synthetic"}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"total_count": 1000, "incomplete_results": false, "items": items})
@@ -376,11 +319,6 @@ func TestSearchFamiliesBoundToMaxSearchResultPages(t *testing.T) {
 	})
 }
 
-// TestWindowedDayPassesSourceGateWithoutAcknowledge pins the gate contract:
-// a day whose only coverage bound is the provider-designed events window has
-// source status `complete`, passes checkSourceGate with no acknowledgment,
-// and its persisted evidence (which carries the `windowed` family status)
-// passes the store validator.
 func TestWindowedDayPassesSourceGateWithoutAcknowledge(t *testing.T) {
 	f := newGithubStatusFixture(t, nil, nil)
 	cfg := &Config{
@@ -420,8 +358,6 @@ func TestWindowedDayPassesSourceGateWithoutAcknowledge(t *testing.T) {
 		t.Fatal("nothing was acknowledged; the summary must not claim it")
 	}
 
-	// The persisted attempt carries the windowed repo_events family and must
-	// stay structurally valid, and the gate must pass without acknowledgment.
 	ev := store.Evidence(day)
 	if ev == nil || len(ev.Attempts) != 1 {
 		t.Fatalf("persisted evidence: %+v", ev)
@@ -438,9 +374,6 @@ func TestWindowedDayPassesSourceGateWithoutAcknowledge(t *testing.T) {
 	if err := validateEvidence(ev); err != nil {
 		t.Fatalf("persisted evidence with a windowed family must validate: %v", err)
 	}
-	// validEvidenceStatus enforces only the attempt-level status enum, which
-	// never carries "windowed"; family statuses are report-only and are not
-	// load-validated.
 	if validEvidenceStatus(StatusWindowed) || !validEvidenceStatus(StatusIncomplete) || validEvidenceStatus("bogus") {
 		t.Fatal("validEvidenceStatus must keep its original attempt-level enum (windowed is family-only)")
 	}
@@ -452,8 +385,6 @@ func TestWindowedDayPassesSourceGateWithoutAcknowledge(t *testing.T) {
 	}
 }
 
-// fetchRepoEventsWindow runs the events family against the fixture's provider
-// for the synthetic day window.
 func (f *githubStatusFixture) fetchRepoEventsWindow(t *testing.T) ([]EvidenceItem, FamilyReport) {
 	t.Helper()
 	return fetchRepoEvents(f.run(t), statusTestRepo, "o", "r", statusTestWindow, statusTestWindow.Add(24*time.Hour))

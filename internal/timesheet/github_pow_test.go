@@ -1,20 +1,5 @@
 package timesheet
 
-// github_pow_test.go locks the proof-of-work slice of issue #175 against the
-// loopback provider in github_status_test.go — no network outside the process:
-//
-//   - a merge is attributed only when merged_by.login names the configured
-//     user and merged_at falls inside the day's [start, end) window;
-//   - the REST merged-PR family and the events feed's PullRequestEvent share
-//     one canonical identity, so one merge deduplicates with merged
-//     provenance instead of counting twice;
-//   - the search bounds (incomplete_results, the 1,000-result total, the page
-//     ceiling) keep the merged family honest;
-//   - issue comments are classified from the documented issue document, and an
-//     unknown or ceiling-bounded lookup leaves the item an issue comment while
-//     marking the family incomplete with the count;
-//   - the non-merge event types map exactly as before.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -134,10 +119,6 @@ func TestFetchMergedPullsDropsMergeOutsideWindow(t *testing.T) {
 	}
 }
 
-// TestFetchMergedPullsDropsMergeBeforeWindowStartBySubsecond pins the exact
-// half-open start: merged_at is full-precision RFC3339, so a merge half a
-// second before windowStart must be dropped. The comment families' one-second
-// slop must not leak into this family.
 func TestFetchMergedPullsDropsMergeBeforeWindowStartBySubsecond(t *testing.T) {
 	before := statusTestWindow.Add(-500 * time.Millisecond).UTC().Format(time.RFC3339Nano)
 	f := newPowMergeFixture(t, nil, powMergeSearchDoc(1, false,
@@ -153,8 +134,6 @@ func TestFetchMergedPullsDropsMergeBeforeWindowStartBySubsecond(t *testing.T) {
 	}
 }
 
-// TestFetchMergedPullsDropsMergeAtWindowEnd pins the exclusive end: a merge at
-// exactly windowEnd belongs to the next day and must be dropped.
 func TestFetchMergedPullsDropsMergeAtWindowEnd(t *testing.T) {
 	f := newPowMergeFixture(t, nil, powMergeSearchDoc(1, false,
 		powMergeDetail(12, powWindowEnd().UTC().Format(time.RFC3339), statusTestUser)))
@@ -186,9 +165,6 @@ func TestFetchMergedPullsUnverifiedResultsAreReported(t *testing.T) {
 		t.Fatalf("detail %q must report both unverified results", report.Detail)
 	}
 
-	// Another actor's merge is over-fetched noise, not a coverage limitation:
-	// even with no merged_at it must not count as unverified or make the
-	// family incomplete. Only the configured user's merge is worth verifying.
 	other := newPowMergeFixture(t, nil, powMergeSearchDoc(1, false,
 		powMergeDetail(13, "", "other-actor")))
 	items, report = fetchMergedPulls(other.run(t), statusTestRepo, "o", "r", statusTestWindow, powWindowEnd())
@@ -362,11 +338,6 @@ func TestIssueCommentLookupCeilingBoundsRequests(t *testing.T) {
 	}
 }
 
-// TestPRTopicGroupsOpenMergeAndConversationComment pins the topic side of the
-// slice: the open PR, its merge and its conversation comment — three item
-// kinds, one provider resource — form exactly one PR topic, while an issue
-// comment in the same number range stays a separate issue topic. Grouping is
-// by retained resource identity, never by rendered title.
 func TestPRTopicGroupsOpenMergeAndConversationComment(t *testing.T) {
 	search := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -393,8 +364,8 @@ func TestPRTopicGroupsOpenMergeAndConversationComment(t *testing.T) {
 	f.issueCommentsHandler = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]map[string]any{
-			powIssueComment(101, 12, "2026-10-22T11:00:00Z"), // conversation comment on PR #12
-			powIssueComment(102, 99, "2026-10-22T12:00:00Z"), // true issue comment
+			powIssueComment(101, 12, "2026-10-22T11:00:00Z"),
+			powIssueComment(102, 99, "2026-10-22T12:00:00Z"),
 		})
 	}
 	f.issueLookupHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -450,11 +421,6 @@ func TestPRTopicGroupsOpenMergeAndConversationComment(t *testing.T) {
 	}
 }
 
-// TestFetchRepoEventsMergeRechecksMergedAt pins that the feed's merge branch
-// never dates an item outside the day: fetchRepoEvents filters the event by
-// created_at, so merged_at must be re-checked. An event whose created_at is
-// inside but merged_at is before windowStart falls through to the generic
-// event; one with both instants inside is attributed as the merge.
 func TestFetchRepoEventsMergeRechecksMergedAt(t *testing.T) {
 	events := []map[string]any{
 		powEvent("evt-early-merge", "PullRequestEvent", "2026-10-22T00:00:01Z", map[string]any{
@@ -497,15 +463,7 @@ func TestFetchRepoEventsMergeRechecksMergedAt(t *testing.T) {
 	}
 }
 
-// TestDedupeKeepsPRConversationKindOverFeedIssueComment pins the collection
-// order: the REST issue-comments family runs before the events feed and
-// classifies the comment as a PR conversation comment from the documented
-// issue lookup. The feed's IssueCommentEvent for the same ref is generic; after
-// dedupe the retained item must keep the PR kind and pr: resource while the
-// event provenance is merged — never downgrade to issue_comment.
 func TestDedupeKeepsPRConversationKindOverFeedIssueComment(t *testing.T) {
-	// Both endpoints must describe comment id 500 on number 12: the REST
-	// lookup says PR, the feed only knows it is an issue-style comment event.
 	f := newGithubStatusFixture(t,
 		powEventsHandler([]map[string]any{powEvent("evt-comment-500", "IssueCommentEvent", "2026-10-22T09:05:00Z", map[string]any{
 			"action":  "created",

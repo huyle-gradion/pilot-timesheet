@@ -8,9 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/mcp"
 )
 
-// TestParseCatalogZeroMatchPhrasings: the provider's zero-match renderings
-// (live-observed: "No active classifications found.") are valid empty
-// catalogs, not parse failures (issue trail of the empty-catalog fix).
 func TestParseCatalogZeroMatchPhrasings(t *testing.T) {
 	phrasings := []string{
 		"No active classifications found.",
@@ -27,13 +24,10 @@ func TestParseCatalogZeroMatchPhrasings(t *testing.T) {
 		if len(cat.Options) != 0 || !cat.Complete || cat.CatalogID == "" {
 			t.Fatalf("phrasing %q: catalog = %+v, want empty/complete/with digest", text, cat)
 		}
-		// The digest must be deterministic for the same empty content.
 		cat2, err := parseCatalog(mcp.CallResult{Content: text}, "assignment", time.Now().UTC())
 		if err != nil || cat2.CatalogID != cat.CatalogID {
 			t.Fatalf("phrasing %q: digest not deterministic (%q vs %q)", text, cat.CatalogID, cat2.CatalogID)
 		}
-		// A different query on the same phrasing yields a different digest
-		// (the query is part of the catalog identity).
 		cat3, err := parseCatalog(mcp.CallResult{Content: text}, "other", time.Now().UTC())
 		if err != nil || cat3.CatalogID == cat.CatalogID {
 			t.Fatalf("phrasing %q: digest must vary with query", text)
@@ -41,11 +35,6 @@ func TestParseCatalogZeroMatchPhrasings(t *testing.T) {
 	}
 }
 
-// TestParseCatalogUnknownTextStillFailsClosed: a genuinely unparseable text
-// block keeps the fail-closed error, and the provider text is never echoed.
-// The diagnostic is a fixed string because provider content is arbitrary: a
-// bearer token, an uppercase URL or a JSON field would survive the sanitizer
-// and land in an error an agent then quotes.
 func TestParseCatalogUnknownTextStillFailsClosed(t *testing.T) {
 	for _, text := range []string{
 		"total garbage from the provider\nsecond line",

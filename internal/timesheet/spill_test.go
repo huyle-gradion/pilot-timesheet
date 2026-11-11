@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// spillState saves one cross-midnight interval (23:00-01:00) on the day before
-// requested through the real store operations, so the requested day's review
-// renders the previous day's 00:00-01:00 allocation.
 func spillState(t *testing.T, requested string) (*Session, string) {
 	t.Helper()
 	cfg := &Config{
@@ -43,11 +40,6 @@ func spillState(t *testing.T, requested string) (*Session, string) {
 	return s, cfg.StatePath
 }
 
-// TestRecordSourcesIncludePreviousDaySpill is the record-parity case for a
-// cross-midnight interval: the draft seeds work-00:00-01:00 from the previous
-// day's spill, so record must recompute over the same rendered segments and
-// attach that block's sources. Reading the raw days[date].confirmed projection
-// cannot see the spill and records an empty source list.
 func TestRecordSourcesIncludePreviousDaySpill(t *testing.T) {
 	date := "2026-10-26"
 	s, statePath := spillState(t, date)
@@ -79,7 +71,6 @@ func TestRecordSourcesIncludePreviousDaySpill(t *testing.T) {
 		t.Fatalf("draft block = %s sources=%+v, want work-00:00-01:00 with its source", want.BlockID, want.Sources)
 	}
 
-	// The reviewed input is the serialized draft, which carries no sources.
 	raw, err := json.Marshal(draft)
 	if err != nil {
 		t.Fatal(err)

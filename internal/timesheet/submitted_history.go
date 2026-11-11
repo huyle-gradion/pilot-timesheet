@@ -2,20 +2,13 @@ package timesheet
 
 import "sort"
 
-// Selection sources (issue #235): where a staged interval's classification
-// came from. They are recorded on each sidecar selection so status can show
-// them before approval. An empty source is a selection written before the
-// field existed.
+// An empty source is a selection written before the field existed.
 const (
 	SelectionSourceJudgment = "judgment"
 	SelectionSourceHistory  = "history"
 	SelectionSourceDefault  = "default"
 )
 
-// SubmittedSelection is one interval whose submission the provider confirmed,
-// with the classification it was submitted under. Only confirmed write
-// intents count: Gradion is the authority, so a saved-but-unsubmitted day is
-// never history.
 type SubmittedSelection struct {
 	Date             string
 	IntervalID       string
@@ -24,8 +17,6 @@ type SubmittedSelection struct {
 	Code             string
 }
 
-// SubmittedSelections returns the newest confirmed submission per interval,
-// excluding the given date, in date/interval order.
 func (s *Session) SubmittedSelections(exclude string) []SubmittedSelection {
 	return submittedSelections(s.store.State(), exclude)
 }
@@ -40,8 +31,6 @@ func submittedSelections(state *State, exclude string) []SubmittedSelection {
 		if in.Status != IntentConfirmed || in.Date == exclude || in.LocalID == "" {
 			continue
 		}
-		// The verified remote content is the authority; the planned
-		// operation is the fallback when the read did not expose it.
 		classID := in.Operation.ClassificationID
 		if in.Observed != nil && in.Observed.ClassificationID != "" {
 			classID = in.Observed.ClassificationID

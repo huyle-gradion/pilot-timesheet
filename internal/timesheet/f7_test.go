@@ -10,11 +10,6 @@ import (
 	"time"
 )
 
-// TestSubmittedReviewFailureRetainsVerifiedReviews locks the F7 correction: a
-// later candidate's failed reviews request must not discard reviews already
-// verified for earlier candidates, the family stays failed, and its count
-// matches the retained evidence while the detail says the remainder is
-// unverified.
 func TestSubmittedReviewFailureRetainsVerifiedReviews(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/search/issues", func(w http.ResponseWriter, r *http.Request) {
