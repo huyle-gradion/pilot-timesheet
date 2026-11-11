@@ -14,6 +14,12 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   `/path/to/home` paths, a test loads it and every JSON example in the
   collection guide with the real loader, and ADR 0004 gains a dated amendment
   retiring its Keychain storage note.
+- `timesheet init` now ends with `next: … run 'timesheet log'` instead of the
+  internal `timesheet run`, and its env template says `init` (not `setup`)
+  never reads credential values. `docs/agents/product-usage.md` leads with the
+  current build, `init` and the binary-owned `log` flow, documents the real
+  source statuses, and moves the retired workflow modes, `--offline`/journal
+  notes and `$TS` examples under one historical banner (#194).
 
 ## 0.2.0-dev.10
 

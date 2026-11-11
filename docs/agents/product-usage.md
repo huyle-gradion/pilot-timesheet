@@ -8,32 +8,11 @@ explicit chat confirmation without terminal commands, as specified in
 [ADR 0009](../adr/0009-chat-confirmed-submission.md). Historical terminal-only
 submission statements below do not apply to that opt-in path.
 
-This is the practical operator guide for the `timesheet` CLI and the `/timesheet`
-skill. It reflects the current binary at HEAD `6d28f7a` (`go run ./cmd/timesheet
-help`). Reference detail lives in the linked notes; this guide links rather than
-repeating the full flag list.
-
-Two workflow modes, defined by the owner:
-
-- **Local** — collect evidence from **both** local and configured **remote**
-  sources, then review and export. **Do not submit to Gradion.**
-- **Remote** (connected) — the same evidence and review, then an **exact preview**,
-  an **explicit approval**, and a **Gradion submission**.
-
-Two traps to keep straight:
-
-- The workflow words **local/remote** are not the git source's `config.mode`
-  (`local` | `remote` | `both`). A "local workflow" may still collect from a
-  remote git source and a calendar feed.
-- **`--offline` is not a synonym for the local workflow.** `--offline` only skips
-  the **Gradion** remote seam (its reads and writes). Configured **source**
-  fetches — calendar ICS, git (including remote GitHub), and the journal note —
-  still run, and a remote git source still uses the network.
-
-> Current session authority: **production submission is blocked.** The connected
-> (remote) commands below are documented so the gated steps are known, but they
-> must **not** be executed. Approval and submission are always separate, explicit
-> steps and are never performed by `run`.
+This is the operator guide for the `timesheet` CLI and the `/timesheet` skill.
+The first sections (build and setup, configuration, sources, running a day)
+describe the current binary. Everything under
+[Historical reference](#historical-reference-retired-cli) documents the retired
+`run`/`review`/`preview`/`approve` CLI and is kept for context only.
 
 ## Build and setup
 
@@ -57,8 +36,11 @@ rules: [first-run setup](../setup-linux.md)):
 bin/timesheet init --project 'pilot=Pilot Timesheet'
 ```
 
+Then `bin/timesheet log` runs the day (see [Running a day](#running-a-day)).
+
 `init` creates `~/.timesheet/` (`0700`), a valid `~/.timesheet/config.json`
-(`0600`) with your projects, host timezone and an absolute `state_path`, and
+(`0600`) with your projects, host timezone, an absolute `state_path` and
+`required_env` (`GITHUB_TOKEN`, `GCAL_ICS_URL`), and
 `~/.timesheet/.env.local` (`0600`) listing credential **names** as comments and
 no values. It never overwrites an existing file. Every command then finds its
 configuration as `--config` > `./timesheet.json` in the cwd >
@@ -77,8 +59,8 @@ URL, and do not reuse the owner's private configuration. See
 
 | Starting point | Purpose |
 | --- | --- |
-| `timesheet init` | Writes a minimal valid configuration (projects, timezone, `state_path`) with no sources; add sections as needed. |
-| `cmd/timesheet/timesheet.example.json` | Synthetic template showing every section: GitHub and calendar sources, a disabled `migration` and a disabled `gradion` boundary. Replace every placeholder, including the `/path/to/home` paths. |
+| `timesheet init` | Writes a valid configuration with your `projects`, `timezone`, an absolute `state_path` and `required_env: ["GITHUB_TOKEN", "GCAL_ICS_URL"]`, and no sources; add sections as needed. With `--seed-config` it copies the seed configuration instead, including its `sources`. |
+| `cmd/timesheet/timesheet.example.json` | Synthetic template with `projects`, `required_env`, GitHub and calendar `sources`, a disabled `migration` and a disabled `gradion` boundary; it has no `work_hours`, `judge` or `daily` section (see the key table below). Replace every placeholder, including the `/path/to/home` paths. |
 
 Top-level keys (all non-secret; the loader rejects any key not listed):
 
@@ -89,7 +71,7 @@ Top-level keys (all non-secret; the loader rejects any key not listed):
 | `projects` | **Required** non-empty list of `{ id, name, default_classification }`; `id` has no slash, `name` and `default_classification` are optional. |
 | `required_env` | Optional credential variable **names** to report when missing; never values. |
 | `sources` | Optional evidence collectors (GitHub, calendar); see below. |
-| `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification`. |
+| `gradion` | Optional remote boundary: `enabled`, `endpoint` (absolute http(s) URL), `token_env` (variable name, default `GRADION_MCP_TOKEN`), optional `default_classification` object (`catalog_id`, `classification_id`, `code`, `name`, `activity_type`). |
 | `migration` | Optional, disabled by default: explicit legacy import (`enabled`, `legacy_root`, `legacy_timezone`, `project_map`, `classification_map`). |
 | `work_hours` | Optional presentation-only main-work-time policy (`days`, `windows`). |
 | `judge` | Optional binary-owned judge (ADR 0010): `backend`, `command`, `base_url`, `model`, `api_key_env`, `timeout_seconds`, `daily_token_cap`, `tokens_csv`. |
@@ -112,14 +94,75 @@ Evidence collection is the `sources` section. Full key semantics and examples:
 | `sources.calendar` | `enabled`, optional `user` (invitation identity). The feed URL is the credential `GCAL_ICS_URL`, never a config key. |
 
 A missing credential leaves that collector `missing_credentials` (naming the
-variable only) and does not stop the day. There is no local-checkout git
+variable only); the other collector still runs. There is no local-checkout git
 collector, journal source or per-source timezone in the current build.
 
 The remote boundary is the top-level `gradion` block: with `enabled: true` it
 reads `endpoint` and the credential named by `token_env`. Absent or disabled
 means a local-only workflow.
 
-### Evidence count, no sources, and incomplete sources
+### Source statuses
+
+Each enabled collector records one attempt per collection with a status:
+
+- `complete` — fully collected (an empty result is legitimate, not an error).
+- `incomplete` — collected, but a bound or limit was hit; partial coverage is
+  never presented as complete.
+- `failed` — the collector could not run (for example an unusable feed URL).
+- `missing_credentials` — the named variable is unset or empty.
+- `disabled` — reported for both collectors when no source is enabled; the day
+  is then recorded manually and no acknowledgment is needed.
+
+A source that is not `complete` must be explicitly acknowledged before the day
+can be confirmed and saved (`source_unacknowledged`). The `log` flow asks the
+human that question (`ask_human`); it never acknowledges on its own.
+
+## Running a day
+
+```bash
+bin/timesheet log                      # today in the configured timezone
+bin/timesheet log --date 2026-11-10    # a past working day
+```
+
+`log` runs the day end to end and reports one state: `human_gates` (the day is
+ready for review and submission), `ask_human` (a question only you can answer)
+or `stopped` (with the reason). With a `judge` section configured the binary
+answers its own judgments (ADR 0010); without one it stops at the first
+judgment for the agent path. Submission is separate: `bin/timesheet submit`
+in a terminal, or the chat-confirmed `/submit` workflow (ADR 0009).
+`bin/timesheet status` and `bin/timesheet submit status` are read-only.
+
+## Historical reference (retired CLI)
+
+> Everything below documents the retired `run`/`review`/`preview`/`approve`
+> CLI, its `evidence.sources` schema (journal, git `mode`, `--offline`,
+> `--ack`) and its workflow modes. Those flags and keys do not exist in the
+> current build, and the verbs are no longer the public surface (`run` survives
+> only as an internal step `log` drives); use the sections above.
+
+Two workflow modes, defined by the owner:
+
+- **Local** — collect evidence from **both** local and configured **remote**
+  sources, then review and export. **Do not submit to Gradion.**
+- **Remote** (connected) — the same evidence and review, then an **exact preview**,
+  an **explicit approval**, and a **Gradion submission**.
+
+Two traps to keep straight:
+
+- The workflow words **local/remote** are not the git source's `config.mode`
+  (`local` | `remote` | `both`). A "local workflow" may still collect from a
+  remote git source and a calendar feed.
+- **`--offline` is not a synonym for the local workflow.** `--offline` only skips
+  the **Gradion** remote seam (its reads and writes). Configured **source**
+  fetches — calendar ICS, git (including remote GitHub), and the journal note —
+  still run, and a remote git source still uses the network.
+
+> Current session authority: **production submission is blocked.** The connected
+> (remote) commands below are documented so the gated steps are known, but they
+> must **not** be executed. Approval and submission are always separate, explicit
+> steps and are never performed by `run`.
+
+### Evidence count, no sources, and incomplete sources (retired)
 
 `review` prints one line per enabled source that is not complete/skipped, plus one
 line per warning on a complete source, and distinguishes conditions:
@@ -144,9 +187,9 @@ apply to `run` only; the guided run reviews one day at a time.
 
 | Workflow | Entry | Command | Who |
 | --- | --- | --- | --- |
-| Local | CLI guided (real TTY) | `$TS run --interactive --config CFG --date D` | A human at a terminal |
-| Local | CLI plain (pipe/CI safe) | `$TS run --plain --config CFG --date D` | Human over a pipe; EOF aborts |
-| Local | CLI scripted (explicit) | `$TS run --decisions decisions.json --non-interactive --config CFG --date D` | Automation |
+| Local | CLI guided (real TTY) | `bin/timesheet run --interactive --config CFG --date D` | A human at a terminal |
+| Local | CLI plain (pipe/CI safe) | `bin/timesheet run --plain --config CFG --date D` | Human over a pipe; EOF aborts |
+| Local | CLI scripted (explicit) | `bin/timesheet run --decisions decisions.json --non-interactive --config CFG --date D` | Automation |
 | Local | Skill | `/timesheet` (prompt) | Human via the skill |
 | Remote | CLI guided/plain | same `run` as local, then `preview` → `approve --plan` → `submit` | Human (future gated submit) |
 | Remote | CLI scripted | `run --decisions …`, then `preview` → `approve --plan` → `submit` | Automation (future gated submit) |
@@ -172,9 +215,9 @@ The first pass collects evidence and prints the proposal. Run it once to
 **discover the actual block IDs** before writing decisions:
 
 ```bash
-$TS run --interactive --config "$CFG" --date "$D"      # guided
+bin/timesheet run --interactive --config "$CFG" --date "$D"      # guided
 # or, non-interactive discovery:
-$TS review --config "$CFG" --date "$D" --no-editorial
+bin/timesheet review --config "$CFG" --date "$D" --no-editorial
 ```
 
 `review` prints `work`/`meeting`/`manual` blocks with their stable IDs, plus
@@ -204,9 +247,9 @@ per day. Example (the actual `run.ReviewDecisions` fields):
 Apply it in one non-interactive pass (or use the explicit `review` step):
 
 ```bash
-$TS run --decisions decisions.json --non-interactive --config "$CFG" --date "$D"
+bin/timesheet run --decisions decisions.json --non-interactive --config "$CFG" --date "$D"
 # equivalently, the explicit review step:
-$TS review --config "$CFG" --date "$D" --decisions decisions.json
+bin/timesheet review --config "$CFG" --date "$D" --decisions decisions.json
 ```
 
 Notes (exact keys, from the current source):
@@ -302,9 +345,9 @@ Classification is an explicit choice; config maps and recent selections are
 the preview (`unresolved_classification`).
 
 ```bash
-$TS classify list --config CFG                 # live; --cache reads the cache; --json for machine output
-$TS classify select --config CFG --date D --classification "<CODE|ID>" --block-id "<BLOCK_ID>"
-$TS classify select --config CFG --date D --classification "<CODE|ID>" --all   # explicit bulk
+bin/timesheet classify list --config CFG                 # live; --cache reads the cache; --json for machine output
+bin/timesheet classify select --config CFG --date D --classification "<CODE|ID>" --block-id "<BLOCK_ID>"
+bin/timesheet classify select --config CFG --date D --classification "<CODE|ID>" --all   # explicit bulk
 ```
 
 `classify list` prints `Name (Code) [Activity Type] · <id-prefix>` with a
@@ -326,8 +369,8 @@ follow-up to change an interval that already carries a classification. See
 ### 4. Preview and export
 
 ```bash
-$TS preview --config CFG --date D     # zero remote writes; prints plan_id, operations, total
-$TS export  --config CFG --date D     # re-render the managed note; never contacts the remote
+bin/timesheet preview --config CFG --date D     # zero remote writes; prints plan_id, operations, total
+bin/timesheet export  --config CFG --date D     # re-render the managed note; never contacts the remote
 ```
 
 `preview` prints the exact creates/edits, intervals, projects, and total. In the
@@ -343,9 +386,9 @@ above, then:
 
 ```bash
 # FUTURE GATED STEPS — do not execute while production submission is blocked.
-$TS preview --config CFG --date D
-$TS approve --config CFG --date D --plan "<PLANID>"     # binds approval to the exact plan hash
-$TS submit  --config CFG --date D                       # executes only the record's ACTIVE approval
+bin/timesheet preview --config CFG --date D
+bin/timesheet approve --config CFG --date D --plan "<PLANID>"     # binds approval to the exact plan hash
+bin/timesheet submit  --config CFG --date D                       # executes only the record's ACTIVE approval
 ```
 
 - **Approval is bound to the exact plan content hash** and is per-day. Any local,
