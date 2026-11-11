@@ -2,8 +2,48 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
-## Unreleased
+## 0.2.0-dev.11
 
+The 12-factor redesign (#246): the binary owns its LLM judgments, runs the day
+itself and exposes one small public command surface. This release also
+records the changes merged since `0.2.0-dev.10` that shipped without a
+version bump.
+
+- Partition the draft by workday and run the deterministic steps in-process
+  (#232).
+- Keep each day's working files in the timesheet store instead of `$TMP`
+  (#233, #247).
+- Pre-fetch catalog candidates for the classification judgment, so the
+  judgment picks from a bounded set (#234, #248).
+- Enforce the repair-once judgment policy in `next --do` (#240, #249).
+- Classify known repositories and titles from approved history before any
+  judgment is asked (#235, #250).
+- Add the golden-day dataset export and the judgment scorer
+  (`timesheet eval`) (#236, #251).
+- Add a typed `ask_human` state for decisions only the owner makes (#239,
+  #252).
+- Stop tracking `pi/node_modules` (#238, #253).
+- ADR 0010: binary-owned judgments behind one judge interface, with a
+  headless agent command and an OpenAI-compatible backend, owned prompts and a
+  daily token cap (#237, #254).
+- Add `internal/llm` and the `judge` verb, and `next --do --auto`, which
+  answers judgments in-process and reports token `usage` (#241, #242, #257).
+- Add `timesheet daily`: a scheduled log of the previous working day (and
+  today after `daily.log_after`, default 22:00) with notify-only results and
+  `--print-units systemd|launchd` (#243, #259).
+- Reduce the agent integration to one thin skill front end that runs the
+  binary and relays its single state; the Pi prompts and token helper scripts
+  go (#244, #261).
+- One public command surface: `init`, `log`, `submit` (with `status`,
+  `resolve` and `--chat`), plus `status`, `tui`, `daily`, `judge`, `eval` and
+  `version`. `setup`, `approve`, `agent-submit`, `submit-status`,
+  `resolve-write`, `collect`, `draft` and `confirm` are retired and print
+  their replacement (#245, #262).
+- Briefly configure, then remove, CodeRabbit review (#263, #264).
+- Re-untrack `.omo/` and restore the root build-artifact and runtime ignore
+  rules that #219 had reverted (#210, #265).
+- Add the repeatable backlog-audit checklist to
+  `docs/agents/issue-tracker.md` (#260, #266).
 - Make the `tui` view's content sanitization structural (#229): recorded
   content enters a frame only as a value of one writer (`recorded`, and the
   `labelRow` label/value row built on it), which sanitizes internally, in place
@@ -33,6 +73,8 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   `migration_apply`, malformed lines, close and EOF, and the binary's own
   stdin/stdout); the interface doc now lists the #262 public surface and marks
   `serve` internal, matching the README (#230).
+- Align the Go and doc stamps at `0.2.0-dev.11`; protocol schema `1` and
+  state schema `3` are unchanged.
 
 ## 0.2.0-dev.10
 

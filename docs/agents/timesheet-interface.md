@@ -1,7 +1,7 @@
-# Pilot Timesheet interface (`0.2.0-dev.10`)
+# Pilot Timesheet interface (`0.2.0-dev.11`)
 
-Application version: `0.2.0-dev.10` (published as the pre-release
-`v0.2.0-dev.10`; the previous stable line is `0.1.1`).
+Application version: `0.2.0-dev.11` (published as the pre-release
+`v0.2.0-dev.11`; the previous stable line is `0.1.1`).
 Protocol schema: `1`. State schema: `3`.
 
 This document is the public interface for the current release. The
