@@ -162,15 +162,15 @@ func TestAskRetriesOnceWithACompactNote(t *testing.T) {
 	parse := func(r string) (timesheet.DescriptionsFile, error) { return ParseDescriptions(d, r) }
 	f := &fakeBackend{replies: []string{`{"descriptions":{"b1":"x"}}`, `{"descriptions":{"b1":"x","b2":"y"}}`}}
 	p, _ := DescribePrompt(d, f)
-	if _, _, usage, err := Ask(context.Background(), f, p, parse); err != nil || len(f.prompts) != 2 || usage.InputTokens != 20 {
+	if _, _, usage, err := Ask(context.Background(), f, p, parse, RetryPolicy{}); err != nil || len(f.prompts) != 2 || usage.InputTokens != 20 {
 		t.Fatalf("retry: err %v, calls %d, usage %+v", err, len(f.prompts), usage)
 	}
 	if !strings.Contains(f.prompts[1], "previous reply was rejected") {
 		t.Fatalf("retry prompt lacks the note:\n%s", f.prompts[1])
 	}
-	g := &fakeBackend{errs: []error{ErrBackend, ErrBackend}}
-	if _, _, _, err := Ask(context.Background(), g, p, parse); err == nil || len(g.prompts) != 2 {
-		t.Fatalf("two failures: err %v, calls %d", err, len(g.prompts))
+	g := &fakeBackend{replies: []string{"nope", "still nope", validDescriptions}}
+	if _, _, _, err := Ask(context.Background(), g, p, parse, RetryPolicy{}); !errors.Is(err, ErrInvalidReply) || len(g.prompts) != 2 {
+		t.Fatalf("two invalid replies: err %v, calls %d", err, len(g.prompts))
 	}
 }
 

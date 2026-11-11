@@ -246,7 +246,7 @@ func TestEvalRunStopsOnAFailingBackend(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "HTTP 401") {
 		t.Fatalf("err = %v, want the backend stop", err)
 	}
-	if chat.calls != 2 || r.Stopped == "" || len(r.Skipped) != 2 || r.Skipped[1].Part != "day" {
+	if chat.calls != 1 || r.Stopped == "" || len(r.Skipped) != 2 || r.Skipped[1].Part != "day" {
 		t.Fatalf("receipt = %+v after %d call(s), want a stop at the first part", r, chat.calls)
 	}
 	var c timesheet.GoldenCandidate

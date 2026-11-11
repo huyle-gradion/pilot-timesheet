@@ -229,16 +229,27 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 	if err != nil {
 		return zero, err
 	}
-	if limit := cfg.Judge.DailyTokenCap; spent+llm.EstimateTokens(p.Text) > limit {
-		return zero, judgeCapError{limit: limit, day: day, spent: spent}
+	withinCap := func(prompt string, used llm.Usage) error {
+		if limit := cfg.Judge.DailyTokenCap; spent+used.Total()+llm.EstimateTokens(prompt) > limit {
+			return judgeCapError{limit: limit, day: day, spent: spent + used.Total()}
+		}
+		return nil
 	}
-	v, reply, usage, askErr := llm.Ask(ctx, backend, p, parse)
+	v, reply, usage, askErr := llm.Ask(ctx, backend, p, parse, llm.RetryPolicy{BeforeCall: withinCap})
 	r.Usage = usage
-	if err := appendJudgeUsage(dir, judgeUsageRecord{At: now.UTC().Format(time.RFC3339), Kind: kind, OK: askErr == nil, Usage: usage}); err != nil {
-		return zero, err
+	if usage.Calls > 0 {
+		if err := appendJudgeUsage(dir, judgeUsageRecord{At: now.UTC().Format(time.RFC3339), Kind: kind, OK: askErr == nil, Usage: usage}); err != nil {
+			return zero, err
+		}
 	}
-	if askErr != nil {
+	var capErr judgeCapError
+	switch {
+	case errors.As(askErr, &capErr):
+		return zero, askErr
+	case askErr != nil && usage.Calls > 1:
 		return zero, fmt.Errorf("judge: %s failed after one retry: %w; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr)
+	case askErr != nil:
+		return zero, fmt.Errorf("judge: %s failed: %w; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr)
 	}
 	if err := writeJSONFile(cachePath, judgeResponse{Key: p.Key, Kind: kind, Reply: reply, Usage: usage, At: now.UTC().Format(time.RFC3339)}); err != nil {
 		return zero, err
