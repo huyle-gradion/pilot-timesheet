@@ -279,9 +279,11 @@ Switching from legacy records is explicit and read-only until it is applied:
    validates legacy records, conflicts, source hashes and the durable target
    and prints a `migration_id`. `timesheet migrate apply --date <same days>
    --migration-id <id>` rebuilds the candidate from the store and the legacy
-   files and activates it atomically only if the rebuilt id matches: the id is
-   a content binding, not a stored grant, so any change since the preview is
-   `migration_stale` with nothing written. A repeat is `no_change` with the
+   files and activates it atomically only if the rebuilt id matches. The id
+   hashes the sources, the durable target and the exact payload apply would
+   commit, so it binds the reviewed result rather than granting anything: a
+   change to the selection, the legacy files, the store or the migration
+   config since the preview is `migration_stale` with nothing written. A repeat is `no_change` with the
    legacy bytes unchanged. Migrated legacy
    approvals are inert audit data and can never authorize a write.
 2. `reconcile_remote` makes one fresh read-only observation of the day and

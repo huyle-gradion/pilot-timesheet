@@ -631,11 +631,16 @@ Preview validates the complete candidate without activation and returns bounded
 counts/conflicts plus a `migration_id` bound to `{source hashes, dates, timezone,
 current durable target fingerprint}`. `timesheet migrate apply --date <same
 days> --migration-id <id>` keeps nothing from the preview: it re-reads and
-re-hashes the sources, rebuilds the candidate from the store, and activates it
-only when the rebuilt `migration_id` equals `<id>`. The id is a content
-binding, like `submit --chat`'s `plan_id`/`review_id` under ADR 0009, not a
-stored grant: a preview grants no standing authority, and a changed selection,
-source or durable target is `migration_stale` with nothing written. A
+re-hashes the sources, rebuilds the candidate from the store and the current
+configuration, and activates it only when the rebuilt `migration_id` equals
+`<id>`. The id hashes the selected dates, the legacy timezone, every source
+file's bytes, the durable target fingerprint AND the exact payload apply would
+commit (days, bindings, outcomes, carries, receipt and conflicts). It is
+therefore a binding to the reviewed result, like `submit --chat`'s
+`plan_id`/`review_id` under ADR 0009, not a stored grant: an edited
+`project_map`, `classification_map` or project list changes the payload and
+the id. So a preview grants no standing authority, and a changed selection,
+configuration, source or durable target is `migration_stale` with nothing written. A
 conflicted candidate is `migration_conflict`; an already-migrated selection is
 `no_change` on both preview and apply. Activation requires
 that **no day is open**, so a draft can never be discarded and no session pointer
@@ -1233,13 +1238,10 @@ dotenv lines, authenticated URLs, or a full config dump.
 ## Historical: the retired `serve` protocol
 
 > **Historical.** `serve` retired in issue #272 and nothing speaks this JSONL
-> protocol to the binary any more. The envelope and op table are kept because
-> the same ops still run in-process, through `Session.HandleLine`, for `tui`
-> and the commands; read them as the reference for op semantics, not as a
-> wire interface. Since the retirement, `migration_apply` also takes `dates`
-> and is stateless (see [Explicit legacy migration](#explicit-legacy-migration)),
-> `cancel` no longer exists, and `check_environment` is reached through
-> `status`.
+> protocol to the binary any more. The envelope and op table are kept as a
+> record; most ops still run in-process, through `Session.HandleLine`, for
+> `tui` and the commands, and the rows below are updated where the retirement
+> changed an op. The commands and their sections above are authoritative.
 
 ### Protocol envelope
 
@@ -1275,7 +1277,7 @@ non-empty, at most 128 bytes, and contain no control characters.
 | `acknowledge_source` | `day`, `source`, `collection_id` | Explicit human acknowledgment, verified against the exact reviewed collection attempt ID. Missing or stale IDs fail (`bad_request` / `stale_collection`). |
 | `decide_meeting` | `day`, `meeting_id`, `decision`, `collection_id` | Records `attended`/`skipped`/`pending` for one proposed meeting. The meeting's provider identity must be present in this day's evidence (`unknown_meeting` otherwise). `collection_id` is required and must match the day's calendar attempt (`bad_request` when missing, `stale_collection` on mismatch); the action is rejected without mutation otherwise. Decisions carry across recollections matched by `UID|Start`. |
 | `migration_preview` | `dates` | Validates one explicit legacy date selection without activating anything. Returns bounded counts, conflicts, source hashes and a `migration_id` bound to the source bytes, dates/timezone and current durable target state. |
-| `migration_apply` | `migration_id` | Re-reads and re-verifies the exact preview inputs, then atomically activates the whole candidate. Requires that no day is open. The fresh candidate is validated (source identity, durable target, conflicts) before any successful `no_change` return; a repeated identical source is `no_change`, and stale or conflicting input is rejected without mutation. |
+| `migration_apply` | `dates`, `migration_id` | Stateless since #272: rebuilds the candidate for `dates` and activates it atomically only when the rebuilt `migration_id` matches. Requires that no day is open. The fresh candidate is validated (source identity, durable target, conflicts) before any successful `no_change` return; a repeated identical source is `no_change`, and stale or conflicting input is rejected without mutation. |
 | `classifications` | `query` (optional) | One bounded authoritative classification read. Returns a stored `catalog_id`, options and an explicit `complete` flag. A filtered or truncated catalog cannot prove an option absent. |
 | `select_classification` | `day`, `revision`, `interval_id`, `catalog_id`, `classification_id` | Records an explicit reviewed remote classification choice for an option the catalog returned, in staged work. Follows confirm/save semantics. |
 | `reconcile_remote` | `day` | One fresh read-only observation of the day. Persists the observation and reports mapped, changed, missing and orphaned identities, unbound remotes, overlap/text candidates, unresolved-write history and blockers. A read never binds an identity. |
@@ -1286,13 +1288,13 @@ non-empty, at most 128 bytes, and contain no control characters.
 | `submit_plan` | `day`, `approval_id` | Revalidates every precondition fresh, then executes the approved batch: one durable pre-write intent per operation, one dispatch, one verification read-back per write. Returns a bounded receipt; never retries a dispatched write. |
 | `submission_status` | `day` | Lists this date's approval ledger, execution audit and every unresolved write reference (native `wr-…` and migrated `mw-…`). Unresolved references block all further writing. |
 | `resolve_write` | `write_ref`, `observation_id`, `decision` (`adopt` requires `remote_id`) | Explicitly resolves ONE unresolved write reference against the CURRENT COMPLETE observation: `adopt` binds the observed remote ID (one-to-one checks apply), `not_applied` records a human attestation that the intended effect is absent (refused when a matching effect is visible). Never dispatches. |
-| `cancel` | `day`, `revision` | Discards staged edits and restores the last confirmed revision. |
-| `status` | none | Reports loaded days, protocol identity, `store_schema`/`durable_schema`, `durability_uncertain`, and compact migration/binding/unresolved-write/plan/approval counts (`approvals`, `native_unresolved_writes`). |
-| `check_environment` | none | Reports required variable **names** and which are missing. |
-| `close` | none | Replies, then ends the process. Unsaved state is not written. |
+| `cancel` | — | Removed with `serve` (#272): staged edits end with the process that made them. |
+| `status` | none | Reports loaded days, `app_version` (the protocol schema retired with `serve`), `store_schema`/`durable_schema`, `durability_uncertain`, and compact migration/binding/unresolved-write/plan/approval counts (`approvals`, `native_unresolved_writes`). |
+| `check_environment` | none | Reports required variable **names** and which are missing; reached through `timesheet status` (`environment`) since #272. |
+| `close` | none | Ends the in-process session; under `serve` it also ended the process. Unsaved state is not written. |
 
 A day must be opened before its other operations. `revision` is required for
-every mutation and for `save`/`cancel`; a mismatch fails with `stale_revision`.
+every mutation and for `save`; a mismatch fails with `stale_revision`.
 
 ## R5 — first pinned Pi consumer (`0.1.0-dev.14` → `0.1.0-dev.16`, historical stage)
 

@@ -22,7 +22,7 @@ The supplied Antigravity transcript is the baseline: 30 tool calls before the fi
 2. The binary loads non-secret configuration and credentials internally, collects GitHub and calendar evidence, and groups related activity.
 3. Pi renders the review locally. Scrolling, detail inspection, typed changes, source acknowledgment, local confirmation, and submission approval do not require model calls.
 4. The user supplies working intervals and explicitly confirms attendance for proposed calendar intervals. GitHub activity timestamps never establish working duration.
-5. The user chooses save-local, revise, cancel, or review-submission. Save-local persists reviewed work without remote writes. Cancel discards unapplied review changes and preserves prior confirmed work.
+5. The user chooses save-local, revise, discard, or review-submission. Save-local persists reviewed work without remote writes. Discarding (leaving without saving) drops unapplied review changes and preserves prior confirmed work.
 6. Review-submission shows the exact remote creates/edits and total. Approval authorizes only that exact Submission Plan. Approval may then lead to execution without asking the model to rediscover another command.
 7. The binary reports verified outcomes. Uncertain writes remain unresolved and block blind replay.
 
@@ -121,7 +121,7 @@ Public compatibility includes CLI flags/exit behavior, typed review input, the P
 
 ## Completion evidence
 
-the application is complete only when the real executable and Pi UI demonstrate GitHub/calendar collection, manual interval entry, explicit attendance and incomplete-source decisions, local save/revise/cancel, restart-safe durable state, repeat-safe migration, remote reconciliation, exact-plan approval, verified submission outcomes, and restricted model tools. Use hermetic sources for ordinary development; live proof requires separately authorized credentials and service scope.
+the application is complete only when the real executable and Pi UI demonstrate GitHub/calendar collection, manual interval entry, explicit attendance and incomplete-source decisions, local save/revise/discard, restart-safe durable state, repeat-safe migration, remote reconciliation, exact-plan approval, verified submission outcomes, and restricted model tools. Use hermetic sources for ordinary development; live proof requires separately authorized credentials and service scope.
 
 Show the actual review surface and receipt, not only unit results. Measure the daily model-visible workflow against the transcript baseline without claiming an unmeasured reduction. The macOS runtime and chosen model/subscription path must be exercised before support is claimed.
 

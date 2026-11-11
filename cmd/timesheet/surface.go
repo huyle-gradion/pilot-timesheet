@@ -27,7 +27,7 @@ var retiredCommands = map[string]string{
 	"collect":       "timesheet log",
 	"draft":         "timesheet log",
 	"confirm":       "timesheet log (save confirms and saves in one step)",
-	"serve":         "timesheet migrate preview|apply, timesheet submit revoke and timesheet status (each a stateless command)",
+	"serve":         "timesheet migrate preview|apply, timesheet submit revoke or timesheet status",
 }
 
 func retiredCommandError(name string) error {
@@ -189,10 +189,22 @@ func runSubmitRevoke(args []string) error {
 				date, len(active), strings.Join(ids, ", "))
 		}
 	} else {
+		// Refuse an unknown or no-longer-active id before asking the operator
+		// to type it, with the same codes and messages revoke_approval uses.
+		state := ""
 		for _, a := range status.Approvals {
 			if a.ApprovalID == approvalID {
-				planID = a.PlanID
+				planID, state = a.PlanID, a.State
 			}
+		}
+		switch state {
+		case "":
+			return &timesheet.AppError{Code: timesheet.CodeUnknownApproval,
+				Message: "approval_id does not name a native approval for this date"}
+		case timesheet.ApprovalActive:
+		default:
+			return &timesheet.AppError{Code: timesheet.CodeStaleApproval,
+				Message: "approval is already " + state + " and cannot be revoked"}
 		}
 	}
 	prompt := fmt.Sprintf("About to revoke approval %s for %s\n  plan_id: %s\nRevocation is permanent audit; the plan needs a new approval before it can be submitted.",

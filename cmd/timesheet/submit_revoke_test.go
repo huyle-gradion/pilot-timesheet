@@ -83,10 +83,19 @@ func TestSubmitRevokeRefusesWithoutAConfirmedSingleTarget(t *testing.T) {
 		t.Fatalf("a refused revoke changed the approval to %q", got)
 	}
 
+	// An explicit unknown id is refused before the operator is asked to type
+	// anything (an empty terminal would otherwise abort the prompt).
+	injectTTY(t)
+	_, err := runRevokeCapture(t, "--config", cfg, "--date", testDate, "--approval-id", "apr-unknown")
+	var appErr *timesheet.AppError
+	if !errors.As(err, &appErr) || appErr.Code != timesheet.CodeUnknownApproval {
+		t.Fatalf("unknown --approval-id = %v, want unknown_approval before the prompt", err)
+	}
+
 	injectTTY(t, planID)
 	second := runApproveCapture(t, []string{"--config", cfg, "--date", testDate}).ApprovalID
 	injectTTY(t, first)
-	_, err := runRevokeCapture(t, "--config", cfg, "--date", testDate)
+	_, err = runRevokeCapture(t, "--config", cfg, "--date", testDate)
 	if err == nil || !strings.Contains(err.Error(), first) || !strings.Contains(err.Error(), second) || !strings.Contains(err.Error(), "--approval-id") {
 		t.Fatalf("several active approvals = %v, want both listed and --approval-id named", err)
 	}

@@ -1,15 +1,83 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
+
+// TestMigrateCLIDispatch drives `timesheet migrate` through main() in a child
+// process, like the serve CLI test it replaces (#267): top-level dispatch,
+// stdout carrying only the JSON result, and exit codes.
+func TestMigrateCLIDispatch(t *testing.T) {
+	if os.Getenv("TIMESHEET_MIGRATE_CLI_CHILD") == "1" {
+		separator := slices.Index(os.Args, "--")
+		if separator < 0 {
+			t.Fatal("missing CLI arguments")
+		}
+		os.Args = append([]string{"timesheet"}, os.Args[separator+1:]...)
+		main()
+		os.Exit(0)
+	}
+	home := t.TempDir()
+	run := func(args ...string) (string, string, int) {
+		t.Helper()
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, executable, append([]string{"-test.run=^TestMigrateCLIDispatch$", "--"}, args...)...)
+		cmd.Dir = home
+		cmd.Env = []string{"TIMESHEET_MIGRATE_CLI_CHILD=1", "HOME=" + home, "TMPDIR=" + home, "XDG_CONFIG_HOME=" + home}
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err = cmd.Run()
+		code := 0
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			code = exit.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		return stdout.String(), stderr.String(), code
+	}
+
+	cfg, _ := migrationConfig(t, true)
+	stdout, stderr, code := run("migrate", "preview", "--config", cfg, "--date", "2026-10-20")
+	var preview timesheet.MigrationPreview
+	if code != 0 || json.Unmarshal([]byte(stdout), &preview) != nil || preview.MigrationID == "" {
+		t.Fatalf("preview: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	stdout, stderr, code = run("migrate", "apply", "--config", cfg, "--date", "2026-10-20", "--migration-id", "bogus")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, timesheet.CodeMigrationStale) {
+		t.Fatalf("stale apply: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	stdout, stderr, code = run("migrate", "apply", "--config", cfg, "--date", "2026-10-20", "--migration-id", preview.MigrationID)
+	var receipt timesheet.MigrationApplyReceipt
+	if code != 0 || json.Unmarshal([]byte(stdout), &receipt) != nil || receipt.Status != timesheet.MigrationApplied {
+		t.Fatalf("apply: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	disabled, _ := migrationConfig(t, false)
+	if stdout, stderr, code = run("migrate", "preview", "--config", disabled, "--date", "2026-10-20"); code != 1 || stdout != "" ||
+		!strings.Contains(stderr, timesheet.CodeMigrationDisabled) {
+		t.Fatalf("disabled preview: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	if stdout, stderr, code = run("migrate"); code != 1 || stdout != "" || !strings.Contains(stderr, "migrate preview") {
+		t.Fatalf("bare migrate: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}
 
 // legacyRecord is a minimal synthetic legacy workflow file for one date.
 const legacyRecord = `{

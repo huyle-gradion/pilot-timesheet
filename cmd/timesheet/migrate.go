@@ -34,7 +34,7 @@ func runMigrate(args []string) error {
 	flags.StringVar(&envFile, "env-file", "", "environment-file path (optional; defaults to $HOME/.timesheet/.env.local when it exists)")
 	flags.Var(&dates, "date", "legacy day YYYY-MM-DD or inclusive range FROM..TO (required; repeatable)")
 	if verb == "apply" {
-		flags.StringVar(&migrationID, "migration-id", "", "migration_id copied verbatim from `migrate preview` for the same dates (required)")
+		flags.StringVar(&migrationID, "migration-id", "", "migration_id copied verbatim from migrate preview for the same dates (required)")
 	}
 	if err := flags.Parse(args); err != nil {
 		return err

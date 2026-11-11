@@ -1110,7 +1110,7 @@ func runStage(args []string) error {
 // (the clone of the durable confirmed set the day opened with) is removed, the
 // staged set is re-derived from the CURRENT entries ledger with the four-hour
 // chunking applied, and the day is confirmed and saved in-process at a NEW
-// revision — mirroring the serve flow's reopen → edit → confirm → save revision
+// revision — the dispatcher's reopen → edit → confirm → save revision
 // step and classify's finalized-day pattern. Entries no longer in the ledger
 // lose their intervals; the ledger itself is never modified. Every op refusal
 // (source gate, stale revision, interval validation) passes through verbatim
@@ -1361,8 +1361,8 @@ type ClassifyReceipt struct {
 //     the clone of the durable confirmed intervals — never re-derived, never
 //     restaged), the selections key off the durable interval ids exactly as
 //     `status --date` prints them, and the command drives the day to a NEW
-//     durable revision inside this process — confirm then save, the serve
-//     flow's reopen → select → confirm → save revision step — because the
+//     durable revision inside this process — confirm then save, the
+//     dispatcher's reopen → select → confirm → save revision step — because the
 //     selections live only on Staged otherwise. No sidecar is written on this
 //     path: the selections become durable immediately. A `{}` choices file is
 //     still an honest no-op: nothing is selected and the saved day is left
@@ -1498,7 +1498,7 @@ func classifyFileCore(h *headlessSession, cfg *timesheet.Config, date, project s
 // selections apply directly against those ids at the day's current (saved)
 // revision. With at least one applied selection the day is driven to a new
 // durable revision: confirm then save within this same process, mirroring the
-// serve flow's reopen → select_classification → confirm → save revision step
+// dispatcher's reopen → select_classification → confirm → save revision step
 // (staged selections are session-only, so skipping the re-finalize would
 // silently drop them). An empty applied set is an honest no-op: no confirm
 // and no save run, and the receipt says the saved day was left unchanged.

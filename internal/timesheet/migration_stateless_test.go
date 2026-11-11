@@ -122,3 +122,47 @@ func TestMigrationApplyIsStatelessAcrossProcesses(t *testing.T) {
 		t.Fatalf("repeat apply: %+v", noop)
 	}
 }
+
+// TestMigrationApplyIsStaleWhenTheConfigChanged (PR #275 review): each
+// command reloads the config, so the migration_id must bind what apply would
+// commit, not only the source bytes and the target. A project_map edited
+// between preview and apply changes the migrated content and must be
+// migration_stale with nothing written.
+func TestMigrationApplyIsStaleWhenTheConfigChanged(t *testing.T) {
+	cfg, _, _ := migrationFixture(t)
+	cfg.Projects = append(cfg.Projects, Project{ID: "P2", Name: "Other", DefaultClassification: "DEV"})
+	dates := []string{"2026-10-20"}
+	store, err := OpenStore(cfg.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	var preview MigrationPreview
+	decodeResult(t, call(t, NewSession(cfg, map[string]string{}, store), Request{ID: "p", Op: "migration_preview", Dates: dates}), &preview)
+	if !preview.Ready {
+		t.Fatalf("preview not ready: %+v", preview)
+	}
+
+	edited := *cfg
+	mig := *cfg.Migration
+	mig.ProjectMap = map[string]string{"OLD-1": "P2"}
+	edited.Migration = &mig
+	s := NewSession(&edited, map[string]string{}, store)
+	requireCode(t, call(t, s, Request{ID: "a", Op: "migration_apply", Dates: dates, MigrationID: preview.MigrationID}), CodeMigrationStale)
+	if st := store.State(); len(st.Days) != 0 || st.Migration != nil && len(st.Migration.Receipts) != 0 {
+		t.Fatal("a stale apply wrote the store")
+	}
+
+	// The edited config previews its own id, and that id applies.
+	var fresh MigrationPreview
+	decodeResult(t, call(t, s, Request{ID: "p2", Op: "migration_preview", Dates: dates}), &fresh)
+	if fresh.MigrationID == preview.MigrationID {
+		t.Fatal("a different project_map previewed the same migration_id")
+	}
+	var receipt MigrationApplyReceipt
+	decodeResult(t, call(t, s, Request{ID: "a2", Op: "migration_apply", Dates: dates, MigrationID: fresh.MigrationID}), &receipt)
+	if receipt.Status != MigrationApplied {
+		t.Fatalf("apply after a fresh preview: %+v", receipt)
+	}
+}
