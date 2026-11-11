@@ -245,7 +245,7 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 	var capErr judgeCapError
 	switch {
 	case errors.As(askErr, &capErr):
-		return zero, capErr
+		return zero, askErr
 	case askErr != nil && usage.Calls > 1:
 		return zero, fmt.Errorf("judge: %s failed after one retry: %w; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr)
 	case askErr != nil:

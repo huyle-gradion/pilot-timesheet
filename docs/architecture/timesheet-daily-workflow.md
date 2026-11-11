@@ -251,7 +251,7 @@ changes.
 configured judge and continues, so one invocation goes from collection to
 `human_gates`, `ask_human` or `stopped`. The report carries
 `usage: {calls, input_tokens, output_tokens, exact}` for the run. A judge
-failure (after its one retry), the daily cap, or the same judgment coming back
+failure (after at most one retry), the daily cap, or the same judgment coming back
 unchanged stops with `judgment_failed: <kind>: <reason>`, and the judgment stays
 open: a later `next --do` without `--auto` hands it to the agent path. A
 judgment that returns with `last_error` (repair-once, #240) is asked again with
@@ -288,16 +288,27 @@ one chat-completions request; its key is read from the env file by name.
   description limit.
 - **Validation**: a descriptions reply must answer every block and name no
   other; a classifications reply may only pick an option from the interval's
-  own candidate set. A provider error, timeout or invalid reply is retried once
-  with a one-line note; a second failure leaves the judgment open for the
-  agent path.
+  own candidate set. A call is retried at most once (#285). An invalid reply
+  is sent back with a one-line note of what was wrong. A transient backend
+  failure (timeout, HTTP 408, 429 or 5xx, an unreachable endpoint, a harness
+  that exits non-zero or replies over 1 MiB) is sent again unchanged, without
+  the note, after one second or the provider's `Retry-After` when that is
+  longer, up to ten seconds; a longer `Retry-After` gets no retry. A permanent
+  failure (any other HTTP 4xx, a 200 that is not a chat completion, a harness
+  that is missing or cannot start) is not retried. The daily cap is checked
+  on an estimate before each call, the retry included; a cap stop before the
+  retry keeps the first call's failure in its reason. A failure that is not
+  retried, or a second failure, leaves the judgment open for the agent path.
 - **Response cache**: `<day folder>/judge/<kind>-<key>.json`, keyed by the
   template bytes, the backend identity and the rendered context. An unchanged
   prompt reuses the stored reply with no call; editing a template, changing
   the backend or model, or changing the day's content misses the cache.
 - **Usage**: every call appends `{at, kind, cached, ok, usage}` to
   `<day folder>/judge-usage.jsonl`; usage is exact from the HTTP backend and
-  estimated (about four bytes per token) from a harness. Non-cached usage at or
+  estimated (about four bytes per token) from a harness. A harness that ran
+  but failed (timeout, non-zero exit, oversized reply) still counts its
+  estimated input tokens, since the prompt was sent; a failed HTTP call and a
+  harness that never started count the call with no tokens. Non-cached usage at or
   above `daily_token_cap` stops further calls for the day.
 - A classifications judgment without candidates (saved-day recovery) is not
   judged by the binary.

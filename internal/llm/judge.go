@@ -287,14 +287,19 @@ type RetryPolicy struct {
 // retried once with a one-line note of what was wrong. A transient backend
 // failure is retried once, unchanged, after RetryWait or the provider's
 // Retry-After when longer (up to MaxRetryWait). Anything else, and a second
-// failure, is returned. Usage covers every call made.
+// failure, is returned. When BeforeCall stops the retry, its error keeps the
+// first call's failure. Usage covers every call made.
 func Ask[T any](ctx context.Context, backend Backend, p Prompt, parse func(string) (T, error), policy RetryPolicy) (T, string, Usage, error) {
 	var zero T
 	total := Usage{Exact: true}
 	prompt := p.Text
+	var prior error
 	for attempt := 0; ; attempt++ {
 		if policy.BeforeCall != nil {
 			if err := policy.BeforeCall(prompt, total); err != nil {
+				if prior != nil {
+					err = fmt.Errorf("%w; the first call failed: %w", err, prior)
+				}
 				return zero, "", total, err
 			}
 		}
@@ -313,6 +318,7 @@ func Ask[T any](ctx context.Context, backend Backend, p Prompt, parse func(strin
 		if attempt > 0 {
 			return zero, "", total, err
 		}
+		prior = err
 		if errors.Is(err, ErrInvalidReply) {
 			prompt = p.Text + "\n\nYour previous reply was rejected: " + clip(err.Error(), 300) + "\nReturn only the JSON object."
 			continue

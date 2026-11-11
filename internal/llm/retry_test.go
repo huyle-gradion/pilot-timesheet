@@ -29,6 +29,7 @@ type statusServer struct {
 type statusStep struct {
 	status     int
 	retryAfter string
+	body       string
 }
 
 func (s *statusServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -44,8 +45,9 @@ func (s *statusServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if step.retryAfter != "" {
 		w.Header().Set("Retry-After", step.retryAfter)
 	}
-	if step.status != http.StatusOK {
+	if step.status != http.StatusOK || step.body != "" {
 		w.WriteHeader(step.status)
+		_, _ = io.WriteString(w, step.body)
 		return
 	}
 	_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"{\"descriptions\":{\"b1\":\"x\",\"b2\":\"y\"}}"}}],"usage":{"prompt_tokens":7,"completion_tokens":3}}`)
@@ -117,6 +119,17 @@ func TestAskNeverRetriesAPermanentBackendFailure(t *testing.T) {
 		}
 	}
 
+	for name, step := range map[string]statusStep{
+		"oversized 401":             {status: http.StatusUnauthorized, body: strings.Repeat("x", MaxReplyBytes+10)},
+		"200 not a chat completion": {status: http.StatusOK, body: "<html>gateway login</html>"},
+	} {
+		s := &statusServer{steps: []statusStep{step}}
+		f := newAskFixture(t, openAIAt(t, s))
+		if usage, err := f.ask(f.policy()); !errors.Is(err, ErrBackend) || len(s.prompts) != 1 || usage.Calls != 1 || len(f.waits) != 0 {
+			t.Fatalf("%s: err %v after %d call(s), usage %+v, waits %v; want one call", name, err, len(s.prompts), usage, f.waits)
+		}
+	}
+
 	notExecutable := filepath.Join(t.TempDir(), "harness")
 	if err := os.WriteFile(notExecutable, []byte("#!/bin/sh\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -124,8 +137,8 @@ func TestAskNeverRetriesAPermanentBackendFailure(t *testing.T) {
 	for argv0, want := range map[string]string{"definitely-not-a-harness-285": "was not found", notExecutable: "could not start"} {
 		h := &countingBackend{Backend: CommandBackend{Argv: []string{argv0}, Env: CommandEnv(nil), Timeout: time.Second}}
 		f := newAskFixture(t, h)
-		if usage, err := f.ask(f.policy()); !errors.Is(err, ErrBackend) || !strings.Contains(err.Error(), want) || h.calls != 1 || usage.Calls != 1 {
-			t.Fatalf("%s: err %v after %d call(s), usage %+v", argv0, err, h.calls, usage)
+		if usage, err := f.ask(f.policy()); !errors.Is(err, ErrBackend) || !strings.Contains(err.Error(), want) || h.calls != 1 || usage.Calls != 1 || usage.Total() != 0 {
+			t.Fatalf("%s: err %v after %d call(s), usage %+v; want one call that spent nothing", argv0, err, h.calls, usage)
 		}
 	}
 }
@@ -167,8 +180,9 @@ func TestAskRetriesAFailingHarnessOnce(t *testing.T) {
 		timeout time.Duration
 		want    string
 	}{
-		"timeout":  {[]string{"sh", "-c", "sleep 5"}, 50 * time.Millisecond, "timed out"},
-		"non-zero": {[]string{"sh", "-c", "cat >/dev/null; exit 3"}, 5 * time.Second, "exit status 3"},
+		"timeout":   {[]string{"sh", "-c", "sleep 5"}, 50 * time.Millisecond, "timed out"},
+		"non-zero":  {[]string{"sh", "-c", "cat >/dev/null; exit 3"}, 5 * time.Second, "exit status 3"},
+		"oversized": {[]string{"sh", "-c", "cat >/dev/null; head -c 1048600 /dev/zero"}, 5 * time.Second, "exceeds"},
 	} {
 		h := &countingBackend{Backend: CommandBackend{Argv: tc.argv, Env: CommandEnv(nil), Timeout: tc.timeout}}
 		f := newAskFixture(t, h)
@@ -176,14 +190,19 @@ func TestAskRetriesAFailingHarnessOnce(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) || h.calls != 2 || usage.Calls != 2 || len(f.waits) != 1 {
 			t.Fatalf("%s: err %v after %d call(s), usage %+v, waits %v", name, err, h.calls, usage, f.waits)
 		}
+		if want := 2 * EstimateTokens(f.prompt.Text); usage.InputTokens != want || usage.OutputTokens != 0 || usage.Exact {
+			t.Fatalf("%s: usage %+v, want both sent prompts estimated (%d input tokens)", name, usage, want)
+		}
 	}
 }
 
 func TestAskDoesNotRetryBeforeAFarRetryAfter(t *testing.T) {
-	s := &statusServer{steps: []statusStep{{status: 429, retryAfter: "120"}}}
-	f := newAskFixture(t, openAIAt(t, s))
-	if _, err := f.ask(f.policy()); err == nil || !strings.Contains(err.Error(), "HTTP 429") || len(s.prompts) != 1 || len(f.waits) != 0 {
-		t.Fatalf("err %v after %d call(s), waits %v; want no retry sooner than the provider allows", err, len(s.prompts), f.waits)
+	for _, h := range []string{"120", "99999999999999999999"} {
+		s := &statusServer{steps: []statusStep{{status: 429, retryAfter: h}}}
+		f := newAskFixture(t, openAIAt(t, s))
+		if _, err := f.ask(f.policy()); err == nil || !strings.Contains(err.Error(), "HTTP 429") || len(s.prompts) != 1 || len(f.waits) != 0 {
+			t.Fatalf("Retry-After %s: err %v after %d call(s), waits %v; want no retry sooner than the provider allows", h, err, len(s.prompts), f.waits)
+		}
 	}
 }
 
@@ -248,6 +267,7 @@ func TestRetryAfterReadsSecondsAndDates(t *testing.T) {
 		"-3":                            0,
 		"soon":                          0,
 		"99999999999":                   24 * time.Hour,
+		"99999999999999999999":          24 * time.Hour,
 		"Wed, 11 Nov 2026 09:00:05 GMT": 5 * time.Second,
 		"Wed, 11 Nov 2026 08:59:00 GMT": 0,
 	} {

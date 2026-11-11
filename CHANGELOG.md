@@ -9,7 +9,9 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   permanent backend failure (HTTP 401, 403, 404, a missing harness) is not
   retried; a transient one (timeout, 429, 5xx) is resent unchanged after a
   short backoff that honors `Retry-After` up to ten seconds. The daily token
-  cap is now checked before the retry too, as the README states.
+  cap is now checked before the retry too, as the README states. A harness
+  call that ran but failed now counts its estimated input tokens, and the
+  harness reply size limit is enforced (it was bypassed before).
 - `internal/timesheet` comments are removed (#258). New tests pin the
   constraints they stated, including that a write left in flight blocks the
   plan, its approval and any new submit after a restart.

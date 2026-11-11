@@ -203,8 +203,11 @@ func TestJudgeChecksTheCapBeforeTheRetry(t *testing.T) {
 	_ = json.Unmarshal(data, &doc)
 	addJudge(t, cfg, map[string]any{"backend": "openai", "base_url": doc["judge"].(map[string]any)["base_url"], "model": "m", "daily_token_cap": 600})
 	_, err := judgeDoc(t, args...)
-	if err == nil || !strings.Contains(err.Error(), "daily token cap (600)") || !strings.Contains(err.Error(), "(440 spent)") || chat.calls != 1 {
+	if err == nil || !strings.HasPrefix(err.Error(), "judge: the daily token cap (600)") || !strings.Contains(err.Error(), "(440 spent)") || chat.calls != 1 {
 		t.Fatalf("err = %v after %d call(s), want the cap to stop the retry", err, chat.calls)
+	}
+	if !strings.Contains(err.Error(), "no description for block(s)") {
+		t.Fatalf("err = %v, want the first reply's rejection kept", err)
 	}
 	usage, _ := os.ReadFile(filepath.Join(testArtifactDir(t, cfg, "2026-10-20"), judgeUsageFile))
 	if !strings.Contains(string(usage), `"input_tokens":400`) {

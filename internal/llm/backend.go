@@ -57,8 +57,9 @@ var ErrBackend = errors.New("judge backend failed")
 
 // BackendError is one backend failure. A transient one (a timeout, HTTP 408,
 // 429 or 5xx, an unreachable endpoint, a harness that exits non-zero) may pass
-// when sent again; any other (HTTP 401, 403, 404, a missing executable) never
-// will. RetryAfter is the provider's Retry-After hint, zero when it gave none.
+// when sent again; any other (HTTP 401, 403, 404, a missing executable, a 200
+// that is not a chat completion) never will. RetryAfter is the provider's
+// Retry-After hint, zero when it gave none.
 type BackendError struct {
 	Reason     string
 	Transient  bool
@@ -102,35 +103,40 @@ func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Us
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard
 	err := cmd.Run()
+	// A harness that ran was sent the prompt and may have spent it, so its
+	// failures carry the estimated input; one that never started spent nothing.
+	sent := Usage{Calls: 1, InputTokens: EstimateTokens(prompt)}
 	var exit *exec.ExitError
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:
-		return "", Usage{}, transient("the harness command timed out after %s", b.Timeout)
+		return "", sent, transient("the harness command timed out after %s", b.Timeout)
 	case errors.Is(err, exec.ErrNotFound):
 		return "", Usage{}, permanent("the harness command %q was not found", b.Argv[0])
 	case errors.As(err, &exit):
-		return "", Usage{}, transient("the harness command failed (exit status %d)", exit.ExitCode())
+		return "", sent, transient("the harness command failed (exit status %d)", exit.ExitCode())
 	case err != nil:
 		return "", Usage{}, permanent("the harness command failed (could not start)")
 	case out.over:
-		return "", Usage{}, transient("the harness reply exceeds %d bytes", MaxReplyBytes)
+		return "", sent, transient("the harness reply exceeds %d bytes", MaxReplyBytes)
 	}
-	reply := out.String()
+	reply := out.buf.String()
 	return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
 }
 
+// limitedBuffer keeps its bytes.Buffer unexported so io.Copy cannot reach
+// the buffer's ReadFrom and skip the limit.
 type limitedBuffer struct {
-	bytes.Buffer
+	buf   bytes.Buffer
 	limit int
 	over  bool
 }
 
 func (l *limitedBuffer) Write(p []byte) (int, error) {
-	if l.Len()+len(p) > l.limit {
+	if l.over || l.buf.Len()+len(p) > l.limit {
 		l.over = true
 		return len(p), nil
 	}
-	return l.Buffer.Write(p)
+	return l.buf.Write(p)
 }
 
 func FilterEnv(environ []string, reserved []string) []string {
@@ -203,15 +209,15 @@ func (b OpenAIBackend) Complete(ctx context.Context, prompt string) (string, Usa
 		return "", Usage{}, transient("the endpoint is unreachable")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", Usage{}, statusError(resp.StatusCode, resp.Header.Get("Retry-After"), time.Now())
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxReplyBytes+1))
 	if err != nil {
 		return "", Usage{}, transient("the endpoint reply could not be read")
 	}
 	if len(data) > MaxReplyBytes {
 		return "", Usage{}, transient("the endpoint reply exceeds %d bytes", MaxReplyBytes)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, statusError(resp.StatusCode, resp.Header.Get("Retry-After"), time.Now())
 	}
 	var parsed struct {
 		Choices []struct {
@@ -225,7 +231,7 @@ func (b OpenAIBackend) Complete(ctx context.Context, prompt string) (string, Usa
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil || len(parsed.Choices) == 0 {
-		return "", Usage{}, transient("the endpoint reply is not a chat completion")
+		return "", Usage{}, permanent("the endpoint reply is not a chat completion")
 	}
 	reply := parsed.Choices[0].Message.Content
 	if parsed.Usage == nil {
@@ -251,8 +257,13 @@ func statusError(code int, retryAfterHeader string, now time.Time) error {
 // absent, past or unreadable value is zero; a huge one is held to a day.
 func retryAfter(h string, now time.Time) time.Duration {
 	h = strings.TrimSpace(h)
-	if secs, err := strconv.Atoi(h); err == nil {
-		return time.Duration(min(max(secs, 0), 24*60*60)) * time.Second
+	const most = 24 * time.Hour
+	secs, err := strconv.Atoi(h)
+	switch {
+	case err == nil:
+		return time.Duration(min(max(secs, 0), int(most/time.Second))) * time.Second
+	case errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(h, "-"):
+		return most
 	}
 	if at, err := http.ParseTime(h); err == nil && at.After(now) {
 		return at.Sub(now)
