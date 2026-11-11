@@ -33,12 +33,6 @@ func approvalState(t *testing.T, cfg, approvalID string) string {
 	return ""
 }
 
-// TestSubmitRevokeRevokesTheKeptApproval (issue #272): the approval a stopped
-// terminal submit keeps is revoked from the terminal behind a typed
-// confirmation of its approval_id. Without --approval-id the day's single
-// active approval is chosen. Revocation is immutable: a second revoke is
-// refused with the existing stale_approval refusal, and the revoked approval
-// can no longer be submitted.
 func TestSubmitRevokeRevokesTheKeptApproval(t *testing.T) {
 	cfg, planID, approvalID, stub := approveReadyPlan(t, "")
 
@@ -69,9 +63,6 @@ func TestSubmitRevokeRevokesTheKeptApproval(t *testing.T) {
 	}
 }
 
-// TestSubmitRevokeRefusesWithoutAConfirmedSingleTarget: a mistyped
-// confirmation changes nothing, several active approvals are listed and
-// refused without --approval-id, and a day with none says so.
 func TestSubmitRevokeRefusesWithoutAConfirmedSingleTarget(t *testing.T) {
 	cfg, planID, first, _ := approveReadyPlan(t, "")
 
@@ -83,8 +74,6 @@ func TestSubmitRevokeRefusesWithoutAConfirmedSingleTarget(t *testing.T) {
 		t.Fatalf("a refused revoke changed the approval to %q", got)
 	}
 
-	// An explicit unknown id is refused before the operator is asked to type
-	// anything (an empty terminal would otherwise abort the prompt).
 	injectTTY(t)
 	_, err := runRevokeCapture(t, "--config", cfg, "--date", testDate, "--approval-id", "apr-unknown")
 	var appErr *timesheet.AppError
@@ -112,9 +101,6 @@ func TestSubmitRevokeRefusesWithoutAConfirmedSingleTarget(t *testing.T) {
 	}
 }
 
-// TestSubmitRevokeIsTerminalOnly: under go test stdio is not a terminal, so
-// the production gate refuses before the store opens; --chat never reaches
-// revoke.
 func TestSubmitRevokeIsTerminalOnly(t *testing.T) {
 	cfg, _, approvalID, _ := approveReadyPlan(t, "")
 	interactiveFactory = newInteractive
@@ -129,8 +115,34 @@ func TestSubmitRevokeIsTerminalOnly(t *testing.T) {
 	}
 }
 
-// TestStoppedSubmitNamesTheRevokeCommand: the hint after a stopped terminal
-// submit names both ways out of a kept approval.
+func TestSubmitChatNeverReachesRevokeEvenWithATerminal(t *testing.T) {
+	cfg, _, approvalID, _ := approveReadyPlan(t, "")
+	injectTTY(t, approvalID)
+	captureStdout(t, func() {
+		if err := runSubmitCommand([]string{"--chat", "revoke", "--config", cfg, "--date", testDate}); err == nil {
+			t.Error("--chat revoke succeeded")
+		}
+	})
+	if got := approvalState(t, cfg, approvalID); got != timesheet.ApprovalActive {
+		t.Fatalf("--chat revoke changed the approval to %q", got)
+	}
+}
+
+func TestSubmitRevokeTTYGateRefusesBeforeTheStoreOpens(t *testing.T) {
+	cfg := writeTestConfig(t)
+	store, err := timesheet.OpenStore(statePathFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	old := interactiveFactory
+	interactiveFactory = newInteractive
+	t.Cleanup(func() { interactiveFactory = old })
+	if err := runSubmitCommand([]string{"revoke", "--config", cfg, "--date", testDate}); err == nil || !strings.Contains(err.Error(), "interactive-only") {
+		t.Fatalf("non-terminal revoke with the store held = %v, want the TTY refusal first", err)
+	}
+}
+
 func TestStoppedSubmitNamesTheRevokeCommand(t *testing.T) {
 	cfg, _ := savedDayForSubmit(t, "Build the bridge", nil, "")
 	preview := runPlanCapture(t, []string{"--config", cfg, "--date", testDate})

@@ -11,21 +11,14 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Issue #277 / ADR 0011: the after-midnight remainder of a long overnight
-// entry is carried into the next day. The source ledger is never modified, the
-// minutes across both days equal the recorded span exactly, re-staging
-// replaces the carry, and a carry into a saved day is never applied silently.
+const carryTarget = "2026-10-27"
 
-const carryTarget = "2026-10-27" // the day after testDate
-
-// carryEntry is overnightEntry dated on an explicit day.
 func carryEntry(date, id, kind, start, end, desc string) timesheet.EntryRecord {
 	e := overnightEntry(id, kind, start, end, desc)
 	e.Date = date
 	return e
 }
 
-// ledgerBytes reads a ledger file verbatim, to prove stage/save never touch it.
 func ledgerBytes(t *testing.T, cfg, date string) string {
 	t.Helper()
 	b, err := os.ReadFile(timesheet.EntriesPath(statePathFor(cfg), date))
@@ -35,7 +28,6 @@ func ledgerBytes(t *testing.T, cfg, date string) string {
 	return string(b)
 }
 
-// dayMinutes sums one durable day's confirmed real minutes in tz.
 func dayMinutes(t *testing.T, day *timesheet.Day, tz string) int {
 	t.Helper()
 	loc, err := time.LoadLocation(tz)
@@ -62,9 +54,6 @@ func confirmedSpans(day *timesheet.Day) []string {
 	return out
 }
 
-// assertNotStale fails when next reports the day's ledger (or carry) as no
-// longer deriving its saved or staged content. Other stops (for example no
-// remote boundary to plan against) are not staleness.
 func assertNotStale(t *testing.T, n nextAction) {
 	t.Helper()
 	if n.State == stateStopped && (strings.Contains(n.Reason, "no longer derives") || strings.Contains(n.Reason, "carr")) {
@@ -82,11 +71,6 @@ func assertNoIntervalOver(t *testing.T, day *timesheet.Day, tz string, limit int
 	}
 }
 
-// TestCarryOvernightRemainder: 23:00→05:00 keeps 23:00→03:00 (240 minutes) on
-// the source day and carries 03:00→05:00 into the next one; 20:00→06:00 keeps
-// 20:00→00:00 and carries 00:00→06:00, which the next day chunks like its own
-// entry. The next day's own entries stage beside the carry. Minutes across both
-// days equal the recorded span; neither ledger is modified.
 func TestCarryOvernightRemainder(t *testing.T) {
 	cases := []struct {
 		start, end     string
@@ -141,9 +125,6 @@ func TestCarryOvernightRemainder(t *testing.T) {
 	}
 }
 
-// TestCarryIntoEmptyDay: a next day with no ledger of its own stages the
-// carried segment alone; next routes a carry-only day with an empty draft to
-// stage instead of stopping at "the draft carries no blocks".
 func TestCarryIntoEmptyDay(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -171,14 +152,10 @@ func TestCarryIntoEmptyDay(t *testing.T) {
 	}
 }
 
-// carryUnits is the next-side derivation of a ledger plus incoming carries.
 func carryUnits(entries []timesheet.EntryRecord, carry []timesheet.CarrySegment, date, tz string) []ledgerUnit {
 	return ledgerUnits(dayStageEntries(entries, carry), date, tz)
 }
 
-// TestCarryMergesWithOverlappingEntries: the next day's own entry overlapping
-// the carried part is claimed into one cluster, so the minutes are staged once
-// and the merge is reported.
 func TestCarryMergesWithOverlappingEntries(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -197,8 +174,6 @@ func TestCarryMergesWithOverlappingEntries(t *testing.T) {
 	}
 }
 
-// TestCarryRestageReplaces: re-staging the source day replaces its carry; the
-// next day never sees two carried segments for one source.
 func TestCarryRestageReplaces(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	writeLedger(t, cfg, testDate, []timesheet.EntryRecord{
@@ -218,7 +193,6 @@ func TestCarryRestageReplaces(t *testing.T) {
 		t.Fatalf("carried_in = %+v, want exactly the replaced segment", target.CarriedIn)
 	}
 
-	// The overnight entry shortened under the policy: the carry disappears.
 	writeLedger(t, cfg, testDate, []timesheet.EntryRecord{
 		overnightEntry("night-1", "work", "23:00", "02:00", "Overnight release"),
 	})
@@ -230,9 +204,6 @@ func TestCarryRestageReplaces(t *testing.T) {
 	}
 }
 
-// TestCarryIntoSavedDayStops: a carry that reaches a day already saved is not
-// applied. next stops naming the carry, submit --chat refuses, the saved day is
-// untouched, and only the human's stage --revise takes it in.
 func TestCarryIntoSavedDayStops(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	_, before := stageAndSave(t, cfg, carryTarget, []timesheet.EntryRecord{
@@ -264,10 +235,6 @@ func TestCarryIntoSavedDayStops(t *testing.T) {
 	assertNotStale(t, nextDoc(t, "--config", cfg, "--date", carryTarget))
 }
 
-// TestCarryAfterMidnightStampedBlocks: a block stamped on the next date sits on
-// the extended timeline. Inside the kept part it merges into the source
-// cluster; inside the carried part it follows the carry. Nothing stages on the
-// source day's early morning.
 func TestCarryAfterMidnightStampedBlocks(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	receipt, source := stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -288,7 +255,6 @@ func TestCarryAfterMidnightStampedBlocks(t *testing.T) {
 		t.Fatalf("carried description = %q, want the handover block to follow the carry", receipt.CarriedOut[0].Description)
 	}
 
-	// On its own, a block stamped on the next date is carried whole.
 	cfg2 := writeTestConfigTZ(t, overnightTZ)
 	r2, d2 := stageAndSave(t, cfg2, testDate, []timesheet.EntryRecord{
 		overnightEntry("work-09:00-10:00", "work", "09:00", "10:00", "Own work"),
@@ -300,8 +266,6 @@ func TestCarryAfterMidnightStampedBlocks(t *testing.T) {
 	}
 }
 
-// TestCarryKeepsDayLongSkip: an entry spanning 24 hours or more keeps its #176
-// skip and produces no carry.
 func TestCarryKeepsDayLongSkip(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	receipt, _ := stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -356,8 +320,6 @@ func writeTestConfigWithGradionTZ(t *testing.T, endpoint, tz string) string {
 	return cfg
 }
 
-// TestCarryNextMatchesStage: next/log derive exactly what stage staged on both
-// days, so neither is reported stale, and the source record matches.
 func TestCarryNextMatchesStage(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	entries := []timesheet.EntryRecord{
@@ -385,10 +347,6 @@ func TestCarryNextMatchesStage(t *testing.T) {
 	}
 }
 
-// TestCarryUpgradeKeepsSavedDaysCurrent: a day saved under the #176 rule (the
-// crossing chunk keeps the whole after-midnight remainder) stays current for
-// next and is not asked to re-stage; with no carry record, the next day saved
-// before the upgrade stays current too.
 func TestCarryUpgradeKeepsSavedDaysCurrent(t *testing.T) {
 	entries := []timesheet.EntryRecord{overnightEntry("night-1", "work", "15:00", "05:00", "Overnight release")}
 	o := finalizedDay()
@@ -406,15 +364,13 @@ func TestCarryUpgradeKeepsSavedDaysCurrent(t *testing.T) {
 	_, target := stageAndSave(t, cfg, carryTarget, []timesheet.EntryRecord{
 		carryEntry(carryTarget, "work-10:00-11:00", "work", "10:00", "11:00", "Own work"),
 	})
-	writeLedger(t, cfg, testDate, entries) // the source is recorded but not re-staged
+	writeLedger(t, cfg, testDate, entries)
 	assertNotStale(t, nextDoc(t, "--config", cfg, "--date", carryTarget))
 	if after := readDurableDay(t, cfg, carryTarget); after.Revision != target.Revision {
 		t.Fatalf("the saved target changed revision")
 	}
 }
 
-// TestCarryTimezoneMismatchRefused: a carry computed in the source day's
-// timezone is never read in another one.
 func TestCarryTimezoneMismatchRefused(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -439,7 +395,6 @@ func TestCarryTimezoneMismatchRefused(t *testing.T) {
 	}
 }
 
-// TestCarryControlDayWritesNoRecord: a same-day ledger writes no carry record.
 func TestCarryControlDayWritesNoRecord(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	receipt, _ := stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{
@@ -454,7 +409,6 @@ func TestCarryControlDayWritesNoRecord(t *testing.T) {
 	}
 }
 
-// currentDerives is the finalized-day proof under today's rule only.
 func currentDerives(units []ledgerUnit, confirmed []timesheet.Interval) bool {
 	current, _ := ledgerDerivesSaved(units, nil, confirmed)
 	return current

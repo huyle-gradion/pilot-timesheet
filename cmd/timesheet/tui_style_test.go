@@ -22,8 +22,6 @@ func asciiRenderer() *lipgloss.Renderer {
 
 func testStyles() uiStyles { return newUIStyles(asciiRenderer()) }
 
-// styledStyles pins ANSI so every role emits SGR; the strip-equality assertions
-// prove the styles are text-neutral.
 func styledStyles() uiStyles {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.ANSI)
@@ -32,9 +30,6 @@ func styledStyles() uiStyles {
 
 func stripANSI(frame string) string { return ansi.Strip(frame) }
 
-// TestStylesEmitSGRPerRole pins that every role emits SGR under a color
-// profile, so a role left with no attribute fails here instead of silently
-// rendering plain.
 func TestStylesEmitSGRPerRole(t *testing.T) {
 	s := styledStyles()
 	roles := map[string]func() string{
@@ -52,9 +47,6 @@ func TestStylesEmitSGRPerRole(t *testing.T) {
 	}
 }
 
-// TestStylesArePresentAndTextNeutral pins both halves of the style contract:
-// every role emits SGR under a color profile, and no role changes one byte of
-// text once the escapes are stripped.
 func TestStylesArePresentAndTextNeutral(t *testing.T) {
 	renders := []struct {
 		name string

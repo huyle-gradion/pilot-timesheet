@@ -10,8 +10,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Issue #185 / ADR 0012: the project is retired from the command surface.
-
 func TestRetiredProjectFlagFailsWithOneLine(t *testing.T) {
 	for _, command := range []string{"init", "log", "next", "tui", "judge", "stage", "classify", "save"} {
 		for _, args := range [][]string{
@@ -32,11 +30,9 @@ func TestRetiredProjectFlagFailsWithOneLine(t *testing.T) {
 	if err := retiredFlagError("stage", []string{"--date", testDate}); err != nil {
 		t.Fatalf("stage without --project = %v", err)
 	}
-	// A boolean flag takes no value, so --project after it is still the flag.
 	if err := retiredFlagError("next", []string{"--do", "--project", "WORK"}); err == nil {
 		t.Fatal("next --do --project: no error")
 	}
-	// A value that starts with '-' is a value, not a flag.
 	for _, args := range [][]string{
 		{"--config", "--project"},
 		{"--env-file", "-project", "--date", testDate},
@@ -46,7 +42,6 @@ func TestRetiredProjectFlagFailsWithOneLine(t *testing.T) {
 			t.Fatalf("log %v = %v, want no retired flag", args, err)
 		}
 	}
-	// Commands that never had --project leave it to their own flag parser.
 	for _, command := range []string{"record", "status", "migrate", "eval", "submit", "daily"} {
 		if err := retiredFlagError(command, []string{"--project", "WORK"}); err != nil {
 			t.Fatalf("%s: %v, want the command's own parser to answer", command, err)
@@ -98,8 +93,6 @@ func TestRetiredConfigKeysAreRemovedOnceOrIgnoredWithOneLine(t *testing.T) {
 	})
 }
 
-// writeNoProjectConfig is a configuration with no project at all, the shape
-// init writes after ADR 0012.
 func writeNoProjectConfig(t *testing.T, endpoint string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -115,8 +108,6 @@ func writeNoProjectConfig(t *testing.T, endpoint string) string {
 	return cfg
 }
 
-// TestNoProjectConfigStagesClassifiesSavesAndPlans runs the deterministic
-// verbs on a configuration without a project: nothing asks for one.
 func TestNoProjectConfigStagesClassifiesSavesAndPlans(t *testing.T) {
 	stub := &stubRemote{entries: map[string][]map[string]any{testDate: {}}}
 	server := httptest.NewServer(stub)
@@ -144,10 +135,6 @@ func TestNoProjectConfigStagesClassifiesSavesAndPlans(t *testing.T) {
 	}
 }
 
-// TestLegacyProjectDayStaysSubmittedUnderANoProjectConfig opens the real
-// schema-3 store (captured from the previous build after a submission) under a
-// configuration without its project. The submitted day stays current: the
-// plan has nothing to write, and the legacy labels survive the upgrade.
 func TestLegacyProjectDayStaysSubmittedUnderANoProjectConfig(t *testing.T) {
 	stub := &stubRemote{entries: map[string][]map[string]any{testDate: {
 		remoteWeekEntry("r-new-1", "08:00", "12:00", "cls-dev", "Implement synthetic design"),

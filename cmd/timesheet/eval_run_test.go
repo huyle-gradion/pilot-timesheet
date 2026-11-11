@@ -21,8 +21,6 @@ const (
 
 var intervalIDRE = regexp.MustCompile(`"interval_id":"([^"]+)"`)
 
-// classifyOrDescribe answers a classifications prompt by picking cls-dev for
-// every listed interval, and a descriptions prompt with describeAll.
 func classifyOrDescribe(prompt string) string {
 	if !strings.Contains(prompt, "prompt: classifications") {
 		return describeAll(prompt)
@@ -35,8 +33,6 @@ func classifyOrDescribe(prompt string) string {
 	return string(out)
 }
 
-// syntheticEvalGolden is a two-day dataset: day A has both judgments (one
-// block with an inline PRs list), day B descriptions only.
 func syntheticEvalGolden(t *testing.T) string {
 	t.Helper()
 	g := timesheet.GoldenDataset{
@@ -117,7 +113,6 @@ func evalScoreDoc(t *testing.T, golden, candidate string) timesheet.GoldenScore 
 	return s
 }
 
-// treeSnapshot lists every file under dir with its size and mtime.
 func treeSnapshot(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	snap := map[string]string{}
@@ -174,8 +169,6 @@ func TestEvalRunWritesACandidateThatScoreAccepts(t *testing.T) {
 		}
 	}
 
-	// A second run reuses the cached replies: no new call, but each day still
-	// counts what its replies cost, so the per-day figures do not shrink.
 	r2, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", out)
 	if err != nil || chat.calls != 3 || r2.Usage.Total() != 0 || r2.FreshTokens != 0 || len(r2.Days[0].Cached) != 2 || r2.Note == "" {
 		t.Fatalf("second run = %+v, %v after %d call(s), want every part cached", r2, err, chat.calls)
@@ -238,8 +231,6 @@ func TestEvalRunStopsAtTheDailyCapAndKeepsThePartialCandidate(t *testing.T) {
 		t.Fatalf("skipped = %+v, want the capped part and the day not reached", r.Skipped)
 	}
 
-	// A rerun takes descriptions from the cache but still counts their 440
-	// tokens, so the day hits the cap again instead of passing.
 	r2, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", out)
 	if err == nil || chat.calls != 1 || r2.Days[0].Tokens != 440 || r2.Days[0].FreshTokens != 0 || r2.Stopped == "" {
 		t.Fatalf("rerun = %+v, %v after %d call(s), want the cached cost to hit the cap again", r2, err, chat.calls)
@@ -358,7 +349,6 @@ func TestEvalRunRefusesAnOlderDatasetSchema(t *testing.T) {
 func TestEvalRunRefusesADatasetWithNothingToReplay(t *testing.T) {
 	for name, days := range map[string]string{
 		"no days": `[]`,
-		// Every part would be skipped before a judge call.
 		"empty parts": `[{"date":"` + evalDayA + `","descriptions":{"input":{"date":"` + evalDayA + `","blocks":[]},"truth":{}}},` +
 			`{"date":"` + evalDayB + `","classifications":{"input":[{"interval_id":"iv-b","candidates":"c1"}],"candidates":[],"truth":{"iv-b":"cls-dev"}}}]`,
 	} {

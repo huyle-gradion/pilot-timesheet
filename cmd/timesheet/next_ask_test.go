@@ -35,7 +35,6 @@ func TestNextDoPerformsTheHumansAcknowledgementThenContinues(t *testing.T) {
 		t.Fatalf("report = %+v, want the acknowledgement question", rep.nextAction)
 	}
 
-	// An off-menu answer is rejected with one line, and nothing runs.
 	body, _ := json.Marshal(map[string]string{"digest": q.Digest, "answer": "sure", "surface": "chat"})
 	writeAnswerFile(t, q.AnswerFile, string(body))
 	rep, _ = advanceDoc(t, args...)
@@ -43,7 +42,6 @@ func TestNextDoPerformsTheHumansAcknowledgementThenContinues(t *testing.T) {
 		t.Fatalf("off-menu answer = %+v ran %+v", rep.nextAction, rep.Ran)
 	}
 
-	// The human's answer performs exactly that acknowledgement, then the day continues.
 	body, _ = json.Marshal(map[string]string{"digest": q.Digest, "answer": "acknowledge", "surface": "chat"})
 	writeAnswerFile(t, q.AnswerFile, string(body))
 	rep, err = advanceDoc(t, args...)

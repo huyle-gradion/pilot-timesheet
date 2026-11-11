@@ -11,15 +11,8 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// writeBodiesGolden holds the raw JSON-RPC params of every remote write the
-// fixture day dispatches. It was captured before the local project was
-// retired (issue #185), so this test proves the retirement left the remote
-// write bodies byte-identical for the same day.
 const writeBodiesGolden = "testdata/write_bodies_issue185.golden"
 
-// TestRemoteWriteBodiesUnchangedForTheSameDay drives one day from its ledger
-// through stage, classify, confirm, save and a chat-confirmed submission, and
-// compares each dispatched write body with the golden bytes.
 func TestRemoteWriteBodiesUnchangedForTheSameDay(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	stub := &stubSubmit{entries: map[string][]map[string]any{testDate: nil}, writeTools: true}

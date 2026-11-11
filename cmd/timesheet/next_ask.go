@@ -29,10 +29,8 @@ const (
 	askResolve   = "resolve"
 )
 
-// askSurfaces are where a human answer may come from.
 var askSurfaces = []string{"terminal", "chat", "tui", "notification"}
 
-// resolveDecisions is the resolve verb's closed decision set.
 var resolveDecisions = []string{"adopt", "accept_observed", "foreign"}
 
 type askHuman struct {
@@ -43,12 +41,9 @@ type askHuman struct {
 	AnswerFile string   `json:"answer_file"`
 	Digest     string   `json:"digest"`
 	Protocol   string   `json:"protocol"`
-	// LastError is why the present answer was not accepted.
-	LastError string `json:"last_error,omitempty"`
+	LastError  string   `json:"last_error,omitempty"`
 }
 
-// askAnswer is one parsed answer file. Answer is "answer", or the resolve
-// file's own "decision".
 type askAnswer struct {
 	Present  bool
 	Digest   string
@@ -75,8 +70,6 @@ func askFileName(kind, qualifier string) string {
 	return "ask-" + kind + ".json"
 }
 
-// readAskAnswers parses every ask answer file in the day folder, keyed by
-// file name.
 func readAskAnswers(dir string) (map[string]askAnswer, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "ask-*.json"))
 	if err != nil {
@@ -126,8 +119,6 @@ func askProblem(a askAnswer, digest string, options []string) string {
 	return ""
 }
 
-// ask resolves one question: the accepted answer, or the ask action to
-// report (asking again with last_error when an answer is present but wrong).
 func (o nextObservation) ask(n nextAction, q askHuman) (askAnswer, *nextAction) {
 	name := filepath.Base(q.AnswerFile)
 	a := o.Asks[name]
@@ -148,7 +139,6 @@ func askProtocol(file, digest, answerHint string) string {
 		"; never answer on the human's behalf; then run timesheet log again"
 }
 
-// sourceAckAsk is the source gate's question for one unacknowledged source.
 func (o nextObservation) sourceAckAsk(src timesheet.SourceSnapshot) askHuman {
 	digest := askDigest(o.Day, src.Source, src.CollectionID)
 	file := filepath.Join(o.artifactDir(), askFileName(askSourceAck, src.Source))
@@ -161,9 +151,6 @@ func (o nextObservation) sourceAckAsk(src timesheet.SourceSnapshot) askHuman {
 	}
 }
 
-// resolveAsk is the blocked-plan question. The answer file is the resolve
-// decision file itself, plus digest and surface, so the derived resolve argv
-// consumes it unchanged.
 func (o nextObservation) resolveAsk(plan *timesheet.PlanSnapshot, context string) askHuman {
 	obsID := ""
 	if o.Workflow.Observation != nil {
@@ -180,8 +167,6 @@ func (o nextObservation) resolveAsk(plan *timesheet.PlanSnapshot, context string
 			"copied verbatim from the reconcile receipt; local_id omitted for foreign); never decide on the human's behalf; then run timesheet log again",
 	}
 }
-
-// --- acts -------------------------------------------------------------------
 
 func (d actDispatcher) acknowledgeStep(h *headlessSession) (string, error) {
 	if len(d.cmd) < 2 {

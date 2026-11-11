@@ -8,8 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- golden view tests: the day screen renders the loop verbatim --------------
-
 func dayScreen(snap loopSnapshot) string {
 	return stripANSI(renderDay(tuiModel{env: tuiEnv{styles: testStyles()}, snap: snap}))
 }
@@ -148,8 +146,6 @@ state action
 	}
 }
 
-// TestRenderFooterGolden pins the dynamic line: busy lock, last error, key
-// legend.
 func TestRenderFooterGolden(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -197,10 +193,6 @@ type appErrForTest struct{ msg string }
 
 func (e *appErrForTest) Error() string { return e.msg }
 
-// TestRecordedContentNeverDrivesTheTerminal feeds control runes into every
-// recorded field of every render branch; the stripped frame must carry none yet
-// keep the bracketed payload as plain text, so a missed sanitizeContent call
-// site fails here.
 func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 	const hostile = "evil\x1b[31mred\x07tail"
 	model := func(snap loopSnapshot) tuiModel {
@@ -307,8 +299,6 @@ func TestRecordedContentNeverDrivesTheTerminal(t *testing.T) {
 	}
 }
 
-// TestRenderBenchGolden pins the bench form: the pre-filled document, the
-// digest header, and the visible caret.
 func TestRenderBenchGolden(t *testing.T) {
 	m := tuiModel{env: tuiEnv{styles: testStyles()}, bench: benchState{
 		screen: screenBench, kind: judgmentBlockDescriptions,
@@ -372,9 +362,6 @@ func TestFitAround(t *testing.T) {
 	}
 }
 
-// TestRecordedSanitizesEveryValue pins the writer's contract: the format is
-// the UI's own text and passes through, every value is recorded content and
-// loses its control runes, newlines kept.
 func TestRecordedSanitizesEveryValue(t *testing.T) {
 	got := recorded("  a %s b %s\n", "x\x1b[31my", "p\x07q\nr")
 	if want := "  a x[31my b pq\nr\n"; got != want {
@@ -382,8 +369,6 @@ func TestRecordedSanitizesEveryValue(t *testing.T) {
 	}
 }
 
-// TestClampCaret pins the one caret clamp both the caret render and the
-// caret-line lookup share.
 func TestClampCaret(t *testing.T) {
 	for _, tc := range []struct{ caret, want int }{{-4, 0}, {0, 0}, {3, 3}, {5, 5}, {99, 5}} {
 		runes, got := clampCaret("ab\ncd", tc.caret)
@@ -425,7 +410,6 @@ func TestDayScreenClipsTallBodyHonestly(t *testing.T) {
 			"review", nextJudgment{Kind: judgmentBlockDescriptions, AnswerFile: "/tmp/x", Protocol: "write", Blocks: blocks})},
 	}
 	frame := stripANSI(renderDay(m))
-	// The instruction surface stays pinned; only the block rows clip.
 	for _, want := range []string{
 		"pilot timesheet " + timesheet.AppVersion,
 		"state judgment   step review",
@@ -434,7 +418,6 @@ func TestDayScreenClipsTallBodyHonestly(t *testing.T) {
 		"protocol\n  write",
 		"blocks\n",
 		"[r] re-derive   [enter] run the derived step",
-		// 40 block rows, a budget of 5 rows, one spent on the indicator.
 		"+36 lines",
 	} {
 		if !strings.Contains(frame, want) {
@@ -462,8 +445,6 @@ func TestBenchScreenFitsAroundTheCaret(t *testing.T) {
 		},
 	}
 	frame := stripANSI(renderBench(m))
-	// Budget 8 rows: one top indicator, six content rows around the caret, one
-	// bottom indicator.
 	for _, want := range []string{
 		"author block_descriptions",
 		"digest       d1 (copied from the judgment; keep this field)",
@@ -484,10 +465,6 @@ func TestBenchScreenFitsAroundTheCaret(t *testing.T) {
 	}
 }
 
-// TestRenderedRowsFitTheHeight walks every screen and a sweep of terminal
-// heights: whenever a window engaged (the frame differs from the unbounded
-// render), the frame must fit the height, and the gate screens must keep the
-// plan_id line, the typed echo and the confirm hint on screen.
 func TestRenderedRowsFitTheHeight(t *testing.T) {
 	blocks := make([]nextBlock, 40)
 	for i := range blocks {
@@ -561,7 +538,7 @@ func TestRenderedRowsFitTheHeight(t *testing.T) {
 			for h := 3; h <= 40; h++ {
 				frame := stripANSI(tc.model(h).View())
 				if frame == unbounded {
-					continue // the degenerate fallback renders unbounded, as before
+					continue
 				}
 				if got := rows(frame); got > h {
 					t.Fatalf("at height %d the frame renders %d rows:\n%s", h, got, frame)

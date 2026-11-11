@@ -11,9 +11,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// bindCandidates writes a candidates.json for the day's current staged ledger
-// offline, with every interval pointing at one set over a seeded catalog. It
-// stands in for the live candidates step in tests that have no catalog server.
 func bindCandidates(t *testing.T, cfg, day, catalogID string, options ...timesheet.ClassificationOption) {
 	t.Helper()
 	blocks, digest, err := stagedDayBlocks(statePathFor(cfg), day)
@@ -35,8 +32,6 @@ func bindCandidates(t *testing.T, cfg, day, catalogID string, options ...timeshe
 	writeAnswerFile(t, filepath.Join(testArtifactDir(t, cfg, day), "candidates.json"), string(data))
 }
 
-// nextJudgmentDoc derives once and, when the planner asks for the candidates
-// step, binds seeded candidates offline and derives again.
 func nextJudgmentDoc(t *testing.T, cfg, catalogID string, args ...string) nextAction {
 	t.Helper()
 	n := nextDoc(t, args...)

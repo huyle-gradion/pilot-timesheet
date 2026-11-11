@@ -9,11 +9,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Scheduler units for `timesheet daily` (issue #243), printed with this
-// binary's absolute path and the resolved config/env paths so they run from
-// any working directory. systemd: a user timer at log_after on the working
-// days, Persistent so a missed run fires at the next start, and a run shortly
-// after login. launchd: the same calendar slots plus RunAtLoad.
 const (
 	unitName      = "pilot-timesheet-daily"
 	launchdLabel  = "com.pilot-timesheet.daily"
@@ -77,7 +72,6 @@ func systemdUnits(argv, days []string, at time.Time, tz string) string {
 		"WantedBy=timers.target\n"
 }
 
-// systemdQuote quotes one ExecStart word when it holds a space or quote.
 func systemdQuote(s string) string {
 	if !strings.ContainsAny(s, " \t\"'\\") {
 		return s

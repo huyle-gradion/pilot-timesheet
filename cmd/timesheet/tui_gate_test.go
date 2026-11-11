@@ -1,18 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
-
-// --- the display-before-ask gates: echo and freshness decisions ---------------
-//
-// The reducer owns both gate decisions. These tests pin that a wrong or
-// missing echo emits no op, that the pre-op freshness re-check refuses on
-// drift, and that the approve op dispatch (op-level, scratch store only) never
-// succeeds without a real approval.
 
 func gateModel(preview *timesheet.PlanPreview, status *timesheet.SubmissionStatusResult, echo string) tuiModel {
 	m := dayModel()
@@ -35,12 +31,12 @@ func TestApproveGateEchoDecision(t *testing.T) {
 	tests := []struct {
 		name string
 		echo string
-		want bool // an approve_plan effect is emitted
+		want bool
 	}{
 		{"exact echo emits the op", "plan-1", true},
 		{"wrong echo emits nothing", "plan-2", false},
 		{"missing echo emits nothing", "", false},
-		{"drifted fresh id emits nothing", "", false}, // fresh.PlanID checked below
+		{"drifted fresh id emits nothing", "", false},
 	}
 	for _, tc := range tests[:3] {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,10 +96,6 @@ func TestSubmitGateStatusDecision(t *testing.T) {
 	})
 }
 
-// TestApproveOpDispatchesOnceOnScratchStore runs the approve op against a
-// scratch store only: without a real ready plan the op refuses with its own
-// typed error, proving the op dispatch path and that nothing succeeds or
-// retries behind the gate.
 func TestApproveOpDispatchesOnceOnScratchStore(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -127,9 +119,6 @@ func TestApproveOpDispatchesOnceOnScratchStore(t *testing.T) {
 	}
 }
 
-// TestGateDialogKeys pins the dialog's own surface: esc dismisses without
-// emitting anything, typing builds the echo, and confirm always re-runs the
-// freshness check first.
 func TestGateDialogKeys(t *testing.T) {
 	m := gateModel(nil, nil, "")
 	m.bench.kind = gateSubmit
@@ -147,7 +136,12 @@ func TestGateDialogKeys(t *testing.T) {
 	if eff == nil || !m.busy {
 		t.Fatalf("confirm = effect %v busy %v, want the freshness check under the busy lock", eff, m.busy)
 	}
-	// The effect fetches the gate's fresh artifact through the held session;
-	// this storeless model never runs it.
 	_ = eff
+}
+
+func TestInteractiveConfirmAbortsOnEOF(t *testing.T) {
+	term := &interactive{in: bufio.NewReader(strings.NewReader("")), out: io.Discard}
+	if err := term.confirm("approve?", "plan-1"); err == nil {
+		t.Fatal("EOF at the confirmation prompt was accepted")
+	}
 }

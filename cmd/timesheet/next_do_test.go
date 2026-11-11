@@ -22,9 +22,6 @@ func advanceDoc(t *testing.T, args ...string) (advanceReport, error) {
 	return rep, err
 }
 
-// TestNextDoAdvancesThroughEveryDeterministicStep is the token-reduction
-// acceptance shape: one invocation collects the day, writes the draft artifact,
-// and stops at the one model-owned judgment, with a bounded receipt per act.
 func TestNextDoAdvancesToTheDescriptionsJudgmentInOneCall(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeRunConfig(t)
@@ -59,16 +56,12 @@ func TestNextDoAdvancesToTheDescriptionsJudgmentInOneCall(t *testing.T) {
 		t.Fatalf("the run act did not write %s: %v", draftPath, statErr)
 	}
 
-	// The read-only twin is the same derivation without the act receipts.
 	twin := nextDoc(t, args...)
 	if twin.State != stateJudgment || twin.Judgment == nil || twin.Judgment.Draft == nil {
 		t.Fatalf("read-only next = %+v, want the same inline judgment", twin)
 	}
 }
 
-// TestNextDoRunsConsecutiveActsWithoutHoldingTheStore proves the lock
-// discipline: two acts that each need the store run in one process, so no
-// handle is held across an act.
 func TestNextDoRunsConsecutiveActsWithoutHoldingTheStore(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeTestConfig(t)
@@ -92,8 +85,6 @@ func TestNextDoRunsConsecutiveActsWithoutHoldingTheStore(t *testing.T) {
 	}
 }
 
-// TestNextDoRespectsTheActionCap pins the bound: with a one-action budget the
-// run executes exactly one act and stops naming the cap.
 func TestNextDoRespectsTheActionCap(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeTestConfig(t)
@@ -113,9 +104,6 @@ func TestNextDoRespectsTheActionCap(t *testing.T) {
 	}
 }
 
-// TestNextDoActionFailureReportsAndReturnsAnError pins the failure contract: the
-// report reaches stdout naming the step, and the process still fails so a shell
-// loop cannot mistake it for progress.
 func TestNextDoActionFailureReportsAndReturnsAnError(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	cfg := writeTestConfigWithGradion(t, "http://127.0.0.1:1/mcp")
@@ -142,9 +130,6 @@ func TestNextDoActionFailureReportsAndReturnsAnError(t *testing.T) {
 	}
 }
 
-// TestNextDoAttachesSubmissionStatusAtHumanGates removes the extra
-// submit-status turn: reaching the gates under --do carries the same read-only
-// status the tui shows.
 func TestNextDoAttachesSubmissionStatusAtHumanGates(t *testing.T) {
 	cfg := writeTestConfig(t)
 	day := testDate
@@ -189,7 +174,6 @@ func TestNextDoAttachesSubmissionStatusAtHumanGates(t *testing.T) {
 		t.Fatalf("ran = %+v, want no act between save and the gates", rep.Ran)
 	}
 
-	// The read-only twin stays exactly as before: no status read, no extra field.
 	if twin := nextDoc(t, "--config", cfg, "--date", day); twin.Human == nil || twin.Human.Status != nil {
 		t.Fatalf("read-only human gates = %+v, want no inlined status", twin.Human)
 	}
@@ -244,8 +228,6 @@ func TestJudgmentDraftIsInlinedOnlyForDescriptions(t *testing.T) {
 	}
 }
 
-// TestBareInvocationAndHelpStayConcise pins the anti-dump surface: no arguments
-// names the four entry points in two lines, and help lists the next --do flags.
 func TestBareInvocationAndHelpStayConcise(t *testing.T) {
 	var noCommand strings.Builder
 	printNoCommand(&noCommand)

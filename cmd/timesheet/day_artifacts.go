@@ -8,11 +8,6 @@ import (
 	"path/filepath"
 )
 
-// dayArtifactsDir is the day's working-files folder (draft, answer files,
-// resolve file) inside the timesheet store: `<state dir>/days/<day>`, next to
-// the store's `entries/<day>.json`. The store is the only state a day depends
-// on (issue #233), so a wiped temp directory never loses a run in progress.
-// The returned path is absolute.
 func dayArtifactsDir(statePath, day string) (string, error) {
 	abs, err := filepath.Abs(statePath)
 	if err != nil {
@@ -21,9 +16,6 @@ func dayArtifactsDir(statePath, day string) (string, error) {
 	return filepath.Join(filepath.Dir(abs), "days", day), nil
 }
 
-// legacyDayArtifactsDir is where releases before issue #233 kept the day's
-// working files: under the OS temp directory, keyed by a hash of the state
-// path. It is only read to report a day left there by an upgrade.
 func legacyDayArtifactsDir(statePath, day string) (string, error) {
 	abs, err := filepath.Abs(statePath)
 	if err != nil {
@@ -54,8 +46,6 @@ func legacyDayArtifactsStop(statePath, day, dir string) (string, error) {
 		" && " + shellJoin([]string{"mv", legacy, dir}), nil
 }
 
-// ensureDayArtifactsDir creates the day folder, naming the path and the cause
-// on failure. Nothing falls back to the temp directory.
 func ensureDayArtifactsDir(verb, dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("%s: the day folder %s cannot be created: %w", verb, dir, err)

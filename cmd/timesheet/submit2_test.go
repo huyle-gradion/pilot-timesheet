@@ -11,16 +11,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- SUBMIT-2 synthetic acceptance tests ---------------------------------------
-//
-// No network: the classifications command's live catalog read is owner-
-// verified (it fails closed cleanly without a Gradion configuration and is
-// otherwise exercised only for its flag surface here). classify's selection
-// mechanics run against a catalog seeded directly into the store's persisted
-// catalog cache — exactly where the classifications op persists a fetched
-// catalog — and every command runs as its own one-shot process would against
-// a fresh temporary store.
-
 func seedCatalog(t *testing.T, cfg, catalogID string, options ...timesheet.ClassificationOption) {
 	t.Helper()
 	store, err := timesheet.OpenStore(statePathFor(cfg))
@@ -70,10 +60,6 @@ func runClassifyCapture(t *testing.T, args []string) ClassifyReceipt {
 	return receipt
 }
 
-// TestClassifyCarriesSelectionThroughSave: stage in one process, classify in
-// another, confirm and save each in their own process — the selections
-// replayed from the sidecar make save commit remote_classification_id and
-// remote_catalog_id durably.
 func TestClassifyCarriesSelectionThroughSave(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -117,7 +103,6 @@ func TestClassifyCarriesSelectionThroughSave(t *testing.T) {
 	if err != nil || len(persisted) != 2 || persisted[ids["work-1"]].ClassificationID != "cls-dev" {
 		t.Fatalf("sidecar = %v, %v; want both selections persisted", persisted, err)
 	}
-	// Each persisted selection is content-bound to the block it was chosen for.
 	entries, err := timesheet.ReadEntries(statePathFor(cfg), testDate)
 	if err != nil || entries == nil {
 		t.Fatalf("entries = %v, %v", entries, err)
@@ -151,9 +136,6 @@ func TestClassifyCarriesSelectionThroughSave(t *testing.T) {
 	}
 }
 
-// TestClassifyStaleIntervalIDFailsClosed: an interval id that is not in the
-// re-derived staged day is the op's own fail-closed refusal passed through
-// untouched, and nothing is persisted to the sidecar.
 func TestClassifyStaleIntervalIDFailsClosed(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -174,9 +156,6 @@ func TestClassifyStaleIntervalIDFailsClosed(t *testing.T) {
 	}
 }
 
-// TestClassifyUnknownSelectionRefusals: a classification_id the catalog did
-// not return and a catalog_id that is not stored are the op's own refusals,
-// verbatim.
 func TestClassifyUnknownSelectionRefusals(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -203,8 +182,6 @@ func TestClassifyUnknownSelectionRefusals(t *testing.T) {
 	}
 }
 
-// TestClassifyNoopEmptySelections: `{}` is a valid honest no-op, and it
-// clears any earlier persisted selections.
 func TestClassifyNoopEmptySelections(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -244,8 +221,6 @@ func TestClassifyNoopEmptySelections(t *testing.T) {
 	}
 }
 
-// TestClassifyChoicesSchemaErrors: a selection missing either id is a
-// validation error naming the interval; a non-JSON file names the schema.
 func TestClassifyChoicesSchemaErrors(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -274,10 +249,6 @@ func TestClassifyChoicesSchemaErrors(t *testing.T) {
 	}
 }
 
-// TestConfirmSaveFailsClosedOnVanishedSidecarID: entries edited after the
-// choices file was written change the re-derived staged set; a sidecar id
-// with no recorded block behind it anymore fails closed in confirm and save
-// before anything is applied.
 func TestConfirmSaveFailsClosedOnVanishedSidecarID(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -293,8 +264,6 @@ func TestConfirmSaveFailsClosedOnVanishedSidecarID(t *testing.T) {
 		`{"selections": {"`+stage.Staged[1].IntervalID+`": {"catalog_id": "cat-1", "classification_id": "cls-dev"}}}`)
 	runClassifyCapture(t, []string{"--config", cfg, "--date", testDate, "--file", choicesPath})
 
-	// Drop one entry: the re-derived staged set shrinks, so the classified
-	// interval id no longer binds to any recorded block.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-1", Date: testDate, Start: "09:00", End: "10:00", Description: "First block", Kind: "work"},
 	})
@@ -310,10 +279,6 @@ func TestConfirmSaveFailsClosedOnVanishedSidecarID(t *testing.T) {
 	assertNoConfirmedDay(t, cfg)
 }
 
-// TestConfirmSaveFailsClosedOnInsertionShift: an entry inserted between two
-// classified blocks shifts the sequential staged ids onto different blocks —
-// the sidecar id still exists, but its content binding no longer matches, so
-// the replay must fail closed instead of classifying the wrong block.
 func TestConfirmSaveFailsClosedOnInsertionShift(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -322,14 +287,11 @@ func TestConfirmSaveFailsClosedOnInsertionShift(t *testing.T) {
 	})
 	seedCatalog(t, cfg, "cat-1", timesheet.ClassificationOption{ID: "cls-dev", Name: "Development"})
 	stage := runStageCapture(t, []string{"--config", cfg, "--date", testDate})
-	classifiedID := stage.Staged[1].IntervalID // work-2, the last sorted block
+	classifiedID := stage.Staged[1].IntervalID
 	choicesPath := writeChoicesFile(t, cfg,
 		`{"selections": {"`+classifiedID+`": {"catalog_id": "cat-1", "classification_id": "cls-dev"}}}`)
 	runClassifyCapture(t, []string{"--config", cfg, "--date", testDate, "--file", choicesPath})
 
-	// Insert a block sorting between the two: re-derivation gives work-1 the
-	// first id and the inserted block the classified id, shifting work-2 to a
-	// new one. The id exists — but its content is the wrong block now.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-1", Date: testDate, Start: "09:00", End: "10:00", Description: "First block", Kind: "work"},
 		{BlockID: "work-1b", Date: testDate, Start: "10:00", End: "11:00", Description: "Inserted block", Kind: "work"},
@@ -347,10 +309,6 @@ func TestConfirmSaveFailsClosedOnInsertionShift(t *testing.T) {
 	assertNoConfirmedDay(t, cfg)
 }
 
-// TestConfirmSaveFailsClosedOnSameCountReplacement: a same-count entries
-// replacement keeps every interval id stable, so without the content binding
-// the selection would silently ride onto the replaced block; the digest
-// catches it.
 func TestConfirmSaveFailsClosedOnSameCountReplacement(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -363,7 +321,6 @@ func TestConfirmSaveFailsClosedOnSameCountReplacement(t *testing.T) {
 		`{"selections": {"`+stage.Staged[1].IntervalID+`": {"catalog_id": "cat-1", "classification_id": "cls-dev"}}}`)
 	runClassifyCapture(t, []string{"--config", cfg, "--date", testDate, "--file", choicesPath})
 
-	// Replace work-2's content in place: same blocks, same ids, new text.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-1", Date: testDate, Start: "09:00", End: "10:00", Description: "First block", Kind: "work"},
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:30", Description: "Second block rewritten", Kind: "work"},
@@ -380,7 +337,6 @@ func TestConfirmSaveFailsClosedOnSameCountReplacement(t *testing.T) {
 	assertNoConfirmedDay(t, cfg)
 }
 
-// assertNoConfirmedDay proves a failed replay left nothing durable.
 func assertNoConfirmedDay(t *testing.T, cfg string) {
 	t.Helper()
 	store, err := timesheet.OpenStore(statePathFor(cfg))
@@ -393,9 +349,6 @@ func assertNoConfirmedDay(t *testing.T, cfg string) {
 	}
 }
 
-// TestReadChoicesMissingSelectionsKeyFailsClosed: a sidecar without a
-// selections key is state_invalid naming the file and the key — confirm and
-// save must never proceed silently unclassified.
 func TestReadChoicesMissingSelectionsKeyFailsClosed(t *testing.T) {
 	cfg := writeTestConfig(t)
 	path := timesheet.ChoicesPath(statePathFor(cfg), testDate)
@@ -413,10 +366,6 @@ func TestReadChoicesMissingSelectionsKeyFailsClosed(t *testing.T) {
 	}
 }
 
-// TestClassificationsWithoutRemoteFailsClosed: without a Gradion
-// configuration the command fails with the op's own remote_disabled error —
-// the live catalog read is owner-verified; this proves the wiring fails
-// closed, not the live fetch.
 func TestClassificationsWithoutRemoteFailsClosed(t *testing.T) {
 	cfg := writeTestConfig(t)
 	err := runClassifications([]string{"--config", cfg, "--query", "development"})

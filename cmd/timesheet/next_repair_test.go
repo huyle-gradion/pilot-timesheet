@@ -40,7 +40,6 @@ func TestNextDoRepairsAnAnswerOnceThenStops(t *testing.T) {
 		t.Fatalf("a fresh judgment carries last_error %q", j.LastError)
 	}
 
-	// 1. a rejected answer is re-asked with a compact last_error, exit 0.
 	badDescriptions(t, j, "ghost-1")
 	rep, err := advanceDoc(t, args...)
 	if err != nil {
@@ -56,14 +55,11 @@ func TestNextDoRepairsAnAnswerOnceThenStops(t *testing.T) {
 		t.Fatalf("ran = %+v, want the failed record", rep.Ran)
 	}
 
-	// 2. the same unrepaired bytes are not re-run: the judgment is asked again.
 	rep, _ = advanceDoc(t, args...)
 	if rep.State != stateJudgment || rep.Judgment.LastError == "" || len(rep.Ran) != 0 {
 		t.Fatalf("unrepaired answer = %+v ran %+v, want the judgment without a retry", rep.nextAction, rep.Ran)
 	}
 
-	// 3. a second rejected answer for the same content stops; the record is
-	// in the store, so each fresh process sees it.
 	badDescriptions(t, j, "ghost-2")
 	for i := 0; i < 2; i++ {
 		rep, _ = advanceDoc(t, args...)
@@ -76,7 +72,6 @@ func TestNextDoRepairsAnAnswerOnceThenStops(t *testing.T) {
 		t.Fatalf("failure record missing from the day folder: %v", err)
 	}
 
-	// 4. a fixed answer resumes the day and clears the record.
 	writeNextDescriptions(t, filepath.Join(filepath.Dir(j.AnswerFile), "draft.json"), j.AnswerFile, j.DraftDigest)
 	rep, _ = advanceDoc(t, args...)
 	if len(rep.Ran) == 0 || rep.Ran[0].Step != "record" || rep.Ran[0].Result != "ok" {
@@ -137,7 +132,6 @@ func TestRepairPolicyResetsWhenTheJudgedContentChanges(t *testing.T) {
 		t.Fatalf("record = %+v, want a reset count for the new digest", f)
 	}
 
-	// A record for different content never rewrites the derived act.
 	o.DescriptionsSHA = f.AnswerSHA
 	o.JudgmentFailure = &judgmentFailure{Kind: judgmentBlockDescriptions, Digest: "d1", AnswerSHA: f.AnswerSHA, Failures: 2}
 	if got := applyRepairPolicy(o, act); got.State != stateAction {

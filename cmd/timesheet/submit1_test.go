@@ -12,12 +12,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- SUBMIT-1 synthetic acceptance tests ---------------------------------------
-//
-// No network: evidence is seeded directly through the store's evidence commit,
-// never through a collector. Every command runs as its own one-shot process
-// would, against a fresh temporary store.
-
 const testDate = "2026-10-26"
 
 func statePathFor(cfg string) string {
@@ -40,6 +34,19 @@ func writeTestConfigWithGithub(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+func TestStageSkipsUnanchoredEntriesInBlockIDOrder(t *testing.T) {
+	cfg := writeTestConfig(t)
+	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
+		{DraftBlock: timesheet.DraftBlock{BlockID: "day-b", Kind: "day"}, Description: "Second unanchored"},
+		timedBlock("work-1", "09:00", "10:00", "Build the bridge"),
+		{DraftBlock: timesheet.DraftBlock{BlockID: "day-a", Kind: "day"}, Description: "First unanchored"},
+	})
+	receipt := runStageCapture(t, []string{"--config", cfg, "--date", testDate})
+	if len(receipt.Skipped) != 2 || receipt.Skipped[0].BlockID != "day-a" || receipt.Skipped[1].BlockID != "day-b" {
+		t.Fatalf("skipped = %+v, want day-a then day-b", receipt.Skipped)
+	}
 }
 
 func seedEntries(t *testing.T, cfg, date string, blocks []timesheet.ReviewedBlock) {
@@ -92,8 +99,6 @@ func readDayConfirmed(t *testing.T, cfg, date string) []timesheet.Interval {
 	return day.Confirmed
 }
 
-// captureStdout reroutes os.Stdout around fn and returns what the command
-// printed — the exact bytes a redirect would capture.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -135,9 +140,6 @@ func timedBlock(id, start, end, desc string) timesheet.ReviewedBlock {
 	}
 }
 
-// TestStageRecordedDayMix: a recorded day with two timed entries and one
-// kind-day entry stages exactly two intervals and lists the anchorless entry
-// honestly; the sidecar is written.
 func TestStageRecordedDayMix(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -178,10 +180,6 @@ func TestStageWithoutEntriesFileFails(t *testing.T) {
 	}
 }
 
-// TestRestageEditsAndRemovesInPlace exercises the sidecar's edit and remove
-// paths inside one process: a changed entry time edits its interval (ids and
-// count stable, no duplicates), and an entry removed from the file loses its
-// interval.
 func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -197,7 +195,6 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.done()
-	// Each derivation starts from the session's current day view.
 	open := func() timesheet.DaySummary {
 		res, err := h.call("open_day", timesheet.Request{Day: testDate})
 		if err != nil {
@@ -218,7 +215,6 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 		ids[ref.BlockID] = ref.IntervalID
 	}
 
-	// Edit one entry's time in place and re-stage: an update, not a duplicate.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-1", Date: testDate, Start: "09:30", End: "10:30", Description: "First block", Kind: "work"},
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Second block", Kind: "work"},
@@ -237,7 +233,6 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 		t.Fatalf("staged_intervals after edit = %d, want a stable 2", second.StagedIntervals)
 	}
 
-	// Remove one entry from the file and re-stage: its interval is removed.
 	writeEntriesFile(t, cfg, testDate, []timesheet.EntryRecord{
 		{BlockID: "work-2", Date: testDate, Start: "11:00", End: "12:00", Description: "Second block", Kind: "work"},
 	})
@@ -257,9 +252,6 @@ func TestRestageEditsAndRemovesInPlace(t *testing.T) {
 	}
 }
 
-// TestStageCLIRestageKeepsCountStable: across separate invocations (the real
-// re-stage flow) the staged interval count stays stable and the sidecar ids do
-// not churn.
 func TestStageCLIRestageKeepsCountStable(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -288,8 +280,6 @@ func TestStageCLIRestageKeepsCountStable(t *testing.T) {
 	}
 }
 
-// TestStageRefusedAfterFinalize: after confirm and save, stage refuses and
-// confirmed work is untouched.
 func TestStageRefusedAfterFinalize(t *testing.T) {
 	cfg := writeTestConfigWithGithub(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -326,9 +316,6 @@ func TestStageRefusedAfterFinalize(t *testing.T) {
 	}
 }
 
-// TestAcknowledgeCollectionIDFailClosed: a wrong collection_id is the child's
-// stale-collection refusal passed through untouched; the exact id from the
-// prior collect lands the acknowledgment.
 func TestAcknowledgeCollectionIDFailClosed(t *testing.T) {
 	cfg := writeTestConfigWithGithub(t)
 	seedEvidence(t, cfg, testDate, &timesheet.DayEvidence{
@@ -362,8 +349,6 @@ func TestAcknowledgeCollectionIDFailClosed(t *testing.T) {
 	}
 }
 
-// TestDecideAttendance: attended and skipped decisions are recorded, and a
-// wrong collection_id is refused before any decision lands.
 func TestDecideAttendance(t *testing.T) {
 	cfg := writeTestConfig(t)
 	seedEvidence(t, cfg, testDate, &timesheet.DayEvidence{
@@ -403,10 +388,6 @@ func TestDecideAttendance(t *testing.T) {
 	}
 }
 
-// TestConfirmSourceGateVerbatimAndSaveDurable: confirm without the required
-// acknowledgment fails with the child's source-gate error naming the source;
-// after the acknowledgment confirm succeeds and save makes the intervals
-// durable in State.Days[date].Confirmed.
 func TestConfirmSourceGateVerbatimAndSaveDurable(t *testing.T) {
 	cfg := writeTestConfigWithGithub(t)
 	seedEntries(t, cfg, testDate, []timesheet.ReviewedBlock{
@@ -474,8 +455,6 @@ func readDayConfirmedIfAny(t *testing.T, cfg, date string) ([]timesheet.Interval
 	return day.Confirmed, len(day.Confirmed) > 0
 }
 
-// TestFinalizeBlockedByStoreLock: the finalization commands hold the store's
-// exclusive lock, so they cannot run while another process holds the store.
 func TestFinalizeBlockedByStoreLock(t *testing.T) {
 	cfg := writeTestConfig(t)
 	store, err := timesheet.OpenStore(statePathFor(cfg))
@@ -490,8 +469,6 @@ func TestFinalizeBlockedByStoreLock(t *testing.T) {
 }
 
 func TestFinalizeFlagErrors(t *testing.T) {
-	// The missing-config cases resolve the $HOME default; pin it to an empty
-	// directory so the default config never exists and the test is hermetic.
 	t.Setenv("HOME", t.TempDir())
 	cfg := writeTestConfig(t)
 	cases := []struct {

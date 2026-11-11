@@ -1,10 +1,5 @@
 package main
 
-// The shipped example configuration and every JSON configuration example in
-// the collection guide must load with the real loader, which rejects unknown
-// fields. A retired key (storage_dir, evidence, url_ref, keychain refs)
-// reappearing in either fails here instead of misleading a reader.
-
 import (
 	"os"
 	"path/filepath"

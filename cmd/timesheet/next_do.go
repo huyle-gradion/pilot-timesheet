@@ -13,8 +13,7 @@ import (
 )
 
 const (
-	defaultMaxActions = 12
-	// defaultAutoMaxActions leaves room for the judge steps of an --auto run.
+	defaultMaxActions     = 12
 	defaultAutoMaxActions = 24
 	noticeRuneLimit       = 200
 )
@@ -29,9 +28,7 @@ type actDispatcher struct {
 	envFile    string
 	day        string
 	held       *headlessSession
-	// cmd is the derived argv the act runs, for acts whose inputs are
-	// carried by their argv (acknowledge, resolve).
-	cmd []string
+	cmd        []string
 	// judge answers a judgment in-process (next --do --auto); nil leaves
 	// every judgment to the caller.
 	judge func(*nextJudgment) (judgeReceipt, error)
@@ -80,7 +77,6 @@ func (d actDispatcher) exec(h *headlessSession, step string) (string, error) {
 	return "", fmt.Errorf("next: the derived step %q offers no act", step)
 }
 
-// boundedNotice keeps one receipt line inside the report's size contract.
 func boundedNotice(s string) string {
 	runes := []rune(s)
 	if len(runes) <= noticeRuneLimit {
@@ -89,7 +85,6 @@ func boundedNotice(s string) string {
 	return string(runes[:noticeRuneLimit-1]) + "…"
 }
 
-// advanceStep is one executed action's bounded receipt.
 type advanceStep struct {
 	Step   string `json:"step"`
 	Result string `json:"result"`
@@ -97,13 +92,10 @@ type advanceStep struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// advanceReport is `next --do`'s one document: the terminal derivation plus
-// every deterministic action the run executed before reaching it.
 type advanceReport struct {
 	nextAction
-	Ran []advanceStep `json:"ran,omitempty"`
-	// Usage is the judge usage of an --auto run (issue #242).
-	Usage *llm.Usage `json:"usage,omitempty"`
+	Ran   []advanceStep `json:"ran,omitempty"`
+	Usage *llm.Usage    `json:"usage,omitempty"`
 }
 
 type advanceLimits struct{ MaxActions int }
@@ -135,9 +127,6 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 		}
 		a := deriveDayNext(obs)
 		if a.State == stateJudgment && a.Judgment != nil && d.judge != nil {
-			// --auto: the binary answers the judgment and the loop re-derives.
-			// The same question asked twice without progress stops; a rejected
-			// answer comes back with last_error under the repair-once policy.
 			j := a.Judgment
 			key := "judge\x00" + j.Kind + "\x00" + j.DraftDigest + j.LedgerDigest + "\x00" + j.LastError
 			step := "judge:" + j.Kind
@@ -177,9 +166,6 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 		if actErr != nil {
 			ran = append(ran, advanceStep{Step: step, Result: "failed", Error: boundedNotice(actErr.Error())})
 			if judged && isAnswerValidation(actErr) {
-				// The answer itself was rejected: save it and re-derive, which
-				// re-asks the judgment once with last_error or stops with
-				// judgment_failed (issue #240).
 				if err := recordJudgmentFailure(d.cfg, d.day, obs, a, actErr); err != nil {
 					return report(nextAction{Day: a.Day}.withStop("action_failed: " + step + ": " + err.Error())), err
 				}
@@ -199,8 +185,6 @@ func advanceDay(derive deriveFn, d actDispatcher, limits advanceLimits) (advance
 	return report(stop), nil
 }
 
-// runNextDo is the --do loop: every derivation opens and closes the store, then
-// the winning act opens its own; the terminal report is the only stdout.
 func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day string) error {
 	report, runErr := advanceDayReport(f, cfg, configPath, envFile, day)
 	if report.Day == "" {
@@ -212,8 +196,6 @@ func runNextDo(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day str
 	return runErr
 }
 
-// advanceDayReport is the --do run minus its stdout: the scheduled daily run
-// (issue #243) reads the same report to build its notification.
 func advanceDayReport(f *nextFlags, cfg *timesheet.Config, configPath, envFile, day string) (advanceReport, error) {
 	d := actDispatcher{cfg: cfg, configPath: configPath, envFile: envFile, day: day}
 	if f.auto {
@@ -258,8 +240,6 @@ func advanceDayReport(f *nextFlags, cfg *timesheet.Config, configPath, envFile, 
 	return report, runErr
 }
 
-// readSubmissionStatus is the one extra read-only call the gates need, so the
-// caller never spends a turn on submit-status. A failed read leaves it absent.
 func readSubmissionStatus(configPath, envFile, day string) *timesheet.SubmissionStatusResult {
 	h, err := openHeadless(configPath, envFile)
 	if err != nil {
