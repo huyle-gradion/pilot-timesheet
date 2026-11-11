@@ -4,7 +4,8 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
-- Keep `serve` as an internal, migration-only command and pin it with in-repo
+- Keep `serve` as an internal command (the only route to legacy migration,
+  `cancel`, `check_environment` and `revoke_approval`) and pin it with in-repo
   end-to-end JSONL tests (the status handshake, `migration_preview` /
   `migration_apply`, malformed lines, close and EOF, and the binary's own
   stdin/stdout); the interface doc now lists the #262 public surface and marks

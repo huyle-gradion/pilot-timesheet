@@ -9,8 +9,8 @@ implemented surface is the accepted R1-R5 slices: the local review-first
 workflow, R2 verification-only evidence collection, the R3 migration/read-only
 boundary, the R4 native approval ledger and ONE verified submission path, and
 the R5 pinned Pi consumer (retired in `0.2.0-dev.10`: the native `tui` verb is
-the operator surface; `serve` stays as an internal command whose only consumer
-is legacy migration, see below). R6 changes no
+the operator surface; `serve` stays as an internal command for the ops no
+public command reaches, see below). R6 changes no
 protocol, schema or store behavior: it
 retires the legacy CLI, moves the one entry point to `cmd/timesheet` and makes
 `bin/timesheet` the production-named child. The stage descriptions below remain
@@ -72,10 +72,13 @@ its replacement.
 `version` prints the application version and protocol schema and exits 0. It
 loads no configuration, environment file, credentials, or evidence.
 
-`serve` is internal. Its only consumer is legacy migration: `migration_preview`
-and `migration_apply` exist only as `serve` ops, and there is no CLI verb for
-them. Every other op in the protocol tables below is also reachable through the
-public commands, which drive the same session dispatcher in-process. `serve`
+`serve` is internal. It is the only route to a few ops that no command
+dispatches: legacy migration (`migration_preview`, `migration_apply`; there is
+no CLI verb for migration), `cancel`, `check_environment` and
+`revoke_approval` (notably, revoking an approval kept after a stopped
+`submit`). Most other ops in the protocol tables below are driven in-process,
+through the same session dispatcher, by `tui` and the internal steps `next`
+derives; that is not a promise that every op has a public command. `serve`
 starts one persistent process. It reads one JSON request per line from stdin
 and writes one JSON response per line to stdout. Diagnostics go to stderr and
 are sanitized. The process never launches a shell. The protocol is pinned by
@@ -1506,7 +1509,8 @@ integrity are unchanged.
   example with synthetic placeholders.
 - The optional pinned Pi launcher and its adapter (`pi/`) retired in
   `0.2.0-dev.10`. The native `tui` verb is the operator surface, and `serve`
-  remains as an internal command whose only consumer is legacy migration. The local daily flow, migration,
+  remains as an internal command: the only route to legacy migration,
+  `cancel`, `check_environment` and `revoke_approval`. The local daily flow, migration,
   reconciliation, approval, submission and recovery remain the current
   contract.
 - Readiness is unchanged and honest: the dev.17 proof is Linux, hermetic and

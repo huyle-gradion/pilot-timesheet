@@ -110,10 +110,13 @@ func TestServeCLIProtocol(t *testing.T) {
 	}
 
 	// Missing required flags exit 1 before any protocol output.
-	stdout, _, err = serve("", "--config", configPath)
+	stdout, stderr, err = serve("", "--config", configPath)
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 1 || stdout != "" {
 		t.Fatalf("serve without --env-file: err=%v stdout=%q, want exit 1 and no output", err, stdout)
+	}
+	if !strings.Contains(stderr, "serve requires --config and --env-file") {
+		t.Fatalf("serve without --env-file: stderr=%q, want the required-flags diagnostic", stderr)
 	}
 }
 

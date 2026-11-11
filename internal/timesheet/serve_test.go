@@ -7,15 +7,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+// serveTimeout bounds every wait on the server so a hung Serve fails the
+// test instead of stalling the run.
+const serveTimeout = 10 * time.Second
 
 // serveClient speaks the serve JSONL protocol to a Session.Serve running on
 // the other end of two pipes: one request line in, one response line out.
 type serveClient struct {
-	t    *testing.T
-	in   *io.PipeWriter
-	out  *bufio.Scanner
-	done chan error
+	t     *testing.T
+	in    *io.PipeWriter
+	lines chan []byte
+	done  chan error
 }
 
 func startServe(t *testing.T, s *Session) *serveClient {
@@ -28,25 +33,57 @@ func startServe(t *testing.T, s *Session) *serveClient {
 		_ = respW.Close()
 		done <- err
 	}()
-	t.Cleanup(func() { _ = reqW.Close(); _ = respR.Close() })
-	return &serveClient{t: t, in: reqW, out: bufio.NewScanner(respR), done: done}
+	lines := make(chan []byte)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(respR)
+		for scanner.Scan() {
+			lines <- append([]byte(nil), scanner.Bytes()...)
+		}
+	}()
+	c := &serveClient{t: t, in: reqW, lines: lines, done: done}
+	t.Cleanup(func() {
+		_ = reqW.Close()
+		_ = respR.Close()
+		_ = c.wait()
+	})
+	return c
+}
+
+// wait returns Serve's result, failing the test if it does not end in time.
+// The result is put back so a later wait (cleanup) sees the same value.
+func (c *serveClient) wait() error {
+	c.t.Helper()
+	select {
+	case err := <-c.done:
+		c.done <- err
+		return err
+	case <-time.After(serveTimeout):
+		c.t.Fatalf("Serve did not return within %s", serveTimeout)
+		return nil
+	}
 }
 
 // raw writes one line verbatim and decodes exactly one response line.
 func (c *serveClient) raw(line string) (Response, json.RawMessage) {
 	c.t.Helper()
-	if _, err := io.WriteString(c.in, line+"\n"); err != nil {
-		c.t.Fatalf("write request: %v", err)
-	}
-	if !c.out.Scan() {
-		c.t.Fatalf("no response line for %s: %v", line, c.out.Err())
+	go func() { _, _ = io.WriteString(c.in, line+"\n") }()
+	var got []byte
+	select {
+	case l, ok := <-c.lines:
+		if !ok {
+			c.t.Fatalf("response stream ended before answering %s", line)
+		}
+		got = l
+	case <-time.After(serveTimeout):
+		c.t.Fatalf("no response line for %s within %s", line, serveTimeout)
 	}
 	var envelope struct {
 		Response
 		Result json.RawMessage `json:"result"`
 	}
-	if err := json.Unmarshal(c.out.Bytes(), &envelope); err != nil {
-		c.t.Fatalf("response is not one JSON object per line: %q: %v", c.out.Bytes(), err)
+	if err := json.Unmarshal(got, &envelope); err != nil {
+		c.t.Fatalf("response is not one JSON object per line: %q: %v", got, err)
 	}
 	return envelope.Response, envelope.Result
 }
@@ -148,11 +185,16 @@ func TestServeJSONLMigrationEndToEnd(t *testing.T) {
 	if !closed.Closed {
 		t.Fatal("close did not report closed")
 	}
-	if err := <-c.done; err != nil {
+	if err := c.wait(); err != nil {
 		t.Fatalf("Serve after close: %v", err)
 	}
-	if c.out.Scan() {
-		t.Fatalf("Serve wrote past close: %q", c.out.Bytes())
+	select {
+	case l, ok := <-c.lines:
+		if ok {
+			t.Fatalf("Serve wrote past close: %q", l)
+		}
+	case <-time.After(serveTimeout):
+		t.Fatal("response stream did not end after close")
 	}
 }
 
@@ -167,7 +209,7 @@ func TestServeEOFEndsCleanly(t *testing.T) {
 	c := startServe(t, NewSession(testConfig(store.path), map[string]string{}, store))
 	requireOK(t, c.send(Request{ID: "1", Op: "status"}, nil))
 	_ = c.in.Close()
-	if err := <-c.done; err != nil {
+	if err := c.wait(); err != nil {
 		t.Fatalf("Serve at EOF: %v", err)
 	}
 }
