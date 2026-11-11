@@ -35,9 +35,31 @@ func writeSyntheticDraft(t *testing.T, cfg string) {
 		`{"date":"`+testDate+`","blocks":[{"block_id":"work-1","kind":"work","start":"09:00","end":"10:00"}]}`)
 }
 
+// writeBoundCandidates writes the day's candidates.json bound to its staged
+// ledger, as the candidates step does when next judges the day.
+func writeBoundCandidates(t *testing.T, cfg string) string {
+	t.Helper()
+	blocks, digest, err := stagedDayBlocks(statePathFor(cfg), testDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := candidatesFile{LedgerDigest: digest, Intervals: map[string]string{}, Sets: []nextCandidateSet{{
+		Ref: "c1", Query: "Build the bridge", CatalogID: "cat-1", Complete: true,
+		Options: []nextCandidateOption{{ClassificationID: "cls-dev", Label: "Development", Code: "DEV"}},
+	}}}
+	for id := range blocks {
+		f.Intervals[id] = "c1"
+	}
+	data, _ := json.Marshal(f)
+	path := filepath.Join(testArtifactDir(t, cfg, testDate), "candidates.json")
+	writeAnswerFile(t, path, string(data))
+	return path
+}
+
 func TestEvalExportPairsInputsWithAcceptedAnswers(t *testing.T) {
 	cfg, _ := savedReadyPlan(t)
 	writeSyntheticDraft(t, cfg)
+	writeBoundCandidates(t, cfg)
 	out := filepath.Join(t.TempDir(), "golden.json")
 	r, g := evalExport(t, cfg, out)
 	if r.Days != 1 || len(g.Days) != 1 || r.File != out {
@@ -48,6 +70,9 @@ func TestEvalExportPairsInputsWithAcceptedAnswers(t *testing.T) {
 		t.Fatalf("classifications = %+v", day.Classifications)
 	}
 	iv := day.Classifications.Input[0].IntervalID
+	if c := day.Classifications; len(c.Candidates) != 1 || c.Candidates[0].CatalogID != "cat-1" || c.Input[0].Candidates != "c1" {
+		t.Fatalf("candidates = %+v / %+v, want the recorded set named by the interval", c.Candidates, c.Input)
+	}
 	if day.Classifications.Truth[iv] != "cls-dev" || len(day.Classifications.RemoteTruth) != 0 {
 		t.Fatalf("classification truth = %+v, want the saved local selection", day.Classifications)
 	}
@@ -76,6 +101,7 @@ func TestEvalExportPairsInputsWithAcceptedAnswers(t *testing.T) {
 func TestEvalExportPrefersTheSubmittedRemoteVersion(t *testing.T) {
 	cfg, _ := savedReadyPlan(t)
 	writeSyntheticDraft(t, cfg)
+	writeBoundCandidates(t, cfg)
 	store, err := timesheet.OpenStore(statePathFor(cfg))
 	if err != nil {
 		t.Fatal(err)
@@ -104,12 +130,52 @@ func TestEvalExportPrefersTheSubmittedRemoteVersion(t *testing.T) {
 
 func TestEvalExportSkipsMissingArtifactsWithAReason(t *testing.T) {
 	cfg, _ := savedReadyPlan(t)
+	writeBoundCandidates(t, cfg)
 	r, g := evalExport(t, cfg, filepath.Join(t.TempDir(), "golden.json"))
 	if len(g.Days) != 1 || g.Days[0].Descriptions != nil || g.Days[0].Classifications == nil {
 		t.Fatalf("days = %+v, want classifications only", g.Days)
 	}
 	if len(r.Skipped) != 1 || r.Skipped[0].Part != "descriptions" || !strings.Contains(r.Skipped[0].Reason, "missing") {
 		t.Fatalf("skipped = %+v, want the missing draft listed", r.Skipped)
+	}
+}
+
+func TestEvalExportSkipsClassificationsWithoutBoundCandidates(t *testing.T) {
+	cfg, _ := savedReadyPlan(t)
+	writeSyntheticDraft(t, cfg)
+	r, g := evalExport(t, cfg, filepath.Join(t.TempDir(), "golden.json"))
+	if len(g.Days) != 1 || g.Days[0].Classifications != nil || g.Days[0].Descriptions == nil {
+		t.Fatalf("days = %+v, want descriptions only", g.Days)
+	}
+	if len(r.Skipped) != 1 || r.Skipped[0].Part != "classifications" || !strings.Contains(r.Skipped[0].Reason, "candidates.json") {
+		t.Fatalf("skipped = %+v, want the missing candidates named", r.Skipped)
+	}
+
+	// Candidates bound to other content are stale, not replayable.
+	path := writeBoundCandidates(t, cfg)
+	writeAnswerFile(t, path, `{"ledger_digest":"sha256:other","sets":[],"intervals":{}}`)
+	if r, _ = evalExport(t, cfg, filepath.Join(t.TempDir(), "golden.json")); len(r.Skipped) != 1 || !strings.Contains(r.Skipped[0].Reason, "stale") {
+		t.Fatalf("skipped = %+v, want the stale candidates named", r.Skipped)
+	}
+}
+
+func TestEvalExportLeavesHistoryDecidedIntervalsOutOfTheJudgment(t *testing.T) {
+	cfg, _ := savedReadyPlan(t)
+	writeSyntheticDraft(t, cfg)
+	writeBoundCandidates(t, cfg)
+	blocks, digest, err := stagedDayBlocks(statePathFor(cfg), testDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := historyFile{LedgerDigest: digest, Selections: map[string]historyPick{}}
+	for id := range blocks {
+		h.Selections[id] = historyPick{CatalogID: "cat-1", ClassificationID: "cls-dev", Key: "title:build the bridge"}
+	}
+	data, _ := json.Marshal(h)
+	writeAnswerFile(t, filepath.Join(testArtifactDir(t, cfg, testDate), historyFileName), string(data))
+	r, g := evalExport(t, cfg, filepath.Join(t.TempDir(), "golden.json"))
+	if g.Days[0].Classifications != nil || len(r.Skipped) != 1 || !strings.Contains(r.Skipped[0].Reason, "approved history") {
+		t.Fatalf("days = %+v, skipped = %+v; want the history-decided day left out of the judgment", g.Days, r.Skipped)
 	}
 }
 

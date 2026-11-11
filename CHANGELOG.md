@@ -44,6 +44,22 @@ Carry the after-midnight remainder of long overnight entries into the next day
   `stage`/`save`. The golden-day export skips a carried day's classifications
   as a stale stage map.
 
+- Add `timesheet eval run --golden <file> [--out <file>]` (#279): replays
+  every golden day through the configured judge with the same owned prompts,
+  response cache and per-day token cap as `log`, and writes a candidate file
+  `eval score --candidate` reads unchanged. It reports total and per-day tokens
+  against the cap (cached replies counted at their original cost, new calls
+  as `fresh_tokens`), lists unparseable replies as skipped (scored as
+  missing), stops on a cap hit or a failing judge while keeping the partial
+  candidate, writes no store state, and refuses an `--out` inside a
+  repository or equal to `--golden`.
+- `eval score` reports `classification_unwinnable`: intervals whose accepted
+  answer was not among the judge's candidates.
+- `eval export` writes golden schema 2: the classifications part records the
+  catalog candidate sets the judgment picked from, and leaves out intervals
+  decided from approved history. A day without bound candidates is skipped
+  with a reason. Schema 1 datasets are refused; export them again.
+
 ## 0.2.0
 
 The first final release of the `0.2.0` line. It includes everything in the

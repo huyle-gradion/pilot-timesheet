@@ -11,7 +11,9 @@ import (
 // gate for prompt and model changes; the binary's own LLM judgments (#241)
 // call ScoreGolden directly.
 
-const GoldenSchema = 1
+// GoldenSchema 2 (#279) records the catalog candidates each classifications
+// input was judged against, so eval run can replay it offline.
+const GoldenSchema = 2
 
 // GoldenDataset is the exported file. It holds the owner's evidence and stays
 // on the owner's machine: never commit it.
@@ -48,14 +50,34 @@ type GoldenBlock struct {
 	Start       string `json:"start"`
 	End         string `json:"end"`
 	Description string `json:"description"`
+	// Candidates is the ref of this interval's set in
+	// GoldenClassifications.Candidates; empty when it had none.
+	Candidates string `json:"candidates,omitempty"`
 }
 
-// GoldenClassifications pairs the staged blocks with the accepted
-// classification_id per interval_id.
+// GoldenClassifications pairs the intervals the classifications judgment saw
+// (the staged blocks minus those decided from approved history) and the
+// catalog candidate sets it picked from with the accepted classification_id
+// per interval_id.
 type GoldenClassifications struct {
-	Input       []GoldenBlock     `json:"input"`
-	Truth       map[string]string `json:"truth"`
-	RemoteTruth []string          `json:"remote_truth,omitempty"`
+	Input       []GoldenBlock        `json:"input"`
+	Candidates  []GoldenCandidateSet `json:"candidates"`
+	Truth       map[string]string    `json:"truth"`
+	RemoteTruth []string             `json:"remote_truth,omitempty"`
+}
+
+// GoldenCandidateSet is one prefetched catalog option list, as recorded in
+// the day's candidates.json when the day was judged.
+type GoldenCandidateSet struct {
+	Ref       string         `json:"ref"`
+	CatalogID string         `json:"catalog_id"`
+	Options   []GoldenOption `json:"options"`
+}
+
+type GoldenOption struct {
+	ClassificationID string `json:"classification_id"`
+	Label            string `json:"label"`
+	Code             string `json:"code,omitempty"`
 }
 
 // GoldenSkip is one day part left out of the dataset. Skipped parts never
@@ -102,6 +124,10 @@ type GoldenScore struct {
 	ClassificationIntervals int     `json:"classification_intervals"`
 	ClassificationMatches   int     `json:"classification_matches"`
 	ClassificationExactRate float64 `json:"classification_exact_rate"`
+	// ClassificationUnwinnable counts intervals whose accepted answer the
+	// judge could not pick: no candidate set, or not among its set's options.
+	// They stay in the rate as misses; the count says how many were certain.
+	ClassificationUnwinnable int `json:"classification_unwinnable"`
 
 	DescriptionBlocks     int     `json:"description_blocks"`
 	DescriptionAnswered   int     `json:"description_answered"`
@@ -130,8 +156,12 @@ func ScoreGolden(g GoldenDataset, candidate GoldenCandidate) GoldenScore {
 		s.Days++
 		ans := candidate.Days[d.Date]
 		if c := d.Classifications; c != nil {
+			winnable := winnablePicks(c)
 			for _, id := range goldenKeys(c.Truth) {
 				s.ClassificationIntervals++
+				if !winnable[id+"\x00"+c.Truth[id]] {
+					s.ClassificationUnwinnable++
+				}
 				if got := ans.Classifications[id]; got == c.Truth[id] {
 					s.ClassificationMatches++
 				} else {
@@ -158,6 +188,25 @@ func ScoreGolden(g GoldenDataset, candidate GoldenCandidate) GoldenScore {
 		s.DescriptionSimilarity = simSum / float64(s.DescriptionBlocks)
 	}
 	return s
+}
+
+// winnablePicks is every interval_id + "\x00" + classification_id the judge
+// could answer: an option of the set the interval names.
+func winnablePicks(c *GoldenClassifications) map[string]bool {
+	options := map[string][]GoldenOption{}
+	for _, s := range c.Candidates {
+		options[s.Ref] = s.Options
+	}
+	out := map[string]bool{}
+	for _, b := range c.Input {
+		if b.Candidates == "" {
+			continue
+		}
+		for _, o := range options[b.Candidates] {
+			out[b.IntervalID+"\x00"+o.ClassificationID] = true
+		}
+	}
+	return out
 }
 
 // WordJaccard is |A∩B|/|A∪B| over lower-cased word sets; two empty texts are

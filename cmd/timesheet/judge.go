@@ -40,6 +40,10 @@ type judgeReceipt struct {
 	Cached     bool      `json:"cached,omitempty"`
 	Usage      llm.Usage `json:"usage"`
 	Notice     string    `json:"notice"`
+	// CachedUsage is what a reused reply cost when it was first asked. It is
+	// never printed: a cached reply adds no tokens to a production day (its
+	// call is already in the day's ledger); eval run counts it (#279).
+	CachedUsage llm.Usage `json:"-"`
 }
 
 // judgeUsageRecord is one line of judge-usage.jsonl in the day folder.
@@ -237,6 +241,7 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 		if json.Unmarshal(data, &stored) == nil && stored.Key == p.Key {
 			if v, err := parse(stored.Reply); err == nil {
 				r.Cached = true
+				r.CachedUsage = stored.Usage
 				_ = appendJudgeUsage(dir, judgeUsageRecord{At: now.UTC().Format(time.RFC3339), Kind: kind, Cached: true, OK: true})
 				return v, nil
 			}
@@ -247,7 +252,7 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 		return zero, err
 	}
 	if limit := cfg.Judge.DailyTokenCap; spent+llm.EstimateTokens(p.Text) > limit {
-		return zero, fmt.Errorf("judge: the daily token cap (%d) is reached for %s (%d spent); the judgment stays open for the agent path", limit, day, spent)
+		return zero, judgeCapError{limit: limit, day: day, spent: spent}
 	}
 	v, reply, usage, askErr := llm.Ask(ctx, backend, p, parse)
 	r.Usage = usage
@@ -255,12 +260,22 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 		return zero, err
 	}
 	if askErr != nil {
-		return zero, fmt.Errorf("judge: %s failed after one retry: %s; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr.Error())
+		return zero, fmt.Errorf("judge: %s failed after one retry: %w; the judgment stays open (run judge again or answer it through the agent path)", kind, askErr)
 	}
 	if err := writeJSONFile(cachePath, judgeResponse{Key: p.Key, Kind: kind, Reply: reply, Usage: usage, At: now.UTC().Format(time.RFC3339)}); err != nil {
 		return zero, err
 	}
 	return v, nil
+}
+
+// judgeCapError is the daily token cap refusal; eval run stops on it.
+type judgeCapError struct {
+	limit, spent int
+	day          string
+}
+
+func (e judgeCapError) Error() string {
+	return fmt.Sprintf("judge: the daily token cap (%d) is reached for %s (%d spent); the judgment stays open for the agent path", e.limit, e.day, e.spent)
 }
 
 func appendJudgeUsage(dir string, rec judgeUsageRecord) error {
