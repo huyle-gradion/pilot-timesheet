@@ -1,7 +1,5 @@
 package main
 
-// The TUI's rendering: pure functions, one per screen, model to string.
-
 import (
 	"fmt"
 	"strconv"
@@ -11,12 +9,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// sanitizeContent strips every control rune except '\n' from one recorded
-// string at its last hop into a frame. Recorded content — evidence,
-// descriptions, protocol strings, plan bodies, errors — passes through here
-// exactly once; the UI's own styling never does, so every control rune in a
-// finished frame came from the style layer, never from content.
-//
 // Renderers do not call it by hand: recorded content enters a frame only as a
 // value of recorded (or labelRow, built on it), so the writer, not each call
 // site, owns the sanitization. The adjacency rule stays the fallback for what
@@ -47,23 +39,14 @@ func recorded(format string, values ...string) string {
 	return fmt.Sprintf(format, args...)
 }
 
-// labelRow writes one label/value row: the faint label, the UI's separator
-// (the hand-aligned padding to the value column, or "\n  " for an indented
-// value), the recorded value and the row's end. The padding stays at each call
-// site: the label columns are aligned by hand (13 and 14 columns), not by a
-// padding policy.
 func labelRow(b *strings.Builder, s uiStyles, label, sep, value string) {
 	b.WriteString(s.label.Render(label) + recorded(sep+"%s\n", value))
 }
 
-// approvalRow formats one active-approval row. The day screen and the submit
-// gate share the row and differ only in the lead word and column separator.
 func approvalRow(lead, sep string, ap timesheet.ApprovalRow) string {
 	return recorded("  "+lead+"%s"+sep+"plan %s"+sep+"%s\n", ap.ApprovalID, ap.PlanID, ap.State)
 }
 
-// rows counts the terminal rows a composed block renders: every '\n' ends a
-// row, and a block that does not end with '\n' still occupies its last one.
 func rows(s string) int {
 	n := strings.Count(s, "\n")
 	if s != "" && !strings.HasSuffix(s, "\n") {
@@ -72,12 +55,6 @@ func rows(s string) int {
 	return n
 }
 
-// renderDay renders the day screen: the loop state and the key legend. The
-// state block is composed as a pinned part (the judgment's instruction
-// surface, the gate commands, counts and next-line) and a windowable part
-// (block lists, status rows; the whole block for the act and stopped states),
-// so clipping spends the budget on repetitive rows and never on the text that
-// tells the operator what to do.
 func renderDay(m tuiModel) string {
 	s := m.env.styles
 	var head strings.Builder
@@ -103,8 +80,6 @@ func renderDay(m tuiModel) string {
 		headPart.WriteString("\n")
 		renderAsk(&headPart, a.Ask, s)
 	case a.State == stateStopped:
-		// The blocker and remedy render verbatim; CLI remedies arrive as
-		// commands inside the reason text.
 		listRows.WriteString(recorded("\nreason\n  %s\n", a.Reason))
 	case a.State == stateHumanGates && a.Human != nil:
 		renderHumanGates(&headPart, &listRows, &tailPart, a, m.snap.status, s)
@@ -117,13 +92,11 @@ func renderDay(m tuiModel) string {
 	return dayHead + headPart.String() + window + tailPart.String() + dayTail
 }
 
-// renderAction renders the derived argv and the observation that selected it.
 func renderAction(b *strings.Builder, a nextAction, s uiStyles) {
 	labelRow(b, s, "argv", "\n  ", shellJoin(a.Action.Cmd))
 	labelRow(b, s, "why", "\n  ", a.Action.Why)
 }
 
-// renderAsk writes the typed human question the CLI reports, verbatim.
 func renderAsk(head *strings.Builder, q *askHuman, s uiStyles) {
 	labelRow(head, s, "ask", "          ", q.Kind)
 	labelRow(head, s, "question", "\n  ", q.Question)
@@ -138,8 +111,6 @@ func renderAsk(head *strings.Builder, q *askHuman, s uiStyles) {
 	labelRow(head, s, "protocol", "\n  ", q.Protocol)
 }
 
-// renderJudgment writes the judgment's instruction surface (kind, answer file,
-// digests, protocol) to head and its block rows to list.
 func renderJudgment(head, list *strings.Builder, a nextAction, s uiStyles) {
 	j := a.Judgment
 	labelRow(head, s, "kind", "         ", j.Kind)
@@ -159,10 +130,6 @@ func renderJudgment(head, list *strings.Builder, a nextAction, s uiStyles) {
 	}
 }
 
-// renderHumanGates writes the terminal gate state as a pinned head (the
-// human-only commands and the store-wide unresolved-write counts), a windowable
-// list (unresolved rows, blockers, approvals), and a pinned tail (the day's
-// next action).
 func renderHumanGates(head, list, tail *strings.Builder, a nextAction, status *timesheet.SubmissionStatusResult, s uiStyles) {
 	h := a.Human
 	head.WriteString("\n")
@@ -170,8 +137,6 @@ func renderHumanGates(head, list, tail *strings.Builder, a nextAction, status *t
 	labelRow(head, s, "submit", "\n  ", h.SubmitCommand)
 	labelRow(head, s, "status", "\n  ", h.StatusCommand)
 	head.WriteString(s.label.Render("unresolved writes") + " " + strconv.Itoa(h.Unresolved) + " legacy, " + strconv.Itoa(h.NativeUnresolved) + " native\n")
-	// The overnight carry is shown at review (ADR 0011): what this day took in
-	// from the previous date and what it carries into the next.
 	for _, c := range h.Carried {
 		list.WriteString(recorded("  carried %s -> %s  %s-%s (%s min)  %s\n",
 			c.From, c.To, c.Start, c.End, strconv.Itoa(c.Minutes), c.Description))
@@ -196,8 +161,6 @@ func renderHumanGates(head, list, tail *strings.Builder, a nextAction, status *t
 	tail.WriteString(recorded("next: %s\n", status.NextAction))
 }
 
-// renderFooter renders the one dynamic line: the busy lock, the last error, or
-// the key legend.
 func renderFooter(m tuiModel) string {
 	s := m.env.styles
 	var line string
@@ -216,8 +179,6 @@ func renderFooter(m tuiModel) string {
 	return "\n" + line + "\n"
 }
 
-// renderBench renders the bench form: the pre-filled answer document the
-// operator edits, with the judgment's digest shown above it.
 func renderBench(m tuiModel) string {
 	s := m.env.styles
 	b := m.bench
@@ -237,9 +198,6 @@ func renderBench(m tuiModel) string {
 	return head + doc + "\n" + tail
 }
 
-// renderGate renders a display-before-ask gate dialog: the fresh artifact and
-// the exact id to type. The head and the typed echo are pinned; only the plan
-// body or approvals list clips.
 func renderGate(m tuiModel) string {
 	s := m.env.styles
 	b := m.bench
@@ -277,9 +235,6 @@ func clampCaret(text string, caret int) ([]rune, int) {
 	return runes, max(0, min(caret, len(runes)))
 }
 
-// renderCaret renders the recorded text with the styled caret glyph at the
-// caret: the one site that splits recorded content around a style, so it
-// sanitizes each half directly (see sanitizeContent).
 func renderCaret(text string, caret int, s uiStyles) string {
 	runes, caret := clampCaret(text, caret)
 	return sanitizeContent(string(runes[:caret])) + s.caret.Render("▌") + sanitizeContent(string(runes[caret:]))

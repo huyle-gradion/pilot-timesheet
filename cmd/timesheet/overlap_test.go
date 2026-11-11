@@ -9,12 +9,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// TestStageMergedClusterEndToEnd is issue #183 rule 1 at stage time: two
-// recorded entries that overlap stage as one interval over the union span
-// under the union-derived block id, the other contributor is named in the
-// receipt, and confirm plus save persist the merged interval. The entries file
-// is written directly because record itself merges (the reviewed-file path is
-// pinned separately); stage must merge whatever the ledger holds.
 func TestStageMergedClusterEndToEnd(t *testing.T) {
 	cfg := writeTestConfig(t)
 	if err := os.MkdirAll(filepath.Dir(timesheet.EntriesPath(statePathFor(cfg), testDate)), 0o700); err != nil {
@@ -57,13 +51,6 @@ func TestStageMergedClusterEndToEnd(t *testing.T) {
 	}
 }
 
-// TestRestageMergedContributorRemovesItsOldInterval is the spec's removal-path
-// check for issue #183: inside one process, a staged contributor is moved
-// inside another block's span, so the re-stage edits the merged block's
-// interval text in place under the union-derived id and removes the
-// contributor's now-stale interval (it is in the stage map but no longer
-// desired). The entries ledger is written directly, so the moved contributor
-// keeps its old id; a real command always derives from an empty staged set.
 func TestRestageMergedContributorRemovesItsOldInterval(t *testing.T) {
 	cfg := writeTestConfig(t)
 	if err := os.MkdirAll(filepath.Dir(timesheet.EntriesPath(statePathFor(cfg), testDate)), 0o700); err != nil {
@@ -135,12 +122,6 @@ func TestRestageMergedContributorRemovesItsOldInterval(t *testing.T) {
 	}
 }
 
-// --- issue #183 fix round: F-6, F-7 -------------------------------------------
-
-// TestClassifyBindingCoversMergedContributors: a selection made on a merged
-// interval is bound to the effective union content, so changing only the
-// non-head contributor after classify makes confirm and save refuse instead of
-// replaying the stale selection (review finding F-6).
 func TestClassifyBindingCoversMergedContributors(t *testing.T) {
 	cfg := writeTestConfig(t)
 	if err := os.MkdirAll(filepath.Dir(timesheet.EntriesPath(statePathFor(cfg), testDate)), 0o700); err != nil {
@@ -181,9 +162,6 @@ func TestClassifyBindingCoversMergedContributors(t *testing.T) {
 	}
 }
 
-// TestSaveSkipNoticePrintsEachReason: the skip notice names each skipped block
-// with its own receipt reason instead of asserting a cause it does not know
-// (review finding F-7).
 func TestSaveSkipNoticePrintsEachReason(t *testing.T) {
 	cfg := writeTestConfig(t)
 	if err := os.MkdirAll(filepath.Dir(timesheet.EntriesPath(statePathFor(cfg), testDate)), 0o700); err != nil {

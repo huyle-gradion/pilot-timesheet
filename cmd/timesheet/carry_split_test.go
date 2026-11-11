@@ -8,11 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// TestSplitClusterCarry pins the carry arithmetic (ADR 0011) and sweeps
-// overnight spans in 15-minute steps across timezones and DST dates: the source
-// chunks are contiguous, each at most 240 real minutes once a carry exists, the
-// carry starts where they end, and source plus carry equals the recorded span
-// exactly. No minute is lost or doubled; an unresolvable cut makes no carry.
 func TestSplitClusterCarry(t *testing.T) {
 	cases := []struct {
 		start, end     string
@@ -23,7 +18,7 @@ func TestSplitClusterCarry(t *testing.T) {
 		{"23:00", "05:00", [][2]string{{"23:00", "03:00"}}, "03:00", "05:00", 120},
 		{"20:00", "06:00", [][2]string{{"20:00", "00:00"}}, "00:00", "06:00", 360},
 		{"15:00", "05:00", [][2]string{{"15:00", "19:00"}, {"19:00", "23:00"}, {"23:00", "03:00"}}, "03:00", "05:00", 120},
-		{"22:00", "04:00", [][2]string{{"22:00", "04:00"}}, "", "", 0}, // exactly 240 after midnight: #176
+		{"22:00", "04:00", [][2]string{{"22:00", "04:00"}}, "", "", 0},
 	}
 	for _, c := range cases {
 		spans, carry := timesheet.SplitCluster(testDate, overnightTZ, timesheet.EntryCluster{BlockID: "b", Start: c.start, End: c.end})
@@ -41,8 +36,6 @@ func TestSplitClusterCarry(t *testing.T) {
 		}
 	}
 
-	// A fall-back night whose cutoff (02:00) lands in the repeated hour: no
-	// occurrence is chosen, so no carry is made and the span stays whole.
 	if spans, carry := timesheet.SplitCluster("2026-10-24", "Europe/Berlin", timesheet.EntryCluster{BlockID: "b", Start: "22:00", End: "05:00"}); carry != nil ||
 		len(spans) != 1 || spans[0] != [2]string{"22:00", "05:00"} {
 		t.Fatalf("Berlin fall-back 22:00-05:00 = %v carry %+v, want one span and no carry", spans, carry)
@@ -66,7 +59,7 @@ func TestSplitClusterCarry(t *testing.T) {
 				start, end := sweepClock(sm), sweepClock(em)
 				total, err := (timesheet.Interval{Date: s.date, Start: start, End: end}).Duration(loc)
 				if err != nil {
-					continue // the recorded span itself does not resolve
+					continue
 				}
 				spans, carry := timesheet.SplitCluster(s.date, s.tz, timesheet.EntryCluster{BlockID: "b", Start: start, End: end})
 				where := s.tz + " " + s.date + " " + start + "-" + end

@@ -8,13 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// Review fixes for #281 (ADR 0011): a carry is consumed only while its source
-// ledger still derives it, and a carry into a non-working day is logged,
-// counted and shown.
-
-// TestCarryStaleSourceStops: the source ledger edited without a re-stage, or
-// deleted, leaves a carry record its ledger no longer derives. The target never
-// stages, saves or submits those phantom minutes; it stops naming the source.
 func TestCarryStaleSourceStops(t *testing.T) {
 	own := []timesheet.EntryRecord{carryEntry(carryTarget, "work-10:00-11:00", "work", "10:00", "11:00", "Own work")}
 	stageCmd := "stage --date " + testDate
@@ -35,8 +28,6 @@ func TestCarryStaleSourceStops(t *testing.T) {
 		if n := nextDoc(t, "--config", cfg, "--date", carryTarget); n.State != stateStopped || !strings.Contains(n.Reason, stageCmd) {
 			t.Fatalf("next = %s %q, want a stop naming %q", n.State, n.Reason, stageCmd)
 		}
-		// Re-staging the source settles it: the carry disappears and the
-		// target stages only its own work.
 		runStageCapture(t, []string{"--config", cfg, "--date", testDate})
 		if r := runStageCapture(t, []string{"--config", cfg, "--date", carryTarget}); len(r.CarriedIn) != 0 {
 			t.Fatalf("carried_in = %+v after the source re-stage, want none", r.CarriedIn)
@@ -75,8 +66,6 @@ func TestCarryStaleSourceStops(t *testing.T) {
 	})
 }
 
-// TestSubmitChatChecksOwnCarryRecord: submit --chat on a source day refuses
-// when its own carry record no longer matches its saved derivation, as next does.
 func TestSubmitChatChecksOwnCarryRecord(t *testing.T) {
 	cfg := writeTestConfigTZ(t, overnightTZ)
 	stageAndSave(t, cfg, testDate, []timesheet.EntryRecord{overnightEntry("night-1", "work", "23:00", "05:00", "Overnight release")})
@@ -89,10 +78,6 @@ func TestSubmitChatChecksOwnCarryRecord(t *testing.T) {
 	}
 }
 
-// TestCarryFridayIntoSaturday: Friday 20:00→06:00 keeps 4 hours and carries 6
-// into Saturday. daily visits Saturday although it is not a working day, the
-// notification counts what each day stages (4h, then 6h, never 10h on
-// Friday), and the TUI's gate view renders the carry.
 func TestCarryFridayIntoSaturday(t *testing.T) {
 	const friday, saturday, monday = "2026-10-30", "2026-10-31", "2026-11-02"
 	cfg := writeTestConfigTZ(t, overnightTZ)

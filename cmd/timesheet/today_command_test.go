@@ -13,9 +13,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// fixedNow is the instant the date-resolution tests pin. In Asia/Ho_Chi_Minh
-// (UTC+7) it is already 2026-10-27; in UTC it is still 2026-10-26, which is the
-// difference the daily driver must get from configuration, not the host clock.
 var fixedNow = time.Date(2026, 10, 26, 18, 0, 0, 0, time.UTC)
 
 // pinClock replaces the package clock for one test. Tests that pin it must not
@@ -47,7 +44,6 @@ func writeSyntheticConfig(t *testing.T, timezone string) (configPath, statePath 
 	return configPath, statePath
 }
 
-// writeReviewed writes a minimal reviewed draft for one day and returns its path.
 func writeReviewed(t *testing.T, dir, date, blockID, description string) string {
 	t.Helper()
 	body := `{"date":"` + date + `","blocks":[{"block_id":"` + blockID + `","description":"` + description + `"}]}`
@@ -58,9 +54,6 @@ func writeReviewed(t *testing.T, dir, date, blockID, description string) string 
 	return path
 }
 
-// TestRunWithoutDateResolvesTodayInConfiguredTimezone drives the real `run`
-// command at one pinned instant under two configured timezones and checks both
-// the draft's date and the artifacts path it writes.
 func TestRunWithoutDateResolvesTodayInConfiguredTimezone(t *testing.T) {
 	pinClock(t)
 	cases := []struct {
@@ -100,8 +93,6 @@ func TestRunWithoutDateResolvesTodayInConfiguredTimezone(t *testing.T) {
 	}
 }
 
-// TestDraftAndCollectWithoutDatePrintResolvedDay pins that draft and collect
-// each use the same configured-zone resolution as run, not only the helper.
 func TestDraftAndCollectWithoutDatePrintResolvedDay(t *testing.T) {
 	pinClock(t)
 	cfg, _ := writeSyntheticConfig(t, "Asia/Ho_Chi_Minh")
@@ -138,9 +129,6 @@ func TestDraftAndCollectWithoutDatePrintResolvedDay(t *testing.T) {
 	}
 }
 
-// TestRecordWithoutDateUsesResolvedDay records a draft dated at the resolved
-// day, then rejects a draft dated any other day with an error naming the
-// resolved day.
 func TestRecordWithoutDateUsesResolvedDay(t *testing.T) {
 	pinClock(t)
 	cfg, statePath := writeSyntheticConfig(t, "Asia/Ho_Chi_Minh")
@@ -174,8 +162,6 @@ func TestRecordWithoutDateUsesResolvedDay(t *testing.T) {
 	}
 }
 
-// TestStatusWithoutDateReportsResolvedDay pins the undated status surface: it
-// opens the resolved day and prints the same summary shape as status --date.
 func TestStatusWithoutDateReportsResolvedDay(t *testing.T) {
 	pinClock(t)
 	cfg, _ := writeSyntheticConfig(t, "Asia/Ho_Chi_Minh")
@@ -223,7 +209,6 @@ func TestStatusWithoutDateReportsResolvedDay(t *testing.T) {
 		t.Fatalf("status does not carry the opened day: %+v", summary.Status.Days)
 	}
 
-	// An explicit date still wins and keeps the dated shape.
 	datedOut, _, err := captureOutput(t, func() error {
 		return runStatus([]string{"--config", cfg, "--date", "2026-10-26"})
 	})
@@ -239,8 +224,6 @@ func TestStatusWithoutDateReportsResolvedDay(t *testing.T) {
 	}
 }
 
-// TestDayScopedCommandWithoutDateStillRejects pins the commands that were not
-// part of the daily driver: they keep their current omission error.
 func TestDayScopedCommandWithoutDateStillRejects(t *testing.T) {
 	cfg, _ := writeSyntheticConfig(t, "Asia/Ho_Chi_Minh")
 	err := runStage([]string{"--config", cfg})
@@ -249,9 +232,6 @@ func TestDayScopedCommandWithoutDateStillRejects(t *testing.T) {
 	}
 }
 
-// TestSuppliedDateMustParseAsADate pins that only a flag that was never given
-// means today: an explicit empty or whitespace-only --date is a malformed
-// value, never a request for the current day, and it performs no work.
 func TestSuppliedDateMustParseAsADate(t *testing.T) {
 	pinClock(t)
 	tmp := t.TempDir()
@@ -293,8 +273,6 @@ func TestSuppliedDateMustParseAsADate(t *testing.T) {
 		}
 	}
 
-	// A command that always requires a date rejects a whitespace value the same
-	// way rather than treating it as supplied-and-valid.
 	t.Run("stage/whitespace", func(t *testing.T) {
 		err := runStage([]string{"--config", cfg, "--date", " "})
 		if err == nil || !strings.Contains(err.Error(), "stage: --date must be YYYY-MM-DD") {
@@ -302,7 +280,6 @@ func TestSuppliedDateMustParseAsADate(t *testing.T) {
 		}
 	})
 
-	// No rejected invocation may collect, record, or write an artifact.
 	if _, err := os.Stat(filepath.Join(tmp, "timesheet")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a rejected --date wrote an artifact directory: %v", err)
 	}
@@ -314,8 +291,6 @@ func TestSuppliedDateMustParseAsADate(t *testing.T) {
 	}
 }
 
-// TestDateFlagHelpNamesOmission pins --help to the same requiredness decision
-// as the parser for every command that accepts an omitted date.
 func TestDateFlagHelpNamesOmission(t *testing.T) {
 	cfg, _ := writeSyntheticConfig(t, "Asia/Ho_Chi_Minh")
 	cases := []struct {

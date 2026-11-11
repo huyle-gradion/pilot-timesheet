@@ -10,8 +10,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// writeWorkHoursRunConfig writes the synthetic calendar config with an optional
-// work_hours object spliced in verbatim.
 func writeWorkHoursRunConfig(t *testing.T, workHours string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -32,9 +30,6 @@ func writeWorkHoursRunConfig(t *testing.T, workHours string) string {
 	return cfg
 }
 
-// TestDraftAnnotatesOutsideWorkHours proves the draft subcommand wires the
-// loaded policy into the annotation: the 10:00-11:00 meeting is before a
-// 13:00-18:00 policy window on a Tuesday.
 func TestDraftAnnotatesOutsideWorkHours(t *testing.T) {
 	cfg := writeWorkHoursRunConfig(t, `{"days": ["mon", "tue", "wed", "thu", "fri"], "windows": [{"start": "13:00", "end": "18:00"}]}`)
 	srv, _ := startFeed(t)
@@ -59,8 +54,6 @@ func TestDraftAnnotatesOutsideWorkHours(t *testing.T) {
 	}
 }
 
-// TestDraftWithoutWorkHoursUnannotated proves a config with no work_hours emits
-// no annotation fields, so today's draft bytes are unchanged.
 func TestDraftWithoutWorkHoursUnannotated(t *testing.T) {
 	cfg := writeWorkHoursRunConfig(t, "")
 	srv, _ := startFeed(t)
@@ -84,10 +77,6 @@ func TestDraftWithoutWorkHoursUnannotated(t *testing.T) {
 	}
 }
 
-// TestParseHeadlessFlagsAllowsOmittedDateForDailyDriver: the one-command daily
-// driver passes no --date, so the shared parser used by collect/draft/run/status
-// must accept its absence while still rejecting a malformed explicit date
-// (issue #179). record's own parser is pinned by TestRecordWithoutDateUsesResolvedDay.
 func TestParseHeadlessFlagsAllowsOmittedDateForDailyDriver(t *testing.T) {
 	for _, name := range []string{"collect", "draft", "run", "status"} {
 		if _, err := parseHeadlessFlags(name, []string{"--config", "/tmp/config.json"}); err != nil {

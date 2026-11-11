@@ -1,8 +1,5 @@
 package main
 
-// The TUI's step recipes over one held headlessSession, built in tui.go over
-// the TUI's own store. stepAct is the total table over the derived step.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -40,9 +37,6 @@ func stepAct(a nextAction) string {
 	return ""
 }
 
-// act runs the one act the derived step licenses; the reducer re-derives
-// after every success. The body is the dispatcher's, so the tui and `next --do`
-// cannot diverge; the tui's held session is borrowed, never reopened.
 func (e tuiEnv) act(step string, cmd []string) any {
 	notice, err := (actDispatcher{
 		cfg: e.cfg, configPath: e.configPath, envFile: e.envFile,
@@ -51,8 +45,6 @@ func (e tuiEnv) act(step string, cmd []string) any {
 	return actDoneEvent{err: err, notice: notice}
 }
 
-// stageNotice folds the stage receipt the CLI prints into one notice line:
-// what staged, at which revision, and every skipped block with its reason.
 func stageNotice(r *StageReceipt) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "staged %d interval(s) at revision %d", r.StagedIntervals, r.Revision)
@@ -62,8 +54,6 @@ func stageNotice(r *StageReceipt) string {
 	return b.String()
 }
 
-// tick rebuilds the loop snapshot: the same derivation `next` runs, over the
-// store the TUI holds; a stop document is a snapshot like any other.
 func (e tuiEnv) tick() (tickEvent, error) {
 	obs, stop, err := buildNextObservation(e.cfg, e.configPath, e.envFile, e.day, e.h.store)
 	if err != nil {
@@ -76,9 +66,6 @@ func (e tuiEnv) tick() (tickEvent, error) {
 	}
 	snap.action = deriveDayNext(obs)
 	if snap.action.State == stateHumanGates && snap.action.Human != nil {
-		// The gates screen renders the day's approvals and unresolved writes;
-		// an operator who dismissed the receipt re-acquires the active
-		// approval_id here. A failed read leaves the status absent.
 		_, snap.status, _ = e.gateArtifact(gateSubmit)
 	}
 	return tickEvent{snap: snap}, nil
@@ -110,8 +97,6 @@ func (e tuiEnv) gateArtifact(kind string) (*timesheet.PlanPreview, *timesheet.Su
 	return &preview, nil, nil
 }
 
-// openGate opens the dialog on the fresh artifact, prompting for the exact id
-// the operator must type back.
 func (e tuiEnv) openGate(kind string) any {
 	preview, status, err := e.gateArtifact(kind)
 	if err != nil {
@@ -168,8 +153,6 @@ func (e tuiEnv) submitOp(approvalID string) any {
 		receipt.Status, receipt.Confirmed, receipt.Unresolved, receipt.Unattempted)}
 }
 
-// refreshAfterStale re-runs review and re-derives, reopening the bench form
-// fresh when the loop still asks for the same judgment.
 func (e tuiEnv) refreshAfterStale(reopen string) any {
 	if _, err := e.h.call("review", timesheet.Request{Day: e.day}); err != nil {
 		return actDoneEvent{err: err}
@@ -182,16 +165,11 @@ func (e tuiEnv) refreshAfterStale(reopen string) any {
 	return te
 }
 
-// sendClose sends the close op and lets the program stop; unsaved state and
-// bench text die with the process.
 func (e tuiEnv) sendClose() any {
 	_, err := e.h.call("close", timesheet.Request{})
 	return closeSentEvent{err}
 }
 
-// openEditor pre-fills the bench form with the exact document the judgment's
-// protocol names, the digest copied verbatim into its first field. Block ids
-// come from the draft artifact; the digest binding stays the only validator.
 func (e tuiEnv) openEditor(kind, digest, answerFile string, blocks []nextBlock) any {
 	var body any
 	switch kind {
@@ -229,9 +207,6 @@ func (e tuiEnv) openEditor(kind, digest, answerFile string, blocks []nextBlock) 
 	return editorOpenedEvent{kind: kind, digest: digest, answerFile: answerFile, text: string(data) + "\n"}
 }
 
-// writeBench writes the loop's own answer file exactly as the operator
-// authored it: no digest is recomputed, no second validation runs; the next
-// tick and the verbs' fail-closed replays stay the only validators.
 func (e tuiEnv) writeBench(bench benchState) any {
 	text := bench.text
 	if strings.TrimSpace(text) == "" {

@@ -16,8 +16,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// ttyGate is the interactive-only gate, overridable in tests the way
-// interactiveFactory is for the human-gate verbs.
 var ttyGate = func() bool { return isTerminal(os.Stdin) && isTerminal(os.Stdout) }
 
 func runTui(args []string) error {
@@ -42,10 +40,6 @@ func runTui(args []string) error {
 	return runTuiProgram(m)
 }
 
-// preflightTui does everything that must succeed before the alt screen starts:
-// load, resolve the day, open the store once and hold the lock, build the
-// session over it, derive the first snapshot. A store_locked refusal returns
-// here, before any screen exists.
 func preflightTui(f *nextFlags) (tuiModel, error) {
 	configPath, err := filepath.Abs(f.configPath)
 	if err != nil {
@@ -81,7 +75,6 @@ func preflightTui(f *nextFlags) (tuiModel, error) {
 	env := tuiEnv{
 		cfg: cfg, configPath: configPath, envFile: envFile, day: day,
 		styles: stdoutStyles(),
-		// One held session over the TUI's own store, built literally.
 		h: &headlessSession{
 			session: timesheet.NewSession(cfg, fileEnv, store),
 			store:   store, cfg: cfg,
@@ -102,18 +95,14 @@ func runTuiProgram(m tuiModel) error {
 		fmt.Fprintln(os.Stderr, "tui:", model.closeErr)
 	}
 	if err != nil {
-		// The program died rather than quit: release the session best-effort.
 		_, _ = m.env.h.call("close", timesheet.Request{})
 		return err
 	}
 	return nil
 }
 
-// Init seeds nothing: the first snapshot is already on the model.
 func (m tuiModel) Init() tea.Cmd { return nil }
 
-// Update adapts the driver's messages onto the reducer's events and runs at
-// most one effect.
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	ev := tuiEventFromMsg(msg)
 	if ev == nil {
@@ -140,10 +129,6 @@ func (m tuiModel) View() string {
 	}
 }
 
-// tuiEventFromMsg adapts the driver's messages onto the reducer's events.
-// Only KeyRunes and KeySpace messages with Alt unset are text; every other
-// key, structural or modified, stays a named keyEvent, so a key like home or
-// delete can never reach an open document as text.
 func tuiEventFromMsg(msg tea.Msg) any {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:

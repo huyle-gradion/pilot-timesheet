@@ -8,8 +8,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- the pure reducer: table-driven, headless, no terminal state --------------
-
 func dayModel() tuiModel {
 	return tuiModel{
 		env:  tuiEnv{day: "2026-10-20"},
@@ -23,9 +21,18 @@ func busyModel() tuiModel {
 	return m
 }
 
-// TestUpdateKeyTable pins the key map: r re-derives, q and ctrl+c close under
-// the busy lock, every other key is a no-op, and while an op is in flight
-// every key is ignored so two effects can never run on the session at once.
+func TestFailedActKeepsFormText(t *testing.T) {
+	m := busyModel()
+	m.bench = benchState{screen: screenBench, kind: judgmentBlockDescriptions, text: "authored", caret: 8}
+	m, eff := update(m, actDoneEvent{err: errors.New("write refused")})
+	if eff != nil || m.busy || m.err == nil {
+		t.Fatalf("failed act = effect %v busy %v err %v, want a reported failure under a cleared lock", eff, m.busy, m.err)
+	}
+	if m.bench.screen != screenBench || m.bench.text != "authored" {
+		t.Fatalf("failed act left bench %+v, want the operator's text kept", m.bench)
+	}
+}
+
 func TestUpdateKeyTable(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -58,7 +65,6 @@ func TestUpdateKeyTable(t *testing.T) {
 	}
 }
 
-// TestUpdateEventsTable pins every event's state transition.
 func TestUpdateEventsTable(t *testing.T) {
 	t.Run("tick replaces the snapshot and clears busy and error", func(t *testing.T) {
 		m := busyModel()
@@ -105,9 +111,6 @@ func TestUpdateEventsTable(t *testing.T) {
 	})
 }
 
-// TestFormTextEditing pins the form input boundary: a named structural key
-// never changes the document, text inserts at the caret, and a multi-rune
-// paste inserts exactly.
 func TestFormTextEditing(t *testing.T) {
 	form := func() tuiModel {
 		m := dayModel()
@@ -158,9 +161,6 @@ func TestFormTextEditing(t *testing.T) {
 	})
 }
 
-// TestReDeriveAfterErrorSupersedesReport pins the honest busy line: a new
-// re-derive clears the stale error report while it runs, so the footer shows
-// the busy lock, not an older failure.
 func TestReDeriveAfterErrorSupersedesReport(t *testing.T) {
 	m := dayModel()
 	m, _ = update(m, actDoneEvent{err: errors.New("boom")})
@@ -175,8 +175,6 @@ func TestReDeriveAfterErrorSupersedesReport(t *testing.T) {
 
 type unknownTestEvent struct{}
 
-// TestPreflightBuildsFirstSnapshot drives the real preflight over a scratch
-// store: an empty day derives the run action before any screen starts.
 func TestPreflightBuildsFirstSnapshot(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -197,8 +195,6 @@ func TestPreflightBuildsFirstSnapshot(t *testing.T) {
 	}
 }
 
-// TestEnvTickRebuildsLoopSnapshot pins the tick recipe: one call, one rebuilt
-// snapshot, the caller's store still open afterwards.
 func TestEnvTickRebuildsLoopSnapshot(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -215,16 +211,11 @@ func TestEnvTickRebuildsLoopSnapshot(t *testing.T) {
 	if te.snap.day != "2026-10-20" || te.snap.action.State != stateAction {
 		t.Fatalf("tick snapshot = %+v, want the derived action for the day", te.snap)
 	}
-	// The store is still held: a second read through the same lock succeeds.
 	if _, err := timesheet.ReadWorkflowSnapshot(m.env.cfg, m.env.h.store, "2026-10-20"); err != nil {
 		t.Fatalf("the tick closed the caller's store: %v", err)
 	}
 }
 
-// TestPreflightReleasesTheStoreOnError pins the preflight's error path: a
-// failure after the store is opened (here an unreadable env file; the
-// unknown --project that once triggered it is retired, ADR 0012) surfaces its
-// own refusal, and the held store is released.
 func TestPreflightReleasesTheStoreOnError(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)

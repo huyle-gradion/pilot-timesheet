@@ -11,8 +11,6 @@ import (
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
 
-// --- the step table: every deriveDayNext output maps to exactly one act ------
-
 func TestStepForCoversEveryDerivationOutput(t *testing.T) {
 	classifyDefault := nextAction{Day: "d"}.withAction("classify",
 		[]string{"/exe", "classify", "--configured-default"}, "why")
@@ -45,8 +43,6 @@ func TestStepForCoversEveryDerivationOutput(t *testing.T) {
 	}
 }
 
-// drive applies one key and runs the returned effect chain to completion, so a
-// test drives the same act -> actDone -> tick -> tickEvent path the driver does.
 func drive(t *testing.T, m tuiModel, key string) tuiModel {
 	t.Helper()
 	m, eff := update(m, keyEvent{key: key})
@@ -59,8 +55,6 @@ func drive(t *testing.T, m tuiModel, key string) tuiModel {
 	return m
 }
 
-// typeInto feeds one rune per text event to the reducer without running
-// effects, the way the driver delivers typed text.
 func typeInto(m tuiModel, text string) tuiModel {
 	for _, r := range text {
 		m, _ = update(m, textEvent{runes: []rune{r}})
@@ -68,8 +62,6 @@ func typeInto(m tuiModel, text string) tuiModel {
 	return m
 }
 
-// clearBench empties the form the way an operator would: backspace to the
-// start (the caret opens at the end of the pre-filled skeleton).
 func clearBench(m tuiModel) tuiModel {
 	n := len([]rune(m.bench.text))
 	for i := 0; i < n; i++ {
@@ -78,10 +70,6 @@ func clearBench(m tuiModel) tuiModel {
 	return m
 }
 
-// TestTuiDayLoopRoundTrip is the Unit-3 acceptance proof: the TUI drives a
-// scratch day from an empty store through collect, the descriptions judgment,
-// record, stage and save using only the derived steps' acts, and the writer
-// copies the judgment's digest verbatim.
 func TestTuiDayLoopRoundTrip(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -98,16 +86,12 @@ func TestTuiDayLoopRoundTrip(t *testing.T) {
 		t.Fatalf("first snapshot = %q/%q, want action/run", m.snap.action.State, m.snap.action.Step)
 	}
 
-	// The derived run act collects and writes the draft; the loop re-derives
-	// into the descriptions judgment.
 	m = drive(t, m, "enter")
 	if m.snap.action.State != stateJudgment || m.snap.action.Judgment == nil ||
 		m.snap.action.Judgment.Kind != judgmentBlockDescriptions {
 		t.Fatalf("after the run act = %+v, want the descriptions judgment", m.snap.action)
 	}
 
-	// The bench form opens pre-filled with the protocol's own document and the
-	// judgment's digest; the operator authors prose over it and writes.
 	m = drive(t, m, "enter")
 	if m.bench.screen != screenBench || m.bench.text == "" {
 		t.Fatalf("bench = %+v, want an open form with the skeleton document", m.bench)
@@ -168,10 +152,6 @@ func TestTuiDayLoopRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Record, stage and save each run from the derived step alone, and the
-	// stage and save receipts fold their summaries into the day screen's
-	// notice line; the offline configuration then stops at the plan remedy,
-	// rendered verbatim.
 	for _, want := range []string{"record", "stage", "save"} {
 		if m.snap.action.Step != want {
 			t.Fatalf("step = %q, want %q (last error: %v)", m.snap.action.Step, want, m.err)
@@ -196,9 +176,6 @@ func TestTuiDayLoopRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBenchWriteAsAuthored pins the writer's contract: the document is
-// written exactly as authored, a lost digest refuses the write, an empty
-// document refuses, and esc abandons the form.
 func TestBenchWriteAsAuthored(t *testing.T) {
 	t.Run("the document is written exactly as authored", func(t *testing.T) {
 		bench := benchState{
@@ -258,10 +235,6 @@ func TestBenchWriteAsAuthored(t *testing.T) {
 	})
 }
 
-// TestStaleRevisionRecovery pins the recovery contract: an act failing
-// stale_revision re-runs review, re-derives, and reopens a bench form of the
-// same judgment kind fresh; a snapshot that no longer asks for that judgment
-// leaves the operator on the day screen instead of a dead form.
 func TestStaleRevisionRecovery(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -275,7 +248,6 @@ func TestStaleRevisionRecovery(t *testing.T) {
 		t.Fatalf("open_day: %v", err)
 	}
 
-	// A stale bench write runs the review-and-retick recovery chain.
 	m.bench = benchState{screen: screenBench, kind: judgmentClassifications}
 	m, eff := update(m, actDoneEvent{err: &timesheet.AppError{Code: timesheet.CodeStaleRevision, Message: "expected revision 1 but the day is at revision 2"}})
 	if eff == nil || m.busy {
@@ -292,7 +264,6 @@ func TestStaleRevisionRecovery(t *testing.T) {
 		t.Fatalf("recovered snapshot = %+v, want the fresh derived state", m.snap.action)
 	}
 
-	// A fresh snapshot still asking for the same judgment reopens the form.
 	m.bench = benchState{}
 	fresh := loopSnapshot{day: "d", action: nextAction{Day: "d"}.withJudgment("classify",
 		nextJudgment{Kind: judgmentClassifications, AnswerFile: "/c.json", LedgerDigest: "ld"})}
@@ -302,9 +273,6 @@ func TestStaleRevisionRecovery(t *testing.T) {
 	}
 }
 
-// TestActPlanFailsClosedWithoutRemote pins the plan act's op dispatch: on a
-// scratch store with no saved work the preview_plan op refuses with its own
-// typed error, passed through.
 func TestActPlanFailsClosedWithoutRemote(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	pretendTTY(t)
@@ -322,5 +290,34 @@ func TestActPlanFailsClosedWithoutRemote(t *testing.T) {
 	var app *timesheet.AppError
 	if !errors.As(done.err, &app) || app.Code != timesheet.CodeNoConfirmedWork {
 		t.Fatalf("plan act error = %v, want the op's own typed refusal", done.err)
+	}
+}
+
+func TestOpenEditorCopiesLedgerDigestVerbatim(t *testing.T) {
+	ev := (tuiEnv{}).openEditor(judgmentClassifications, "Ledger-aB1", "choices.json", []nextBlock{{IntervalID: "iv-1"}})
+	opened, ok := ev.(editorOpenedEvent)
+	if !ok || opened.err != nil {
+		t.Fatalf("openEditor = %#v, want an opened form", ev)
+	}
+	var doc struct {
+		LedgerDigest string `json:"ledger_digest"`
+	}
+	if err := json.Unmarshal([]byte(opened.text), &doc); err != nil || doc.LedgerDigest != "Ledger-aB1" {
+		t.Fatalf("pre-filled ledger_digest = %q (%v), want the judgment's digest verbatim", doc.LedgerDigest, err)
+	}
+}
+
+func TestBenchWriteKeepsWhitespaceVerbatim(t *testing.T) {
+	text := "\n  {\"ledger_digest\":\"ledger-1\",\"selections\":{}}\n\n"
+	bench := benchState{
+		screen: screenBench, kind: judgmentClassifications, digest: "ledger-1",
+		answerFile: filepath.Join(t.TempDir(), "choices.json"), text: text,
+	}
+	if done := (tuiEnv{}).writeBench(bench).(actDoneEvent); done.err != nil {
+		t.Fatalf("write: %v", done.err)
+	}
+	data, err := os.ReadFile(bench.answerFile)
+	if err != nil || string(data) != text {
+		t.Fatalf("answer file = %q (%v), want the authored bytes %q", data, err, text)
 	}
 }

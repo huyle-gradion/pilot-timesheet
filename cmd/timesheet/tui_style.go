@@ -8,11 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// uiStyles owns every lipgloss style the TUI renders with, bound to one
-// renderer so the color-profile decision happens once. Styles are SGR-only
-// (attributes and ANSI-16 colors, never width, padding or borders): a style
-// that changed text would break the goldens' strip-equality contract, while a
-// pure-attribute style renders as identity under the Ascii profile.
 type uiStyles struct {
 	title  lipgloss.Style
 	label  lipgloss.Style
