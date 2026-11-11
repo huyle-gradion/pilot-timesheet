@@ -2,6 +2,13 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- `scripts/tokens.py` counts sessions that run the current skill again. Its
+  skill marker only knew the retired verbs (`next`, `run`, `collect`, …), so
+  every Claude, Pi or pig session that ran `timesheet log` or
+  `timesheet submit --chat` since #262 was silently skipped.
+
 ## 0.5.0
 
 - The `command` judge backend can record the harness's own token counts
