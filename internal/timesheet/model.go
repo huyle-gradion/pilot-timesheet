@@ -1543,10 +1543,6 @@ func choiceFromOption(o ClassificationOption) ClassificationChoice {
 	}
 }
 
-// choiceEqual compares the RELEVANT content of two references to one selected
-// option. A relevant change (name, code or activity type) is meaningful and
-// must force reselection; other catalog content, queries and audit timestamps
-// never enter the comparison, so unrelated rows do not invalidate a choice.
 func choiceEqual(a, b ClassificationChoice) bool {
 	return a.ID == b.ID && a.Name == b.Name &&
 		a.Code == b.Code && a.ActivityType == b.ActivityType

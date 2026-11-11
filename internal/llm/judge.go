@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/huyle-gradion/pilot-timesheet/internal/timesheet"
 )
@@ -265,29 +266,93 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// Ask sends a prompt and validates the reply with parse. A backend failure or
-// an invalid reply is retried once, with a one-line note of what went wrong;
-// a second failure is returned. Usage covers every call made.
-func Ask[T any](ctx context.Context, backend Backend, p Prompt, parse func(string) (T, error)) (T, string, Usage, error) {
+const (
+	// RetryWait is the shortest pause before a transient failure is retried.
+	RetryWait = time.Second
+	// MaxRetryWait bounds that pause: a provider asking for longer gets no
+	// retry, since an earlier one would only spend another call.
+	MaxRetryWait = 10 * time.Second
+)
+
+// RetryPolicy shapes Ask's single retry. BeforeCall runs before every call
+// with the exact prompt and the usage Ask has spent so far; its error stops
+// Ask without that call. Wait pauses before a transient retry; nil sleeps
+// until the pause ends or ctx is done.
+type RetryPolicy struct {
+	BeforeCall func(prompt string, spent Usage) error
+	Wait       func(ctx context.Context, d time.Duration) error
+}
+
+// Ask sends a prompt and validates the reply with parse. An invalid reply is
+// retried once with a one-line note of what was wrong. A transient backend
+// failure is retried once, unchanged, after RetryWait or the provider's
+// Retry-After when longer (up to MaxRetryWait). Anything else, and a second
+// failure, is returned. When BeforeCall stops the retry, its error keeps the
+// first call's failure. Usage covers every call made.
+func Ask[T any](ctx context.Context, backend Backend, p Prompt, parse func(string) (T, error), policy RetryPolicy) (T, string, Usage, error) {
 	var zero T
-	var total Usage
-	total.Exact = true
+	total := Usage{Exact: true}
 	prompt := p.Text
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	var prior error
+	for attempt := 0; ; attempt++ {
+		if policy.BeforeCall != nil {
+			if err := policy.BeforeCall(prompt, total); err != nil {
+				if prior != nil {
+					err = fmt.Errorf("%w; the first call failed: %w", err, prior)
+				}
+				return zero, "", total, err
+			}
+		}
 		reply, usage, err := backend.Complete(ctx, prompt)
 		if usage.Calls == 0 {
 			usage.Calls = 1
 		}
 		total = total.add(usage)
 		if err == nil {
-			var v T
-			if v, err = parse(reply); err == nil {
+			v, parseErr := parse(reply)
+			if parseErr == nil {
 				return v, reply, total, nil
 			}
+			err = parseErr
 		}
-		lastErr = err
-		prompt = p.Text + "\n\nYour previous reply was rejected: " + clip(err.Error(), 300) + "\nReturn only the JSON object."
+		if attempt > 0 {
+			return zero, "", total, err
+		}
+		prior = err
+		if errors.Is(err, ErrInvalidReply) {
+			prompt = p.Text + "\n\nYour previous reply was rejected: " + clip(err.Error(), 300) + "\nReturn only the JSON object."
+			continue
+		}
+		d, ok := retryDelay(err)
+		if !ok {
+			return zero, "", total, err
+		}
+		wait := policy.Wait
+		if wait == nil {
+			wait = sleep
+		}
+		if wait(ctx, d) != nil {
+			return zero, "", total, err
+		}
 	}
-	return zero, "", total, lastErr
+}
+
+func retryDelay(err error) (time.Duration, bool) {
+	var be *BackendError
+	if !errors.As(err, &be) || !be.Transient {
+		return 0, false
+	}
+	d := max(RetryWait, be.RetryAfter)
+	return d, d <= MaxRetryWait
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

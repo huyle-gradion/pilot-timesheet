@@ -12,8 +12,8 @@ import (
 )
 
 // Request is the strict JSON request envelope of the in-process dispatcher
-// (HandleLine) that the commands and the TUI drive. Unknown fields
-// are rejected. Paths are never request fields: the caller supplies them as flags.
+// (HandleLine) that the commands and the TUI drive. Paths are never request
+// fields: the caller supplies them as flags.
 type Request struct {
 	ID           string   `json:"id"`
 	Op           string   `json:"op"`
@@ -1536,10 +1536,6 @@ func (s *Session) acknowledgeSource(req Request) (AcknowledgedSource, error) {
 	if !statusesAckable(ev.Attempts[target].Status) {
 		return AcknowledgedSource{}, newError(CodeBadRequest, fmt.Sprintf("the latest %s attempt does not need acknowledgment (%s)", source, ev.Attempts[target].Status))
 	}
-	// Copy-on-write: mutate a clone and hand it to the store. The store-owned
-	// record the caller read from is untouched until the write succeeds, so a
-	// pre-activation write failure leaves review state, disk, and gate state
-	// exactly as they were (F2).
 	candidate := ev.cloneEvidence()
 	candidate.Attempts[target].Acknowledged = true
 	candidate.Attempts[target].AcknowledgedAt = time.Now().UTC().Format(time.RFC3339)
@@ -1629,8 +1625,6 @@ func (s *Session) decideMeeting(req Request) (MeetingDecision, error) {
 		return MeetingDecision{}, newError(CodeUnknownMeeting,
 			"meeting_id does not name a proposed meeting in this day's evidence; if collection ran since the review, review the current attempt")
 	}
-	// Copy-on-write (F2): the store's record is never mutated in place by a
-	// caller; the candidate clone fails or commits as one record.
 	candidate := ev.cloneEvidence()
 	candidate.Meetings[idx].Decision = decision
 	if err := s.store.CommitEvidence(date, candidate); err != nil {

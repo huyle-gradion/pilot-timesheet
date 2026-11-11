@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,8 +51,32 @@ type Backend interface {
 }
 
 // ErrBackend marks a transport or provider failure (as opposed to a reply
-// that does not validate).
+// that does not validate). Every backend failure is a *BackendError, which
+// matches it with errors.Is.
 var ErrBackend = errors.New("judge backend failed")
+
+// BackendError is one backend failure. A transient one (a timeout, HTTP 408,
+// 429 or 5xx, an unreachable endpoint, a harness that exits non-zero) may pass
+// when sent again; any other (HTTP 401, 403, 404, a missing executable, a 200
+// that is not a chat completion) never will. RetryAfter is the provider's
+// Retry-After hint, zero when it gave none.
+type BackendError struct {
+	Reason     string
+	Transient  bool
+	RetryAfter time.Duration
+}
+
+func (e *BackendError) Error() string { return ErrBackend.Error() + ": " + e.Reason }
+
+func (e *BackendError) Is(target error) bool { return target == ErrBackend }
+
+func permanent(format string, args ...any) error {
+	return &BackendError{Reason: fmt.Sprintf(format, args...)}
+}
+
+func transient(format string, args ...any) error {
+	return &BackendError{Reason: fmt.Sprintf(format, args...), Transient: true}
+}
 
 // CommandBackend runs a headless agent CLI with the prompt on stdin and reads
 // the reply from stdout. Stderr is discarded: a third-party harness may print
@@ -66,7 +91,7 @@ func (b CommandBackend) Identity() string { return "command:" + strings.Join(b.A
 
 func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Usage, error) {
 	if b.Env == nil {
-		return "", Usage{}, fmt.Errorf("%w: the harness command has no filtered environment; build it with CommandEnv so pipeline credentials are never inherited", ErrBackend)
+		return "", Usage{}, permanent("the harness command has no filtered environment; build it with CommandEnv so pipeline credentials are never inherited")
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.Timeout)
 	defer cancel()
@@ -78,40 +103,40 @@ func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Us
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard
 	err := cmd.Run()
+	// A harness that ran was sent the prompt and may have spent it, so its
+	// failures carry the estimated input; one that never started spent nothing.
+	sent := Usage{Calls: 1, InputTokens: EstimateTokens(prompt)}
+	var exit *exec.ExitError
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:
-		return "", Usage{}, fmt.Errorf("%w: the harness command timed out after %s", ErrBackend, b.Timeout)
+		return "", sent, transient("the harness command timed out after %s", b.Timeout)
 	case errors.Is(err, exec.ErrNotFound):
-		return "", Usage{}, fmt.Errorf("%w: the harness command %q was not found", ErrBackend, b.Argv[0])
+		return "", Usage{}, permanent("the harness command %q was not found", b.Argv[0])
+	case errors.As(err, &exit):
+		return "", sent, transient("the harness command failed (exit status %d)", exit.ExitCode())
 	case err != nil:
-		return "", Usage{}, fmt.Errorf("%w: the harness command failed (%v)", ErrBackend, exitSummary(err))
+		return "", Usage{}, permanent("the harness command failed (could not start)")
 	case out.over:
-		return "", Usage{}, fmt.Errorf("%w: the harness reply exceeds %d bytes", ErrBackend, MaxReplyBytes)
+		return "", sent, transient("the harness reply exceeds %d bytes", MaxReplyBytes)
 	}
-	reply := out.String()
+	reply := out.buf.String()
 	return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
 }
 
-func exitSummary(err error) string {
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return fmt.Sprintf("exit status %d", exit.ExitCode())
-	}
-	return "could not start"
-}
-
+// limitedBuffer keeps its bytes.Buffer unexported so io.Copy cannot reach
+// the buffer's ReadFrom and skip the limit.
 type limitedBuffer struct {
-	bytes.Buffer
+	buf   bytes.Buffer
 	limit int
 	over  bool
 }
 
 func (l *limitedBuffer) Write(p []byte) (int, error) {
-	if l.Len()+len(p) > l.limit {
+	if l.over || l.buf.Len()+len(p) > l.limit {
 		l.over = true
 		return len(p), nil
 	}
-	return l.Buffer.Write(p)
+	return l.buf.Write(p)
 }
 
 func FilterEnv(environ []string, reserved []string) []string {
@@ -166,7 +191,7 @@ func (b OpenAIBackend) Complete(ctx context.Context, prompt string) (string, Usa
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", Usage{}, fmt.Errorf("%w: the endpoint URL is not usable", ErrBackend)
+		return "", Usage{}, permanent("the endpoint URL is not usable")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if b.APIKey != "" {
@@ -179,20 +204,20 @@ func (b OpenAIBackend) Complete(ctx context.Context, prompt string) (string, Usa
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", Usage{}, fmt.Errorf("%w: the endpoint timed out after %s", ErrBackend, b.Timeout)
+			return "", Usage{}, transient("the endpoint timed out after %s", b.Timeout)
 		}
-		return "", Usage{}, fmt.Errorf("%w: the endpoint is unreachable", ErrBackend)
+		return "", Usage{}, transient("the endpoint is unreachable")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", Usage{}, statusError(resp.StatusCode, resp.Header.Get("Retry-After"), time.Now())
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxReplyBytes+1))
 	if err != nil {
-		return "", Usage{}, fmt.Errorf("%w: the endpoint reply could not be read", ErrBackend)
+		return "", Usage{}, transient("the endpoint reply could not be read")
 	}
 	if len(data) > MaxReplyBytes {
-		return "", Usage{}, fmt.Errorf("%w: the endpoint reply exceeds %d bytes", ErrBackend, MaxReplyBytes)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, fmt.Errorf("%w: the endpoint returned HTTP %d", ErrBackend, resp.StatusCode)
+		return "", Usage{}, transient("the endpoint reply exceeds %d bytes", MaxReplyBytes)
 	}
 	var parsed struct {
 		Choices []struct {
@@ -206,11 +231,42 @@ func (b OpenAIBackend) Complete(ctx context.Context, prompt string) (string, Usa
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil || len(parsed.Choices) == 0 {
-		return "", Usage{}, fmt.Errorf("%w: the endpoint reply is not a chat completion", ErrBackend)
+		return "", Usage{}, permanent("the endpoint reply is not a chat completion")
 	}
 	reply := parsed.Choices[0].Message.Content
 	if parsed.Usage == nil {
 		return reply, Usage{Calls: 1, InputTokens: EstimateTokens(prompt), OutputTokens: EstimateTokens(reply)}, nil
 	}
 	return reply, Usage{Calls: 1, InputTokens: parsed.Usage.PromptTokens, OutputTokens: parsed.Usage.CompletionTokens, Exact: true}, nil
+}
+
+// statusError classifies a non-200 status: 408, 429 and 5xx may pass when
+// sent again, any other will not.
+func statusError(code int, retryAfterHeader string, now time.Time) error {
+	if code != http.StatusRequestTimeout && code != http.StatusTooManyRequests && code < 500 {
+		return permanent("the endpoint returned HTTP %d", code)
+	}
+	return &BackendError{
+		Reason:     fmt.Sprintf("the endpoint returned HTTP %d", code),
+		Transient:  true,
+		RetryAfter: retryAfter(retryAfterHeader, now),
+	}
+}
+
+// retryAfter reads a Retry-After value in seconds or as an HTTP date. An
+// absent, past or unreadable value is zero; a huge one is held to a day.
+func retryAfter(h string, now time.Time) time.Duration {
+	h = strings.TrimSpace(h)
+	const most = 24 * time.Hour
+	secs, err := strconv.Atoi(h)
+	switch {
+	case err == nil:
+		return time.Duration(min(max(secs, 0), int(most/time.Second))) * time.Second
+	case errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(h, "-"):
+		return most
+	}
+	if at, err := http.ParseTime(h); err == nil && at.After(now) {
+		return at.Sub(now)
+	}
+	return 0
 }

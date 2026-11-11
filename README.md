@@ -204,6 +204,16 @@ longer scrapes agent session stores. `scripts/tokens.py` stays only to import
 usage from historical agent sessions into the same file; it keeps the rows the
 binary wrote.
 
+A judge call is retried at most once. A reply that does not validate is sent
+back with a one-line note of what was wrong. A transient backend failure
+(timeout, HTTP 429 or 5xx) is sent again unchanged after a second, or after
+the provider's `Retry-After` when that is longer, up to ten seconds; a longer
+`Retry-After` gets no retry. A permanent failure (HTTP 401, 403 or 404, a 200
+that is not a chat completion, a missing harness executable) is not retried.
+The daily token cap is checked on an estimate before each call, the retry
+included, and usage counts every call made; a harness call that ran but
+failed counts its estimated input tokens.
+
 To configure an authoritative default, enable Gradion, explicitly query
 `classifications --query <text>`, and review one returned option. Set
 `gradion.default_classification` to its `catalog_id`, `classification_id` from
