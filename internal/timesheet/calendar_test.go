@@ -1,10 +1,18 @@
 package timesheet
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -282,5 +290,182 @@ func TestCalendarSeriesExpansionIsBounded(t *testing.T) {
 	if got.Status != StatusIncomplete || !strings.Contains(got.Detail, "expansion issue") || len(got.Meetings) >= maxEvidenceMeetings {
 		t.Fatalf("a series beyond the 500-instance expansion bound must stop there and report it: %s (%s), %d meetings",
 			got.Status, got.Detail, len(got.Meetings))
+	}
+}
+
+const feedMarker = "ICSFEEDSECRET302"
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStderr, origLog := os.Stderr, log.Writer()
+	logged := &lockedBuffer{}
+	os.Stderr = w
+	log.SetOutput(logged)
+	read := make(chan []byte)
+	go func() {
+		b, _ := io.ReadAll(r)
+		read <- b
+	}()
+	defer func() {
+		os.Stderr = origStderr
+		log.SetOutput(origLog)
+	}()
+	fn()
+	_ = w.Close()
+	return string(<-read) + logged.String()
+}
+
+func TestCalendarFeedURLIsNeverEchoed(t *testing.T) {
+	origTimeout := calendarFetchTimeout
+	calendarFetchTimeout = 300 * time.Millisecond
+	defer func() { calendarFetchTimeout = origTimeout }()
+
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close()
+
+	var thirdPartyMu sync.Mutex
+	var thirdPartySeen []string
+	thirdParty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var dump bytes.Buffer
+		_ = r.Header.Write(&dump)
+		thirdPartyMu.Lock()
+		thirdPartySeen = append(thirdPartySeen, r.URL.String()+"\n"+dump.String())
+		thirdPartyMu.Unlock()
+		http.Error(w, "gone", http.StatusGone)
+	}))
+	defer thirdParty.Close()
+
+	feedPath := "/calendar/ical/" + feedMarker + "/private-" + feedMarker + "/basic.ics?token=" + feedMarker
+	oversized := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-PAD:" + strings.Repeat("a", maxICSBodyBytes) + "\r\nEND:VCALENDAR\r\n"
+	feed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")[0] {
+		case "status":
+			http.Error(w, "forbidden", http.StatusForbidden)
+		case "oversized":
+			_, _ = io.WriteString(w, oversized)
+		case "malformed":
+			_, _ = io.WriteString(w, "this is not an iCalendar document")
+		case "timeout":
+			<-r.Context().Done()
+		case "stalled-body":
+			_, _ = io.WriteString(w, "BEGIN:VCALENDAR\r\n")
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		case "redirect-loop":
+			http.Redirect(w, r, r.URL.String(), http.StatusFound)
+		case "redirect-unreachable":
+			http.Redirect(w, r, deadURL+"/next", http.StatusFound)
+		case "redirect-third-party":
+			http.Redirect(w, r, thirdParty.URL+"/next", http.StatusFound)
+		}
+	}))
+	defer feed.Close()
+
+	cases := []struct {
+		name, url, status, detail string
+	}{
+		{"unusable URL", "ftp://example.invalid" + feedPath, StatusFailed, "not a usable absolute http(s) URL"},
+		{"unreachable host", deadURL + feedPath, StatusFailed, "could not be fetched"},
+		{"non-200 status", feed.URL + "/status" + feedPath, StatusFailed, "HTTP status 403"},
+		{"oversized body", feed.URL + "/oversized" + feedPath, StatusIncomplete, "feed entry or expansion issue"},
+		{"malformed ICS", feed.URL + "/malformed" + feedPath, StatusFailed, "did not parse"},
+		{"timeout", feed.URL + "/timeout" + feedPath, StatusFailed, "could not be fetched"},
+		{"timeout while reading the body", feed.URL + "/stalled-body" + feedPath, StatusFailed, "could not be read"},
+		{"redirect loop", feed.URL + "/redirect-loop" + feedPath, StatusFailed, "could not be fetched"},
+		{"redirect to an unreachable host", feed.URL + "/redirect-unreachable" + feedPath, StatusFailed, "could not be fetched"},
+		{"redirect to a third party", feed.URL + "/redirect-third-party" + feedPath, StatusFailed, "HTTP status 410"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(tc.url, feedMarker+"/") || !strings.Contains(tc.url, "token="+feedMarker) {
+				t.Fatalf("the feed URL must carry the marker in its path and query: %s", tc.url)
+			}
+			dir := t.TempDir()
+			cfg := &Config{
+				Timezone:  "UTC",
+				StatePath: filepath.Join(dir, "state.json"),
+				Sources:   &SourcesConfig{Enabled: true, Calendar: &CalendarSourceConfig{Enabled: true}},
+			}
+			store, err := OpenStore(cfg.StatePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = store.Close() }()
+			s := NewSession(cfg, map[string]string{"GCAL_ICS_URL": tc.url}, store)
+			day := "2026-10-22"
+			if _, err := s.openDay(Request{ID: "1", Op: "open_day", Day: day}); err != nil {
+				t.Fatal(err)
+			}
+
+			var col CollectResult
+			var colErr error
+			stderr := captureStderr(t, func() {
+				col, colErr = s.collectDay(Request{ID: "2", Op: "collect", Day: day})
+			})
+			if colErr != nil {
+				t.Fatalf("collect: %v", colErr)
+			}
+			if len(col.Sources) != 1 || col.Sources[0].Status != tc.status || !strings.Contains(col.Sources[0].Detail, tc.detail) {
+				t.Fatalf("calendar summary %+v; want status %s with detail containing %q", col.Sources, tc.status, tc.detail)
+			}
+
+			surfaces := map[string]string{"stderr": stderr}
+			summary, err := json.Marshal(col)
+			if err != nil {
+				t.Fatal(err)
+			}
+			surfaces["collect result"] = string(summary)
+			evidence, err := json.Marshal(store.Evidence(day))
+			if err != nil {
+				t.Fatal(err)
+			}
+			surfaces["stored evidence"] = string(evidence)
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return err
+				}
+				data, err := os.ReadFile(path)
+				surfaces["state file "+filepath.Base(path)] = string(data)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			thirdPartyMu.Lock()
+			surfaces["redirect target requests"] = strings.Join(thirdPartySeen, "\n")
+			thirdPartySeen = nil
+			thirdPartyMu.Unlock()
+
+			for name, text := range surfaces {
+				if strings.Contains(text, feedMarker) {
+					t.Errorf("the feed URL leaked into the %s: %s", name, text)
+				}
+			}
+		})
 	}
 }
