@@ -177,7 +177,7 @@ func renderFooter(m tuiModel) string {
 		line = s.hint.Render("working: keys are locked until the current step finishes")
 	case m.notice != "":
 		line = recorded("%s", m.notice)
-	case m.snap.action.State == stateAskHuman:
+	case m.snap.action.State == stateAskHuman && m.snap.action.Ask != nil && answerable(m.snap.action.Ask) == nil:
 		line = s.hint.Render("[enter] answer form   [r] re-derive   [q] quit")
 	case stepAct(m.snap.action) == stateHumanGates:
 		line = s.hint.Render("[enter] approve gate   [s] submit gate   [r] re-derive   [q] quit")

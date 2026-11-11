@@ -13,10 +13,11 @@ import (
 )
 
 type pendingAnswer struct {
-	Kind    string
-	Digest  string
-	Answer  string
-	Surface string
+	Kind      string
+	Digest    string
+	Answer    string
+	Surface   string
+	StoreArgs []string
 }
 
 type answerReceipt struct {
@@ -43,7 +44,7 @@ func answerable(q *askHuman) error {
 // answer to the current ask's file only when it would be accepted: the kind
 // matches, the digest is the current one (an empty Digest copies it) and the
 // answer is one of the closed options. A refusal writes nothing.
-func answerAsk(cfg *timesheet.Config, configPath, envFile, day string, store *timesheet.Store, p pendingAnswer) (answerReceipt, error) {
+func answerAsk(cfg *timesheet.Config, configPath, envFile, day string, store *timesheet.Store, p pendingAnswer, confirm func(*askHuman) error) (answerReceipt, error) {
 	obs, stop, err := buildNextObservation(cfg, configPath, envFile, day, store)
 	if err != nil {
 		return answerReceipt{}, err
@@ -71,6 +72,11 @@ func answerAsk(cfg *timesheet.Config, configPath, envFile, day string, store *ti
 	if problem := askProblem(askAnswer{Present: true, Digest: digest, Answer: p.Answer, Surface: p.Surface}, q.Digest, q.Options); problem != "" {
 		return answerReceipt{}, fmt.Errorf("the answer was refused and nothing was written; last_error: %s", problem)
 	}
+	if confirm != nil {
+		if err := confirm(q); err != nil {
+			return answerReceipt{}, err
+		}
+	}
 	body, err := json.Marshal(map[string]string{"digest": digest, "answer": p.Answer, "surface": p.Surface})
 	if err != nil {
 		return answerReceipt{}, err
@@ -78,13 +84,35 @@ func answerAsk(cfg *timesheet.Config, configPath, envFile, day string, store *ti
 	if err := os.MkdirAll(filepath.Dir(q.AnswerFile), 0o700); err != nil {
 		return answerReceipt{}, fmt.Errorf("the answer folder cannot be created")
 	}
-	if err := os.WriteFile(q.AnswerFile, append(body, '\n'), 0o600); err != nil {
+	if err := writeFileAtomic(q.AnswerFile, append(body, '\n')); err != nil {
 		return answerReceipt{}, fmt.Errorf("the answer file cannot be written")
 	}
 	return answerReceipt{
 		Day: day, Kind: q.Kind, Answer: p.Answer, Surface: p.Surface, AnswerFile: q.AnswerFile,
-		Next: "timesheet log --date " + day,
+		Next: dayCommand([]string{"log"}, p.StoreArgs, day),
 	}, nil
+}
+
+func storeFlagArgs(configPath, envFile string) []string {
+	var out []string
+	if configPath != "" {
+		out = append(out, "--config", configPath)
+	}
+	if envFile != "" {
+		out = append(out, "--env-file", envFile)
+	}
+	return out
+}
+
+func dayCommand(verb, store []string, day string) string {
+	argv := append(append([]string{"timesheet"}, verb...), store...)
+	return shellJoin(append(argv, "--date", day))
+}
+
+func confirmAnswerOnTerminal(term *interactive, day string, q *askHuman, answer string) error {
+	prompt := recorded("About to answer the %s question for %s:\n  %s\noptions: %s\nanswer: %s",
+		q.Kind, day, q.Question, strings.Join(q.Options, ", "), answer)
+	return term.confirm(prompt, answer)
 }
 
 func runAnswer(args []string) error {
@@ -107,7 +135,11 @@ func runAnswer(args []string) error {
 	if _, err := time.Parse("2006-01-02", date); err != nil {
 		return fmt.Errorf("answer: --date must be YYYY-MM-DD")
 	}
-	configPath, envFile, err := resolveStoreFlags("answer", configPath, envFile)
+	explicit, err := absStoreFlags(configPath, envFile)
+	if err != nil {
+		return fmt.Errorf("answer: %w", err)
+	}
+	configPath, envFile, err = resolveStoreFlags("answer", configPath, envFile)
 	if err != nil {
 		return err
 	}
@@ -131,15 +163,33 @@ func runAnswer(args []string) error {
 	if err != nil {
 		return err
 	}
+	answer := flags.Arg(0)
 	receipt, err := answerAsk(cfg, configPath, envFile, date, store, pendingAnswer{
-		Kind: kind, Answer: flags.Arg(0), Surface: "terminal",
-	})
+		Kind: kind, Answer: answer, Surface: "terminal", StoreArgs: explicit,
+	}, func(q *askHuman) error { return confirmAnswerOnTerminal(term, date, q, answer) })
 	if closeErr := store.Close(); closeErr != nil && err == nil {
 		err = fmt.Errorf("answer: the store lock cannot be released")
 	}
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(term.out, "answered %s for %s with %q; run `%s` to continue\n", receipt.Kind, receipt.Day, receipt.Answer, receipt.Next)
+	fmt.Fprintf(term.out, "answered %s; run `%s` to continue\n", receipt.Kind, receipt.Next)
 	return printJSON(receipt)
+}
+
+// absStoreFlags is the explicitly given --config/--env-file as absolute
+// paths, for the commands a human copies; defaults are left out.
+func absStoreFlags(configPath, envFile string) ([]string, error) {
+	var err error
+	if configPath != "" {
+		if configPath, err = filepath.Abs(configPath); err != nil {
+			return nil, fmt.Errorf("the configuration path cannot be made absolute")
+		}
+	}
+	if envFile != "" {
+		if envFile, err = filepath.Abs(envFile); err != nil {
+			return nil, fmt.Errorf("the environment-file path cannot be made absolute")
+		}
+	}
+	return storeFlagArgs(configPath, envFile), nil
 }

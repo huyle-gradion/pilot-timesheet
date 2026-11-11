@@ -64,8 +64,12 @@ timesheet version
 `answer` lets you answer the day's pending `ask_human` question without an
 agent (issue #288). It is terminal-only: it refuses before the store opens
 unless both stdin and stdout are terminals. It checks the answer against the
-current question's closed options, copies its digest and writes the answer file
-with `"surface":"terminal"`. A wrong answer, a different `--kind` or a day with
+current question's closed options, shows the question and its options, asks
+you to type the answer again, copies its digest and writes the answer file
+atomically (mode 0600) with `"surface":"terminal"`. A mismatched or empty
+confirmation aborts with nothing written. The printed `log` command, and the
+notification's suggested `answer`/`tui`/`log` commands, carry `--config` and
+`--env-file` when they were given. A wrong answer, a different `--kind` or a day with
 no pending question is refused and nothing is written; the refusal carries the
 same `last_error` text the agent path would see. `log` then consumes the answer
 unchanged. The `resolve` question needs the reconcile receipt's identifiers, so

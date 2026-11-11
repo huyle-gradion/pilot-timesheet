@@ -166,7 +166,7 @@ func (e tuiEnv) refreshAfterStale(reopen string) any {
 }
 
 func (e tuiEnv) answerAsk(p pendingAnswer) any {
-	receipt, err := answerAsk(e.cfg, e.configPath, e.envFile, e.day, e.h.store, p)
+	receipt, err := answerAsk(e.cfg, e.configPath, e.envFile, e.day, e.h.store, p, nil)
 	if err != nil {
 		return actDoneEvent{err: err}
 	}

@@ -45,6 +45,10 @@ func runDaily(args []string) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("daily does not accept positional arguments")
 	}
+	storeArgs, err := absStoreFlags(*configFlag, *envFlag)
+	if err != nil {
+		return fmt.Errorf("daily: %w", err)
+	}
 	configPath, envFile, err := resolveStoreFlags("daily", *configFlag, *envFlag)
 	if err != nil {
 		return err
@@ -98,7 +102,7 @@ func runDaily(args []string) error {
 				firstErr = runErr
 			}
 		}
-		msg, send := dailyMessage(cfg, policy, day, report, runErr)
+		msg, send := dailyMessage(cfg, policy, storeArgs, day, report, runErr)
 		entry.Message = msg
 		if send {
 			entry.Notified, entry.NotifyError = notifyOnce(cfg, policy, envFile, day, msg)

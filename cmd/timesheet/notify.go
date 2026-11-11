@@ -27,7 +27,8 @@ const (
 // dailyMessage is the one notification for a day's result, and whether to
 // send it. It carries only the day, counts, the reason or question, and the
 // command to run: never evidence, credentials or anything that approves.
-func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day string, r advanceReport, runErr error) (string, bool) {
+func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, store []string, day string, r advanceReport, runErr error) (string, bool) {
+	logCmd := dayCommand([]string{"log"}, store, day)
 	switch {
 	case r.State == stateHumanGates && r.Human != nil:
 		entries, minutes := dayLedgerTotals(cfg, day)
@@ -40,14 +41,16 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 		}
 		if answerable(r.Ask) != nil {
 			return clipNotice(msg + " Answer it in your agent, or write the answer file " + r.Ask.AnswerFile +
-				" as its protocol shows, then run: timesheet log --date " + day), true
+				" as its protocol shows, then run: " + logCmd), true
 		}
-		pick := "<answer>"
+		answer := dayCommand([]string{"answer"}, store, day) + " --kind " + shellJoin([]string{r.Ask.Kind})
 		if len(r.Ask.Options) == 1 {
-			pick = r.Ask.Options[0]
+			answer += " " + shellJoin(r.Ask.Options)
+		} else {
+			answer += " followed by one option"
 		}
-		return clipNotice(msg + " Answer it in a terminal: timesheet answer --date " + day + " --kind " + r.Ask.Kind + " " + pick +
-			" (or in timesheet tui --date " + day + ", or your agent), then run: timesheet log --date " + day), true
+		return clipNotice(msg + " Answer it in a terminal: " + answer +
+			" (or in " + dayCommand([]string{"tui"}, store, day) + ", or your agent), then run: " + logCmd), true
 	case r.State == stateStopped && strings.Contains(r.Reason, noEvidenceMarker):
 		return day + ": nothing to log (no evidence was collected).", *policy.NotifyEmpty
 	case r.State == stateStopped:
@@ -55,7 +58,7 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 	case runErr != nil:
 		return clipNotice(day + " could not be logged: " + runErr.Error()), true
 	}
-	return clipNotice(day + " is at " + r.State + "; run: timesheet log --date " + day), true
+	return clipNotice(day + " is at " + r.State + "; run: " + logCmd), true
 }
 
 func dayLedgerTotals(cfg *timesheet.Config, day string) (int, int) {
