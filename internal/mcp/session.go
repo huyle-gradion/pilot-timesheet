@@ -110,7 +110,7 @@ func (s *Session) Initialize(ctx context.Context) (ServerInfo, error) {
 			"version": s.cfg.ClientVersion,
 		},
 	}
-	result, err := s.doRPC(ctx, "initialize", params, false)
+	result, err := s.call(ctx, "initialize", params)
 	if err != nil {
 		return ServerInfo{}, err
 	}
@@ -128,7 +128,7 @@ func (s *Session) Initialize(ctx context.Context) (ServerInfo, error) {
 		}
 	}
 
-	if _, err := s.doRPC(ctx, "notifications/initialized", map[string]any{}, true); err != nil {
+	if err := s.notify(ctx, "notifications/initialized", map[string]any{}); err != nil {
 		return ServerInfo{}, err
 	}
 
@@ -145,7 +145,7 @@ func (s *Session) ListTools(ctx context.Context) ([]ToolDecl, error) {
 	if err := s.guardInitialized(); err != nil {
 		return nil, err
 	}
-	result, err := s.doRPC(ctx, "tools/list", map[string]any{}, false)
+	result, err := s.call(ctx, "tools/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (s *Session) CallTool(ctx context.Context, name string, args map[string]any
 		args = map[string]any{}
 	}
 
-	result, err := s.doRPC(ctx, "tools/call", map[string]any{"name": name, "arguments": args}, false)
+	result, err := s.call(ctx, "tools/call", map[string]any{"name": name, "arguments": args})
 	if err != nil {
 		return CallResult{}, err
 	}
@@ -196,21 +196,66 @@ func (s *Session) guardInitialized() error {
 	return nil
 }
 
-// doRPC performs one JSON-RPC HTTP POST. Callers MUST hold s.mu. It never retries.
-func (s *Session) doRPC(ctx context.Context, method string, params any, notification bool) (json.RawMessage, error) {
+// call performs one JSON-RPC request and returns its result. It never retries.
+func (s *Session) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	ctx, err := dispatchable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.nextID++
+	id := s.nextID
+	body, err := s.post(ctx, method, &id, params)
+	if err != nil {
+		return nil, err
+	}
+
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, newError(ErrSchema, CodeSchema, "MCP response body was empty")
+	}
+	var rpc rpcResponse
+	if err := json.Unmarshal(trimmed, &rpc); err != nil {
+		return nil, newError(ErrSchema, CodeSchema, "MCP response was not valid JSON")
+	}
+	if rpc.JSONRPC != "2.0" {
+		return nil, newError(ErrProtocol, CodeProtocol, "MCP response had an invalid jsonrpc version")
+	}
+	if rpc.ID == nil || *rpc.ID != id {
+		return nil, newError(ErrProtocol, CodeProtocol, "MCP response id did not match the request id")
+	}
+	if rpc.Error != nil {
+		return nil, &Error{
+			Kind:       ErrProtocol,
+			Code:       rpc.Error.Code,
+			StableCode: CodeProtocol,
+			Message:    boundString(redact(rpc.Error.Message, s.cfg.Token), maxErrorSnippetBytes),
+		}
+	}
+	return rpc.Result, nil
+}
+
+// notify sends one JSON-RPC notification and ignores the response body.
+func (s *Session) notify(ctx context.Context, method string, params any) error {
+	ctx, err := dispatchable(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.post(ctx, method, nil, params)
+	return err
+}
+
+func dispatchable(ctx context.Context) (context.Context, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, newError(ErrTransport, CodeContextCanceled, "MCP context canceled before dispatch")
 	}
+	return ctx, nil
+}
 
-	var id *int64
-	if !notification {
-		s.nextID++
-		v := s.nextID
-		id = &v
-	}
+// post sends one JSON-RPC HTTP POST and returns the bounded 2xx body.
+func (s *Session) post(ctx context.Context, method string, id *int64, params any) ([]byte, error) {
 	payload, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params})
 	if err != nil {
 		return nil, newError(ErrSchema, CodeSchema, "failed to encode JSON-RPC request")
@@ -270,33 +315,7 @@ func (s *Session) doRPC(ctx context.Context, method string, params any, notifica
 		}
 	}
 
-	if notification {
-		return nil, nil
-	}
-
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		return nil, newError(ErrSchema, CodeSchema, "MCP response body was empty")
-	}
-	var rpc rpcResponse
-	if err := json.Unmarshal(trimmed, &rpc); err != nil {
-		return nil, newError(ErrSchema, CodeSchema, "MCP response was not valid JSON")
-	}
-	if rpc.JSONRPC != "2.0" {
-		return nil, newError(ErrProtocol, CodeProtocol, "MCP response had an invalid jsonrpc version")
-	}
-	if id == nil || rpc.ID == nil || *rpc.ID != *id {
-		return nil, newError(ErrProtocol, CodeProtocol, "MCP response id did not match the request id")
-	}
-	if rpc.Error != nil {
-		return nil, &Error{
-			Kind:       ErrProtocol,
-			Code:       rpc.Error.Code,
-			StableCode: CodeProtocol,
-			Message:    boundString(redact(rpc.Error.Message, s.cfg.Token), maxErrorSnippetBytes),
-		}
-	}
-	return rpc.Result, nil
+	return body, nil
 }
 
 func (s *Session) readBounded(body io.Reader) ([]byte, error) {

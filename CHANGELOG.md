@@ -4,6 +4,11 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+- `internal/mcp` and `internal/llm` constraints that only a comment stated
+  are now pinned by tests (#290): MCP calls on one session run one at a time
+  with distinct request ids, `CallResult` refuses to marshal, and a prompt's
+  cache key changes when its template bytes change while the keys of the
+  shipped templates stay put. Notifications use their own send path.
 - `timesheet answer --date <day> [--kind <kind>] <answer>` and a TUI answer
   form let you answer an `ask_human` question without an agent (#288). Both
   write the same digest-bound answer file the agent path writes, checked
