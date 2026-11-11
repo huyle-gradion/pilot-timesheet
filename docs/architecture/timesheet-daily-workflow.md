@@ -311,7 +311,8 @@ classifications judgment saw with the accepted `classification_id` per
 `interval_id`. A provider-confirmed submission's observed remote content is the
 truth when present (a later remote edit wins); otherwise the local ledger and
 saved selection are. A day part with a missing draft, an unreadable ledger, a
-stage map that no longer matches the ledger, or no accepted classification is
+stage map that no longer matches the ledger, no bound catalog candidates, or no
+accepted classification is
 listed in `skipped` with its reason and never counts as a pass. An empty store
 gives an empty dataset and a note.
 
@@ -325,6 +326,39 @@ classification exact-match rate per interval and, for descriptions, coverage
 `--candidate` it scores the accepted answers against themselves: the 100%
 self-check. The scorer is `timesheet.ScoreGolden`, a pure function the binary's
 own judgments (#241) call in tests.
+
+Schema 2 (#279) records, for the classifications part, the intervals the
+judgment saw (the staged blocks minus those decided from approved history) and
+the catalog candidate sets from the day's `candidates.json`, each interval
+naming its set. The sets came from live catalog reads when the day was logged,
+so they are recorded rather than re-read: a ledger without bound candidates is
+skipped with its reason, and the replay needs no network beyond the judge. A
+schema 1 dataset is refused with "export it again".
+
+`timesheet eval run --golden <file> [--out <file>] [--config <path>]
+[--env-file <path>]` replays every dataset day through the configured judge
+and writes a candidate `eval score --candidate` reads unchanged (default:
+`candidate.json` next to the dataset). It uses the production path: the owned
+prompts, the parsers, one retry, the response cache and the per-day token cap.
+Its cache and usage ledger live in `judge-cache/<date>/` next to the
+candidate, never in the store's day folders, and the ledger is reset per
+replayed day so the cap applies to each day of this run. A cached reply's
+original cost is written back into that ledger, so a rerun counts the same
+per-day tokens and stops at the cap where the first run did. Description
+answers are composed as `record` stores them (the inline PRs list appended). A
+reply that does not validate is listed in `skipped` and scores as missing. A
+cap hit or a backend failure stops the run, writes the partial candidate and
+exits non-zero. The receipt reports `usage` and `fresh_tokens` (calls made
+now), `tokens` and per-day `tokens` (cached cost included), `max_day_tokens`
+and `daily_token_cap`. Without a `judge` section it refuses; an `--out` inside
+a git work tree, or equal to `--golden`, is refused. It opens no store and
+makes no remote call besides the judge. With export's default dataset path,
+the default candidate and `judge-cache/` sit in `<state dir>/eval/`.
+
+`eval score` also reports `classification_unwinnable`: truth intervals with no
+candidate set, or whose accepted answer is not an option of their set. They
+remain misses in the exact rate; the count shows how much of the rate the
+judge could never win.
 
 ## 13. Scheduled daily log (`timesheet daily`)
 
