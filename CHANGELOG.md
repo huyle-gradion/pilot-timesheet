@@ -2,6 +2,16 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- Make the `tui` view's content sanitization structural (#229): recorded
+  content enters a frame only as a value of one writer (`recorded`, and the
+  `labelRow` label/value row built on it), which sanitizes internally, in place
+  of ~55 hand-placed `sanitizeContent` calls. The approval row and the caret
+  clamp each exist once. The hostile-content test now covers the ask, gate
+  kind, gate/bench error and caret branches it missed. Rendered frames are
+  byte-identical.
+
 ## 0.2.0-dev.10
 
 - Retire the optional pinned Pi launcher/TUI (`pi/`): its launcher, adapter,
