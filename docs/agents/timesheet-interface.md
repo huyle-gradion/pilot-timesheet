@@ -1,7 +1,7 @@
-# Pilot Timesheet interface (`0.2.0`)
+# Pilot Timesheet interface (`0.3.0`)
 
-Application version: `0.2.0` (released as `v0.2.0`; the previous stable line
-is `0.1.1`).
+Application version: `0.3.0` (released as `v0.3.0`; the previous release is
+`0.2.0`).
 State schema: `4`.
 
 This document is the public interface for the current release. The
@@ -612,7 +612,7 @@ its own shape, where every confirmed interval needs a project, then upgraded in
 memory. The upgrade adds one receipt to `migration.schema_upgrades`:
 
 ```json
-{"from_schema": 3, "to_schema": 4, "app_version": "0.2.0", "days": 12,
+{"from_schema": 3, "to_schema": 4, "app_version": "0.3.0", "days": 12,
  "intervals": 40, "legacy_project_labels": 40, "applied_at": "2026-11-11T09:00:00Z"}
 ```
 

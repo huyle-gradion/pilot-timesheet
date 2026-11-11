@@ -21,7 +21,7 @@ import (
 // which is intentional: a schema-3 loader would otherwise reject a
 // project-less interval as incomplete instead of as an unsupported schema.
 const (
-	AppVersion        = "0.2.0"
+	AppVersion        = "0.3.0"
 	stateSchema       = 4
 	legacyStateSchema = 1
 	schemaTwoState    = 2

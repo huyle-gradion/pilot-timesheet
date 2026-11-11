@@ -2,7 +2,11 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
-## Unreleased
+## 0.3.0
+
+Breaking: state schema 4 retires the local project (#185). The first write
+upgrades the store one way and keeps a `state.json.schema3.bak`; see the
+upgrade and rollback note below.
 
 Retire the local project (#185, ADR 0012). The remote has no project, so an
 interval no longer carries one.

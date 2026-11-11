@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27.1-00ADD8?logo=go)](go.mod)
-[![State schema](https://img.shields.io/badge/state%20schema-3-informational)](docs/agents/timesheet-interface.md)
+[![State schema](https://img.shields.io/badge/state%20schema-4-informational)](docs/agents/timesheet-interface.md)
 [![Submission: human-gated](https://img.shields.io/badge/submission-human--gated-brightgreen)](#recovery-and-no-replay)
 
 Pilot Timesheet is a single Go binary for logging your own working days with
@@ -30,9 +30,9 @@ Contributions are welcome: see [Contributing](#contributing), and the
 and [`help wanted`](https://github.com/huyle-gradion/pilot-timesheet/labels/help%20wanted)
 queues for a starting point.
 
-Application version: **`0.2.0`** (released as
-[`v0.2.0`](https://github.com/huyle-gradion/pilot-timesheet/releases/tag/v0.2.0);
-the previous stable line is `0.1.1`). State schema `3`.
+Application version: **`0.3.0`** (released as
+[`v0.3.0`](https://github.com/huyle-gradion/pilot-timesheet/releases/tag/v0.3.0);
+the previous release is `0.2.0`). State schema `4`.
 
 ## Quickstart
 
