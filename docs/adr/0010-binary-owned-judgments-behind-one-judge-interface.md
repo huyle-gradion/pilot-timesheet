@@ -81,6 +81,8 @@ builds the prompt and owns the context, a day costs what the judgment costs.
 5. **One thin front end.** After #242, the project keeps one runner-agnostic
    skill that only runs `next --do`, relays `ask_human` questions and reports
    (#244). Per-agent integrations are not maintained in parallel.
+   *(Amended 2026-11-11 by #291: since #262 the skill runs `timesheet log`,
+   not `next --do`. See [Amendments](#amendments).)*
 
 ## Failure, absence and the human gates
 
@@ -110,3 +112,16 @@ accounting is exact only when the harness reports usage. That trade is
 accepted in exchange for running on the owner's subscription; the HTTP
 backend is the exact and lowest-overhead path when a key or a local model is
 available.
+
+## Amendments
+
+### 2026-11-11 — the skill runs `log`, not `next --do` (#291)
+
+Decision 5 names the command the thin front end runs as `next --do`. Since the
+public command surface landed (#262), the public verb is `log`, and the skill
+runs `timesheet log` (`.agents/skills/timesheet/SKILL.md`). `log` always runs
+the day: it is `next --do`, answering judgments in-process with `--auto` when a
+judge is configured, and it rejects `--do` and `--auto` as flags. `next` remains
+a public, read-only command that prints the one action it derives. The decision
+itself stands: one runner-agnostic skill that runs the day, relays `ask_human`
+questions and reports, with no per-agent integrations maintained in parallel.
