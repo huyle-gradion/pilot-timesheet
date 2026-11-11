@@ -331,12 +331,14 @@ never blocks the day, and copies no transcript content.
   collection attempt), and items beyond those ceilings are counted as lost.
   Such a topic records `truncated`, and its draft `topic_candidates` line
   carries one deterministic summary, for example
-  `Other attributable activity (o/r) — overflow: +6 more items not listed
-  (event 6), 02:07–09:40`: the count of retained items not listed with
-  per-kind counts in alphabetical order, `N lost` when items fell beyond the
+  `Other attributable activity (o/r) — overflow: +6 more items (event 6),
+  02:07–09:40`: the count of retained items beyond the cap with per-kind
+  counts in alphabetical order, `N lost` when items fell beyond the
   ceilings, and the first–last overflow time in the day's timezone. A grouped
   or collapsed line sums its topics' summaries, and the `+N more` line sums
-  the lines it omits. Retained overflow alone leaves the source `complete`;
+  the lines it omits. Overflow times still shape the day's evidence blocks
+  like any other item time, so summarized activity is never left without a
+  block; only the block's listed sources stay limited to the first 50 items. Retained overflow alone leaves the source `complete`;
   any lost item makes it `incomplete`, which asks for acknowledgment as
   usual. Item `kind`s: `commit`,
   `authored_pull_request`, `merged_pull_request`, `submitted_pr_review`,

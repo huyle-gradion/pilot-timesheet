@@ -6,12 +6,22 @@ import (
 	"time"
 )
 
+// collectStamps stamps every timed item, including a topic's retained
+// overflow: the draft only summarizes overflow on the topic line, but its
+// instants are still work and must shape the evidence blocks (#309). An
+// overflow stamp carries overflowItemIdx(oi), so a block it lands in gains
+// the topic and its span, never a listed item.
 func collectStamps(topics []TopicCandidate, loc *time.Location) []minuteStamp {
 	var out []minuteStamp
 	for ti := range topics {
 		for ii, item := range topics[ti].Items {
 			if m, ok := anchorClock(item.Time, loc); ok && m >= 0 && m <= dayEndMinutes {
 				out = append(out, minuteStamp{m, ti, ii})
+			}
+		}
+		for oi, item := range topics[ti].OverflowItems {
+			if m, ok := anchorClock(item.Time, loc); ok && m >= 0 && m <= dayEndMinutes {
+				out = append(out, minuteStamp{m, ti, overflowItemIdx(oi)})
 			}
 		}
 	}

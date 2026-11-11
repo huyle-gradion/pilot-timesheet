@@ -315,7 +315,7 @@ func (o *topicOverflow) empty() bool {
 }
 
 // suffix renders the deterministic overflow summary for one line: the count
-// of retained items the line does not list ("+N more items not listed")
+// of retained items beyond the topic's listed cap ("+N more items")
 // with per-kind counts in alphabetical order, the honest lost count,
 // and the first/last overflow timestamps as local clock times (computed over
 // the overflow items only — a topic's FirstAt/LastAt span is unchanged by
@@ -336,7 +336,7 @@ func (o *topicOverflow) suffix() string {
 		for _, k := range names {
 			counts = append(counts, fmt.Sprintf("%s %d", k, o.kinds[k]))
 		}
-		parts = append(parts, fmt.Sprintf("+%d more items not listed (%s)", o.kept, strings.Join(counts, ", ")))
+		parts = append(parts, fmt.Sprintf("+%d more items (%s)", o.kept, strings.Join(counts, ", ")))
 	}
 	if o.lost > 0 {
 		parts = append(parts, fmt.Sprintf("%d lost", o.lost))

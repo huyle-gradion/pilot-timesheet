@@ -146,13 +146,26 @@ func TestNextSummarizesRetainedTopicOverflowWithoutAsking(t *testing.T) {
 	if slices.Contains(d.Flags, "source_incomplete:github") {
 		t.Fatalf("draft flags = %v, want the source complete", d.Flags)
 	}
-	want := "Other attributable activity (o/r) — overflow: +6 more items not listed (event 6), 02:07–09:40"
+	want := "Other attributable activity (o/r) — overflow: +6 more items (event 6), 02:07–09:40"
 	if got := overflowTopicLines(t, d); !slices.Contains(got, want) {
 		t.Fatalf("topic_candidates = %q, want the summary line %q", got, want)
 	}
 	for _, b := range d.Blocks {
 		if b.Completeness["github"] != timesheet.StatusComplete {
 			t.Fatalf("block completeness = %v, want github complete", b.Completeness)
+		}
+	}
+	// The overflow is summarized, not listed, but its times are still work:
+	// every overflow instant must fall inside an evidence block.
+	for _, at := range []string{"02:07", "03:00", "04:00", "06:00", "08:00", "09:40"} {
+		covered := false
+		for _, b := range d.Blocks {
+			if b.Kind == "evidence" && b.Start != "" && b.Start <= at && at <= b.End {
+				covered = true
+			}
+		}
+		if !covered {
+			t.Fatalf("overflow instant %s is in no evidence block: %+v", at, d.Blocks)
 		}
 	}
 
@@ -186,7 +199,7 @@ func TestNextSummarizesRetainedTopicOverflowWithoutAsking(t *testing.T) {
 	if !strings.Contains(autoSteps(rep), "judge:block_descriptions:ok,record:ok") {
 		t.Fatalf("ran = %s, want the descriptions judged and recorded", autoSteps(rep))
 	}
-	if len(chat.prompts) == 0 || !strings.Contains(chat.prompts[0], "+6 more items not listed (event 6), 02:07–09:40") {
+	if len(chat.prompts) == 0 || !strings.Contains(chat.prompts[0], "+6 more items (event 6), 02:07–09:40") {
 		t.Fatalf("the judge prompt must carry the overflow summary: %q", chat.prompts)
 	}
 }
@@ -203,7 +216,7 @@ func TestNextStillAsksWhenTopicOverflowIsLost(t *testing.T) {
 	if d := rep.Judgment.Draft; !slices.Contains(d.Flags, "source_incomplete:github") {
 		t.Fatalf("draft flags = %v, want github incomplete", d.Flags)
 	}
-	want := "Other attributable activity (o/r) — overflow: +150 more items not listed (event 150), 10 lost, 02:07–04:36"
+	want := "Other attributable activity (o/r) — overflow: +150 more items (event 150), 10 lost, 02:07–04:36"
 	if got := overflowTopicLines(t, rep.Judgment.Draft); !slices.Contains(got, want) {
 		t.Fatalf("topic_candidates = %q, want the summary line %q naming the lost count", got, want)
 	}

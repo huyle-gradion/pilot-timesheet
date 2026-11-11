@@ -9,8 +9,10 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   retained as topic overflow, the source is `complete`, its detail notes the
   summarized overflow, and the day raises no `source_acknowledgement`
   question. The topic's draft line summarizes the extra items as
-  `— overflow: +6 more items not listed (event 6), 02:07–09:40` (formerly
-  `+6 kept (event 6)`). Items lost beyond the overflow ceilings still make
+  `— overflow: +6 more items (event 6), 02:07–09:40` (formerly
+  `+6 kept (event 6)`). Overflow times now also shape the evidence blocks,
+  so the summarized activity gets a block instead of none; a block still
+  lists only the topic's first 50 items. Items lost beyond the overflow ceilings still make
   the source `incomplete` and ask as before, and a limited or failed family
   query is unchanged. Days already collected keep their stored status;
   re-collecting such a day may move it to `complete`. Drafts that carry an

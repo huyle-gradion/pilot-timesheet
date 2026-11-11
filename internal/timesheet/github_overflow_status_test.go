@@ -52,6 +52,21 @@ func TestCollectGithubRetainedOverflowIsComplete(t *testing.T) {
 	}
 }
 
+func TestCollectGithubLostOverflowStaysIncomplete(t *testing.T) {
+	// 50 listed + 150 retained overflow + 10 beyond the per-topic ceiling.
+	got := collectOverflowFixture(t, newGithubStatusFixture(t, overflowEventsHandler(210, 0), nil))
+	if got.Status != StatusIncomplete {
+		t.Fatalf("status = %q (%s), want incomplete: lost items are missing coverage", got.Status, got.Detail)
+	}
+	want := fmt.Sprintf("160 attributable item(s) beyond the %d-item topic cap: 150 retained durably as topic overflow, 10 beyond the overflow caps are not retained", maxTopicItems)
+	if !strings.Contains(got.Detail, want) {
+		t.Fatalf("detail %q must name the retained and lost counts", got.Detail)
+	}
+	if len(got.Topics) != 1 || got.Topics[0].DroppedItems != 10 || len(got.Topics[0].OverflowItems) != 150 {
+		t.Fatalf("topics = %d, want one topic with 150 retained and 10 lost", len(got.Topics))
+	}
+}
+
 func TestCollectGithubBoundedFamilyWithOverflowStaysIncomplete(t *testing.T) {
 	got := collectOverflowFixture(t, newGithubStatusFixture(t, overflowEventsHandler(156, 2), nil))
 	if got.Status != StatusIncomplete {
@@ -85,12 +100,70 @@ func TestBuildDraftSummarizesEachOverflowingTopicOnItsOwnLine(t *testing.T) {
 		mk("Other attributable activity (acme/api)", "event", 6, "2026-10-26T02:07:00+07:00", "2026-10-26T09:40:00+07:00"),
 		mk("Commits (acme/api)", "commit", 3, "2026-10-26T11:00:00+07:00", "2026-10-26T12:15:00+07:00"),
 	}
-	eb := evidenceBlock(t, BuildDraft(draftReview(nil, nil, topics, nil), "test"))
-	want := []string{
-		"Other attributable activity (acme/api) — overflow: +6 more items not listed (event 6), 02:07–09:40",
-		"Commits (acme/api) — overflow: +3 more items not listed (commit 3), 11:00–12:15",
+	d := BuildDraft(draftReview(nil, nil, topics, nil), "test")
+	var summaries []string
+	for _, b := range d.Blocks {
+		for _, line := range b.TopicCandidates {
+			if strings.Contains(line, "overflow") {
+				summaries = append(summaries, line)
+			}
+		}
 	}
-	if strings.Join(eb.TopicCandidates, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("topic_candidates = %q, want one summary line per overflowing topic %q", eb.TopicCandidates, want)
+	want := []string{
+		"Other attributable activity (acme/api) — overflow: +6 more items (event 6), 02:07–09:40",
+		"Commits (acme/api) — overflow: +3 more items (commit 3), 11:00–12:15",
+	}
+	if strings.Join(summaries, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("summary lines = %q, want exactly one per overflowing topic %q", summaries, want)
+	}
+}
+
+func TestPartitionDayOverflowShapesBlocksButIsNotListed(t *testing.T) {
+	listed := func(n int) []EvidenceItem {
+		var items []EvidenceItem
+		for i := 0; i < n; i++ {
+			items = append(items, overflowFixtureItem(i, "event",
+				fmt.Sprintf("2026-10-26T00:%02d:00+07:00", 10+i), "acme/api", ""))
+		}
+		return items
+	}
+	base := TopicCandidate{Title: "Other attributable activity (acme/api)", Items: listed(50)}
+	withOverflow := base
+	for i, at := range []string{"02:07", "03:00", "04:00", "06:00", "08:00", "09:40"} {
+		withOverflow.OverflowItems = append(withOverflow.OverflowItems,
+			overflowFixtureItem(100+i, "event", "2026-10-26T"+at+":00+07:00", "acme/api", ""))
+	}
+	withOverflow.Truncated = true
+
+	plain := BuildDraft(draftReview(nil, nil, []TopicCandidate{base}, nil), "test")
+	got := BuildDraft(draftReview(nil, nil, []TopicCandidate{withOverflow}, nil), "test")
+
+	covered := func(at string) bool {
+		for _, b := range got.Blocks {
+			if b.Kind == "evidence" && b.Start != "" && b.Start <= at && at <= b.End {
+				return true
+			}
+		}
+		return false
+	}
+	for _, at := range []string{"02:07", "03:00", "04:00", "06:00", "08:00", "09:40"} {
+		if !covered(at) {
+			t.Fatalf("overflow instant %s is in no evidence block: %+v", at, got.Blocks)
+		}
+	}
+	listedSources := func(d Draft) int {
+		n := 0
+		for _, b := range d.Blocks {
+			n += len(b.Sources)
+		}
+		return n
+	}
+	if a, b := listedSources(plain), listedSources(got); a != b {
+		t.Fatalf("listed sources = %d with overflow, want %d: overflow must stay a summary", b, a)
+	}
+	again, _ := json.Marshal(BuildDraft(draftReview(nil, nil, []TopicCandidate{withOverflow}, nil), "test"))
+	first, _ := json.Marshal(got)
+	if string(first) != string(again) {
+		t.Fatalf("draft is not deterministic:\nfirst:  %s\nsecond: %s", first, again)
 	}
 }

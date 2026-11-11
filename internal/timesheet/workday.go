@@ -22,6 +22,13 @@ const (
 
 type itemRef struct{ topicIdx, itemIdx int }
 
+// overflowItemIdx marks a stamp or ref that points at a topic's
+// OverflowItems[oi] rather than Items: a negative index, so it can never
+// address a listed item.
+func overflowItemIdx(oi int) int { return -1 - oi }
+
+func (r itemRef) listed() bool { return r.itemIdx >= 0 }
+
 // minuteStamp is one proof-of-work instant on the recorded day's local clock.
 type minuteStamp struct{ minute, topicIdx, itemIdx int }
 
@@ -73,6 +80,9 @@ func (b *dayBlock) render(topics []TopicCandidate, loc *time.Location, taken []b
 		b.overflow = append(b.overflow, ov)
 	}
 	for _, r := range b.refs {
+		if !r.listed() {
+			continue
+		}
 		b.blk = mergeItem(b.blk, topics[r.topicIdx].Items[r.itemIdx])
 	}
 }
