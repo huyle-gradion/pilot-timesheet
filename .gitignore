@@ -20,3 +20,11 @@ benchmarks/tokens.csv
 benchmarks/metrics.csv
 # Retired pinned Pi launcher dependencies (#238): never tracked again
 pi/node_modules/
+
+# Local build artifacts (root binaries from go build without -o).
+/timesheet
+/bin-timesheet
+
+# Owner-local runtime dirs: worktrees, orchestration plans, session records.
+.slim/
+.omo/
