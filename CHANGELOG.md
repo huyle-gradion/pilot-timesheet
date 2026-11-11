@@ -12,11 +12,19 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   cap is now checked before the retry too, as the README states. A harness
   call that ran but failed now counts its estimated input tokens, and the
   harness reply size limit is enforced (it was bypassed before).
+- `internal/mcp` text bounding keeps a multi-byte rune that ends exactly at
+  the byte cap (#289). A cut stops before the first invalid UTF-8 byte, so
+  bounded text is always valid UTF-8.
 - `internal/timesheet` comments are removed (#258). New tests pin the
   constraints they stated, including that a write left in flight blocks the
   plan, its approval and any new submit after a restart.
 - `cmd/timesheet` comments are removed (#258). New tests pin the constraints
   they stated, including that the judge command never gets a nil environment.
+- `internal/timesheet` constraints that only a comment stated are now pinned
+  by tests (#296): strict request decoding, spill-day replay blocking,
+  copy-on-write review decisions, issue-lookup caching, review search bounds,
+  classification proof consistency, legacy zero-operation approvals, carried
+  block ids, and calendar recurrence, timezone and window expansion.
 
 ## 0.3.0
 

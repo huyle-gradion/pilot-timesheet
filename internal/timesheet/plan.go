@@ -366,8 +366,6 @@ func intentTouchesDates(it WriteIntent, dates map[string]bool) bool {
 	return false
 }
 
-// intentRelevant scopes one native unresolved write by its ALLOCATION date and
-// every contributing origin date, not only the durable contributor row (R4F2).
 func intentRelevant(it WriteIntent, dates map[string]bool) bool {
 	if dates[it.Date] || intentTouchesDates(it, dates) {
 		return true

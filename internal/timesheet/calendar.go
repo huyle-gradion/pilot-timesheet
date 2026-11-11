@@ -234,12 +234,6 @@ func calendarAttendeeEmail(value string) string {
 	return strings.TrimSpace(v)
 }
 
-// parseICSDate resolves date-only, UTC "Z", TZID-qualified, and floating
-// (naive) timestamp forms. Floating values are anchored to fallbackLoc — the
-// recorded day's timezone — so collection is deterministic regardless of the
-// process's own local timezone. An unresolvable TZID is an error that marks
-// the containing event an incomplete-coverage issue; the raw value is
-// never echoed back.
 func parseICSDate(value, tzid string, allDay bool, fallbackLoc *time.Location) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if allDay {
@@ -394,9 +388,6 @@ func expandFeed(cal *ics.Calendar, calUser string, windowStart, windowEnd time.T
 		g := groups[uid]
 		for _, ov := range g.overrides {
 			if ov.RecIDAllday {
-				// A date-only override replaces the occurrence on its declared
-				// civil date, identified by that date rather than by a zone
-				// midnight instant (F4).
 				d := startDateOnly(ov.RecIDValue)
 				if _, err := allDayInstant(d, dayLoc); err != nil {
 					issues = append(issues, "an overridden event's RECURRENCE-ID date does not exist in the recorded day's timezone; its series may keep the replaced instance")
@@ -436,16 +427,6 @@ func expandFeed(cal *ics.Calendar, calUser string, windowStart, windowEnd time.T
 	return meetings, issues
 }
 
-// expandMaster expands one series (possibly non-recurring) into proposed
-// meetings overlapping the window. Matching overridden occurrences are
-// suppressed because their override components are rendered separately.
-//
-// Recurrence-set semantics (RFC 5545 3.8.5, F5): the instance set is
-// RRULE ∪ RDATE − EXDATE, de-duplicated to the exact DTSTART instant and
-// whose remaining values keep their own original wall time. Each RDATE/EXDATE
-// property's TZID (or "Z" form) and VALUE=DATE form governs how its values
-// are interpreted; a value form that cannot mix with the series' DTSTART form
-// is an incomplete-coverage issue, never a silent drop.
 func expandMaster(g *icsGroup, windowStart, windowEnd time.Time, dayLoc *time.Location, calUser string) ([]ProposedMeeting, []string) {
 	master := g.master
 	var issues []string
@@ -473,10 +454,6 @@ func expandMaster(g *icsGroup, windowStart, windowEnd time.Time, dayLoc *time.Lo
 			issues = append(issues, "an all-day event's DTSTART date does not exist in the recorded day's timezone; it was not collected")
 			return nil, issues
 		}
-		// All-day DTEND is exclusive (RFC 5545 3.6.1): the covered dates are
-		// [DTSTART, DTEND). With no DTEND the coverage is the single DTSTART
-		// date. Span counting is calendrical (date differences), never a
-		// 24-hour subtraction that a mix of 23/25-hour DST days would break.
 		spanDays := 1
 		if master.EndSet {
 			endDateText := startDateOnly(master.EndValue)
@@ -514,11 +491,6 @@ func expandMaster(g *icsGroup, windowStart, windowEnd time.Time, dayLoc *time.Lo
 			issues = append(issues, "a recurring all-day event's rule could not be expanded; it was not collected")
 			return meetings, issues
 		}
-		// Conservative candidate window: an occurrence that overlaps the
-		// queried day may have started up to spanDays-1 civil dates earlier.
-		// The look-back adds a margin, and exact instants below decide
-		// membership, so interior days of long all-day instances are never
-		// omitted (F5). Civil-date arithmetic is used, not a 24-hour offset.
 		fromDate := addDateText(windowStart.In(dayLoc).Format("2006-01-02"), -(spanDays + 1))
 		toDate := windowEnd.In(dayLoc).Format("2006-01-02")
 		fromInst, err := civilInstant(fromDate)
@@ -584,12 +556,6 @@ func expandMaster(g *icsGroup, windowStart, windowEnd time.Time, dayLoc *time.Lo
 		issues = append(issues, "a recurring event's rule could not be expanded; it was not collected")
 		return meetings, issues
 	}
-	// Conservative candidate window derived from the occurrence duration: an
-	// occurrence overlapping the queried day must start after
-	// windowStart-duration. One day of margin covers inclusive/exclusive
-	// boundaries and zone normalization; exact interval overlap below decides
-	// membership, so a long timed occurrence is never omitted by a fixed
-	// look-back (F5).
 	lookback := end.Sub(start)
 	if lookback < 0 {
 		lookback = 0
@@ -637,11 +603,6 @@ func addAllDayInstance(add func(start, end time.Time, allDay bool, displayStart,
 	return ""
 }
 
-// seriesDateTimes resolves one recurring-set property list's values in the
-// property's own time form. A value whose form cannot mix with the series'
-// DTSTART form (a timed value on an all-day series or a date-only value on a
-// timed series), or one that cannot be resolved in its own timezone, is an
-// incomplete-coverage issue rather than a silent drop.
 func seriesDateTimes(props []icsDateTimeProp, dayLoc *time.Location, name string) ([]time.Time, []string) {
 	var out []time.Time
 	var issues []string
@@ -668,10 +629,6 @@ func seriesDateTimes(props []icsDateTimeProp, dayLoc *time.Location, name string
 	return out, issues
 }
 
-// allDayDates resolves one recurring-set property list of a DATE series to
-// civil dates. The values keep their declared date (never a zone midnight
-// instant), and a form mismatch or an unresolvable date is an
-// incomplete-coverage issue rather than a silent drop (F4/F5).
 func allDayDates(props []icsDateTimeProp, dayLoc *time.Location, name string) ([]string, []string) {
 	var out []string
 	var issues []string
@@ -698,11 +655,6 @@ func allDayDates(props []icsDateTimeProp, dayLoc *time.Location, name string) ([
 	return out, issues
 }
 
-// buildRRuleSet builds one rrule.Set: the rule with the series' own location
-// preserved on DTSTART (so wall-clock recurrence survives DST), plus RDATE
-// additions and EXDATE exclusions resolved per property (F5). The pinned
-// library de-duplicates the union and removes excluded instances by absolute
-// instant, which is exactly the RFC 5545 recurrence-set behavior.
 func buildRRuleSet(master *icsEvent, start time.Time, rdates, exdates []time.Time) (*rrule.Set, error) {
 	option, err := rrule.StrToROptionInLocation(master.RRULE, start.Location())
 	if err != nil {
@@ -814,8 +766,6 @@ func nextDateString(d string) string {
 	return addDateText(d, 1)
 }
 
-// allDayKey is the identity of a DATE-form occurrence or override: the
-// declared civil date, never a zone midnight instant.
 func allDayKey(d string) string { return "d:" + d }
 
 // allDayInstant resolves a civil DATE to that date's first real instant in the
@@ -944,14 +894,6 @@ func sanitizerSummaryText(s string) string {
 	return truncateRunes(strings.TrimSpace(s), maxTitleRunes)
 }
 
-// overrideMeeting renders one RECURRENCE-ID component. The ref keeps the
-// replaced occurrence identity and the current rescheduled target; STATUS:
-// CANCELLED is recorded as a cancelled proposal, never as attendance.
-// Cancellations and overrides are selected by relevant window semantics, not
-// globally (F4): a scheduled override appears where its own span overlaps the
-// queried window; a cancelled override additionally appears when the replaced
-// original's window (its RECURRENCE-ID instant, or date for all-day) overlaps
-// the queried window, so unrelated days do not emit unrelated cancellations.
 func overrideMeeting(ov *icsEvent, uid string, windowStart, windowEnd time.Time, dayLoc *time.Location, calUser string) (ProposedMeeting, bool, string) {
 	status := "scheduled"
 	if strings.EqualFold(ov.Status, "CANCELLED") {
@@ -976,11 +918,6 @@ func overrideMeeting(ov *icsEvent, uid string, windowStart, windowEnd time.Time,
 		if err != nil {
 			return ProposedMeeting{}, false, "an all-day override's DTSTART date does not exist in the recorded day's timezone; it was not collected"
 		}
-		// All-day DTEND is exclusive (RFC 5545 3.6.1): the covered dates are
-		// [DTSTART, DTEND), and with no DTEND the single DTSTART date. A
-		// DTEND that does not extend beyond DTSTART falls back to one day's
-		// coverage, matching the master's malformed-DTEND behavior, and is
-		// reported as an incomplete-coverage issue.
 		e := nextDateString(s)
 		if ov.EndSet {
 			if _, err := parseICSDate(ov.EndValue, ov.EndTZID, true, dayLoc); err != nil {
@@ -1005,9 +942,6 @@ func overrideMeeting(ov *icsEvent, uid string, windowStart, windowEnd time.Time,
 			}
 		}
 		displayStart, displayEnd = s, e
-		// The ref fingerprints the replaced occurrence and the current target
-		// date: a RECURRENCE-ID alone would stay identical when the instance
-		// is rescheduled (F3).
 		ref = "cal:" + uid + "@" + recidDate + "->" + s + "-override"
 	} else {
 		recidStart, err := parseICSDate(ov.RecIDValue, ov.RecIDTZID, ov.RecIDAllday, dayLoc)
@@ -1031,8 +965,6 @@ func overrideMeeting(ov *icsEvent, uid string, windowStart, windowEnd time.Time,
 			overlaps = overlaps || recidOverlaps
 		}
 		displayStart, displayEnd = icsRender(start), icsRender(end)
-		// The ref fingerprints the replaced occurrence and the current
-		// rescheduled start (F3).
 		ref = "cal:" + uid + "@" + recidStart.UTC().Format("20060102T150405Z") + "->" + start.UTC().Format("20060102T150405Z") + "-override"
 	}
 	if !overlaps {

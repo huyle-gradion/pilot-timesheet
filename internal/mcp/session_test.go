@@ -601,6 +601,42 @@ func TestBoundStringKeepsRuneBoundaries(t *testing.T) {
 	}
 }
 
+func TestBoundString(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		max  int
+		want string
+	}{
+		{"ascii fits", "abc", 3, "abc"},
+		{"ascii cut", "abcdef", 4, "abcd"},
+		{"2-byte rune ends at max", "abé" + "x", 4, "abé"},
+		{"3-byte rune ends at max", "a€" + "x", 4, "a€"},
+		{"4-byte rune ends at max", "a😀" + "x", 5, "a😀"},
+		{"2-byte rune split by max", "abé", 3, "ab"},
+		{"3-byte rune split by max", "a€x", 3, "a"},
+		{"4-byte rune split by max", "a😀x", 4, "a"},
+		{"rune at start split", "€abc", 2, ""},
+		{"invalid byte before max stops the prefix", "ab\xffcdef", 5, "ab"},
+		{"truncated lead before max is dropped", "abc\xe2x", 4, "abc"},
+		{"invalid input that fits is unchanged", "ab\xff", 3, "ab\xff"},
+		{"encoded replacement rune is kept", "a�x", 4, "a�"},
+		{"zero max is unbounded", "abc€", 0, "abc€"},
+		{"negative max is unbounded", "abc€", -1, "abc€"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := boundString(tt.s, tt.max)
+			if got != tt.want {
+				t.Fatalf("boundString(%q, %d) = %q, want %q", tt.s, tt.max, got, tt.want)
+			}
+			if tt.max > 0 && len(tt.s) > tt.max && !utf8.ValidString(got) {
+				t.Fatalf("boundString(%q, %d) = %q, want valid UTF-8 after a cut", tt.s, tt.max, got)
+			}
+		})
+	}
+}
+
 func TestRequestsAcceptOnlyJSON(t *testing.T) {
 	tr := methodAwareTransport(func(string, *http.Request) (*http.Response, error) {
 		return resp(http.StatusOK, "application/json", `{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`), nil
