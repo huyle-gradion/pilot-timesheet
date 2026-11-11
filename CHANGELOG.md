@@ -2,6 +2,11 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- `cmd/timesheet` comments are removed (#258). New tests pin the constraints
+  they stated, including that the judge command never gets a nil environment.
+
 ## 0.3.0
 
 Breaking: state schema 4 retires the local project (#185). The first write
