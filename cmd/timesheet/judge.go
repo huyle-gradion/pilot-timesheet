@@ -40,6 +40,10 @@ type judgeReceipt struct {
 	Cached     bool      `json:"cached,omitempty"`
 	Usage      llm.Usage `json:"usage"`
 	Notice     string    `json:"notice"`
+	// CachedUsage is what a reused reply cost when it was first asked. It is
+	// never printed: a cached reply adds no tokens to a production day (its
+	// call is already in the day's ledger); eval run counts it (#279).
+	CachedUsage llm.Usage `json:"-"`
 }
 
 // judgeUsageRecord is one line of judge-usage.jsonl in the day folder.
@@ -237,6 +241,7 @@ func askCached[T any](ctx context.Context, cfg *timesheet.Config, dir, day, kind
 		if json.Unmarshal(data, &stored) == nil && stored.Key == p.Key {
 			if v, err := parse(stored.Reply); err == nil {
 				r.Cached = true
+				r.CachedUsage = stored.Usage
 				_ = appendJudgeUsage(dir, judgeUsageRecord{At: now.UTC().Format(time.RFC3339), Kind: kind, Cached: true, OK: true})
 				return v, nil
 			}

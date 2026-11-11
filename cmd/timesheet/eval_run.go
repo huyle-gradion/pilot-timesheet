@@ -24,7 +24,9 @@ import (
 // those two live in differs: an eval cache next to --out, never the store's
 // day folders, so a replay neither spends a real day's cap nor writes state.
 // The usage ledger is reset per replayed day, so the cap applies to each day
-// of this run; cached replies are kept across runs.
+// of this run; cached replies are kept across runs. A cached reply's original
+// cost is written back into that day's ledger, so a rerun counts the same
+// tokens per day and hits the cap where the first run did.
 const evalCacheDir = "judge-cache"
 
 // errEvalInput marks a dataset part the judge cannot be asked about.
@@ -35,8 +37,12 @@ type evalRunReceipt struct {
 	CacheDir string                 `json:"cache_dir"`
 	DaysRun  int                    `json:"days_run"`
 	Skipped  []timesheet.GoldenSkip `json:"skipped"`
-	// Usage is every backend call this run made; cached parts add nothing.
+	// Usage and FreshTokens are the backend calls this run made. Tokens and
+	// MaxDayTokens also count each cached reply's original cost: they are the
+	// figures to compare with the cap.
 	Usage         llm.Usage    `json:"usage"`
+	FreshTokens   int          `json:"fresh_tokens"`
+	Tokens        int          `json:"tokens"`
 	Days          []evalDayRun `json:"days"`
 	MaxDayTokens  int          `json:"max_day_tokens"`
 	DailyTokenCap int          `json:"daily_token_cap"`
@@ -45,10 +51,11 @@ type evalRunReceipt struct {
 }
 
 type evalDayRun struct {
-	Date   string    `json:"date"`
-	Tokens int       `json:"tokens"`
-	Usage  llm.Usage `json:"usage"`
-	Cached []string  `json:"cached,omitempty"`
+	Date        string    `json:"date"`
+	Tokens      int       `json:"tokens"`
+	FreshTokens int       `json:"fresh_tokens"`
+	Usage       llm.Usage `json:"usage"`
+	Cached      []string  `json:"cached,omitempty"`
 }
 
 func runEvalRun(args []string) error {
@@ -77,6 +84,9 @@ func runEvalRun(args []string) error {
 	}
 	if out, err = filepath.Abs(out); err != nil {
 		return fmt.Errorf("eval run: resolve %s: %w", *outFlag, err)
+	}
+	if golden, err := filepath.Abs(*goldenFlag); err == nil && golden == out {
+		return fmt.Errorf("eval run: --out %s would overwrite the dataset; choose another candidate path", out)
 	}
 	if repo := enclosingGitRepo(filepath.Dir(out)); repo != "" {
 		return fmt.Errorf("eval run: %s is inside the git repository %s; the judge's answers hold personal evidence, so write them outside any repository", out, repo)
@@ -115,15 +125,19 @@ func runEvalRun(args []string) error {
 }
 
 // replayGolden asks the judge for every day part in the dataset. A reply that
-// does not validate after the retry, or a backend failure, skips that part
-// (it then scores as missing). The cap stops the run; the answers so far are
-// returned with the stop error.
+// does not validate after the retry skips that part (it then scores as
+// missing). The cap or a backend failure stops the run: the answers so far
+// are returned with the stop error, so a dead or rate-limited judge never
+// turns days into misses blamed on the judge.
 func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.GoldenDataset, backend llm.Backend, cacheRoot string, now time.Time) (evalRunReceipt, timesheet.GoldenCandidate, error) {
 	r := evalRunReceipt{CacheDir: cacheRoot, Skipped: []timesheet.GoldenSkip{}, Days: []evalDayRun{}, DailyTokenCap: cfg.Judge.DailyTokenCap}
 	r.Usage.Exact = true
 	cand := timesheet.GoldenCandidate{Days: map[string]timesheet.GoldenAnswer{}}
 	skip := func(date, part, reason string) {
 		r.Skipped = append(r.Skipped, timesheet.GoldenSkip{Date: date, Part: part, Reason: reason})
+	}
+	capStop := func(day string, spent int) string {
+		return fmt.Sprintf("the per-day token cap (%d) is reached replaying %s (%d tokens counted for that day, cached replies included)", cfg.Judge.DailyTokenCap, day, spent)
 	}
 	cached := 0
 	for _, day := range g.Days {
@@ -141,21 +155,32 @@ func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.Golden
 		dr := evalDayRun{Date: day.Date}
 		dr.Usage.Exact = true
 		var ans timesheet.GoldenAnswer
-		judged := func(part string, ask func(*judgeReceipt) error) {
+		judged := func(part, kind string, ask func(*judgeReceipt) error) {
 			var jr judgeReceipt
 			err := ask(&jr)
 			dr.Usage = addUsage(dr.Usage, jr.Usage)
+			dr.Tokens += jr.Usage.Total()
 			if jr.Cached {
 				dr.Cached = append(dr.Cached, part)
 				cached++
+				// The ledger counts the reply's original cost, so the cap
+				// sees this day's real spend on the next part.
+				dr.Tokens += jr.CachedUsage.Total()
+				rec := judgeUsageRecord{At: now.UTC().Format(time.RFC3339), Kind: kind, OK: true, Usage: jr.CachedUsage}
+				if appendErr := appendJudgeUsage(dir, rec); appendErr != nil && err == nil {
+					err = appendErr
+				}
 			}
 			var capErr judgeCapError
 			switch {
 			case err == nil:
+				if dr.Tokens > cfg.Judge.DailyTokenCap {
+					r.Stopped = capStop(day.Date, dr.Tokens)
+				}
 			case errors.As(err, &capErr):
-				r.Stopped = capErr.Error()
-				skip(day.Date, part, "not run: "+capErr.Error())
-			case errors.Is(err, llm.ErrInvalidReply), errors.Is(err, llm.ErrBackend), errors.Is(err, errEvalInput):
+				r.Stopped = capStop(day.Date, capErr.spent)
+				skip(day.Date, part, "not run: "+r.Stopped)
+			case errors.Is(err, llm.ErrInvalidReply), errors.Is(err, errEvalInput):
 				skip(day.Date, part, err.Error())
 			default:
 				r.Stopped = err.Error()
@@ -163,21 +188,23 @@ func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.Golden
 			}
 		}
 		if d := day.Descriptions; d != nil {
-			judged("descriptions", func(jr *judgeReceipt) error {
+			judged("descriptions", judgmentBlockDescriptions, func(jr *judgeReceipt) error {
 				descs, err := evalDescribe(ctx, cfg, dir, day.Date, d.Input, backend, now, jr)
 				ans.Descriptions = descs
 				return err
 			})
 		}
 		if c := day.Classifications; c != nil && r.Stopped == "" {
-			judged("classifications", func(jr *judgeReceipt) error {
+			judged("classifications", judgmentClassifications, func(jr *judgeReceipt) error {
 				picks, err := evalClassify(ctx, cfg, dir, day.Date, c, backend, now, jr)
 				ans.Classifications = picks
 				return err
 			})
 		}
+		dr.FreshTokens = dr.Usage.Total()
 		r.Usage = addUsage(r.Usage, dr.Usage)
-		dr.Tokens = dr.Usage.Total()
+		r.FreshTokens += dr.FreshTokens
+		r.Tokens += dr.Tokens
 		r.MaxDayTokens = max(r.MaxDayTokens, dr.Tokens)
 		r.Days = append(r.Days, dr)
 		if ans.Descriptions != nil || ans.Classifications != nil {
@@ -186,7 +213,7 @@ func replayGolden(ctx context.Context, cfg *timesheet.Config, g timesheet.Golden
 		}
 	}
 	if cached > 0 {
-		r.Note = fmt.Sprintf("%d part(s) reused a cached reply and add no tokens; remove %s to measure them again", cached, cacheRoot)
+		r.Note = fmt.Sprintf("%d part(s) reused a cached reply: their original cost counts in tokens but not in fresh_tokens; remove %s to call the judge again", cached, cacheRoot)
 	}
 	if r.Stopped != "" {
 		return r, cand, fmt.Errorf("eval run: stopped: %s; the partial candidate is kept", r.Stopped)

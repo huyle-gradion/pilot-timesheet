@@ -173,10 +173,14 @@ func TestEvalRunWritesACandidateThatScoreAccepts(t *testing.T) {
 		}
 	}
 
-	// A second run reuses the cached replies: no new call, no new tokens.
+	// A second run reuses the cached replies: no new call, but each day still
+	// counts what its replies cost, so the per-day figures do not shrink.
 	r2, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", out)
-	if err != nil || chat.calls != 3 || r2.Usage.Total() != 0 || len(r2.Days[0].Cached) != 2 || r2.Note == "" {
+	if err != nil || chat.calls != 3 || r2.Usage.Total() != 0 || r2.FreshTokens != 0 || len(r2.Days[0].Cached) != 2 || r2.Note == "" {
 		t.Fatalf("second run = %+v, %v after %d call(s), want every part cached", r2, err, chat.calls)
+	}
+	if r2.Days[0].Tokens != 880 || r2.Days[0].FreshTokens != 0 || r2.MaxDayTokens != 880 || r2.Tokens != 3*440 {
+		t.Fatalf("second run tokens = %+v (max %d, total %d), want the cached cost counted", r2.Days, r2.MaxDayTokens, r2.Tokens)
 	}
 }
 
@@ -212,8 +216,8 @@ func TestEvalRunStopsAtTheDailyCapAndKeepsThePartialCandidate(t *testing.T) {
 	golden := syntheticEvalGolden(t)
 	out := filepath.Join(t.TempDir(), "candidate.json")
 	r, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", out)
-	if err == nil || !strings.Contains(err.Error(), "daily token cap (500)") {
-		t.Fatalf("err = %v, want the cap stop", err)
+	if err == nil || !strings.Contains(err.Error(), "per-day token cap (500)") || strings.Contains(err.Error(), "agent path") {
+		t.Fatalf("err = %v, want the eval cap stop", err)
 	}
 	if chat.calls != 1 || r.Stopped == "" || r.DailyTokenCap != 500 {
 		t.Fatalf("receipt = %+v after %d call(s), want a stop after the first part", r, chat.calls)
@@ -232,6 +236,58 @@ func TestEvalRunStopsAtTheDailyCapAndKeepsThePartialCandidate(t *testing.T) {
 	if !parts[evalDayA+"/classifications"] || !parts[evalDayB+"/day"] {
 		t.Fatalf("skipped = %+v, want the capped part and the day not reached", r.Skipped)
 	}
+
+	// A rerun takes descriptions from the cache but still counts their 440
+	// tokens, so the day hits the cap again instead of passing.
+	r2, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", out)
+	if err == nil || chat.calls != 1 || r2.Days[0].Tokens != 440 || r2.Days[0].FreshTokens != 0 || r2.Stopped == "" {
+		t.Fatalf("rerun = %+v, %v after %d call(s), want the cached cost to hit the cap again", r2, err, chat.calls)
+	}
+}
+
+func TestEvalRunStopsOnAFailingBackend(t *testing.T) {
+	chat := &fakeChat{status: 401}
+	cfg := evalJudgeConfig(t, chat, nil)
+	golden := syntheticEvalGolden(t)
+	out := filepath.Join(t.TempDir(), "candidate.json")
+	r, err := evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", out)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("err = %v, want the backend stop", err)
+	}
+	if chat.calls != 2 || r.Stopped == "" || len(r.Skipped) != 2 || r.Skipped[1].Part != "day" {
+		t.Fatalf("receipt = %+v after %d call(s), want a stop at the first part", r, chat.calls)
+	}
+	var c timesheet.GoldenCandidate
+	if err := readJSONFile(out, &c); err != nil || len(c.Days) != 0 {
+		t.Fatalf("candidate = %+v, %v; want the empty partial candidate written", c, err)
+	}
+}
+
+func TestEvalRunRefusesAnOutPathThatIsTheDataset(t *testing.T) {
+	chat := &fakeChat{answer: classifyOrDescribe}
+	cfg := evalJudgeConfig(t, chat, nil)
+	golden := syntheticEvalGolden(t)
+	before, _ := os.ReadFile(golden)
+	rel, err := filepath.Rel(mustGetwd(t), golden)
+	if err != nil {
+		rel = golden
+	}
+	_, err = evalRunDoc(t, "--config", cfg, "--golden", golden, "--out", rel)
+	if err == nil || !strings.Contains(err.Error(), "would overwrite the dataset") || chat.calls != 0 {
+		t.Fatalf("err = %v after %d call(s), want the overwrite refusal", err, chat.calls)
+	}
+	if after, _ := os.ReadFile(golden); string(after) != string(before) {
+		t.Fatal("the dataset was changed")
+	}
+}
+
+func mustGetwd(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wd
 }
 
 func TestEvalRunRefusesWithoutAJudgeSection(t *testing.T) {

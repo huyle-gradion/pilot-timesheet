@@ -45,6 +45,20 @@ func TestScoreGoldenCountsMissesAndSimilarity(t *testing.T) {
 	}
 }
 
+func TestScoreGoldenCountsUnwinnableIntervals(t *testing.T) {
+	g := GoldenDataset{Schema: GoldenSchema, Days: []GoldenDay{{
+		Date: "2026-10-19",
+		Classifications: &GoldenClassifications{
+			Input:      []GoldenBlock{{IntervalID: "iv-1", Candidates: "c1"}, {IntervalID: "iv-2", Candidates: "c1"}, {IntervalID: "iv-3"}},
+			Candidates: []GoldenCandidateSet{{Ref: "c1", CatalogID: "cat", Options: []GoldenOption{{ClassificationID: "cls-a"}}}},
+			Truth:      map[string]string{"iv-1": "cls-a", "iv-2": "cls-b", "iv-3": "cls-c"},
+		},
+	}}}
+	if s := ScoreGolden(g, AcceptedCandidate(g)); s.ClassificationUnwinnable != 2 {
+		t.Fatalf("unwinnable = %d, want the off-list truth and the interval with no set", s.ClassificationUnwinnable)
+	}
+}
+
 func TestScoreGoldenEmptyDatasetIsNeverAPass(t *testing.T) {
 	s := ScoreGolden(GoldenDataset{Schema: GoldenSchema}, GoldenCandidate{})
 	if s.Days != 0 || s.ClassificationExactRate != 0 || s.DescriptionCoverage != 0 {

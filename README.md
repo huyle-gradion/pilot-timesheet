@@ -234,15 +234,22 @@ including the catalog candidates the classifications judgment picked from (a
 day without recorded candidates is skipped with a reason). `run` sends every
 day through the same owned prompts, cache and per-day token cap as `log`, and
 calls nothing but the judge; it writes no store state. `score` prints the
-classification exact-match rate and the description coverage and similarity.
-A reply that does not validate is listed in `run`'s `skipped` and scores as
-missing.
+classification exact-match rate, the description coverage and similarity, and
+`classification_unwinnable`: intervals whose accepted answer was not among the
+candidates the judge could pick from (they count as misses). A reply that does
+not validate is listed in `run`'s `skipped` and scores as missing. A judge
+that fails (unreachable, HTTP 401 or 429, timeout) stops the run instead.
 
 For tokens, compare `run`'s `max_day_tokens` (and each entry of `days`) with
 `daily_token_cap` (default 10,000, ADR 0010). Replies are cached in
-`judge-cache/` next to the candidate file, so a second run reports no new
-tokens for unchanged prompts; delete that folder to measure again. A cap hit
-stops the run, keeps the partial candidate and exits non-zero.
+`judge-cache/` next to the candidate file; a rerun reuses them, still counts
+their original cost in `tokens` and against the cap, and reports only new
+calls in `fresh_tokens`. A cap hit or a judge failure stops the run, keeps the
+partial candidate and exits non-zero. The cap is checked on an estimate before
+each call, so read the numbers rather than the exit code. Without `--out`
+(export's default dataset path is `<state dir>/eval/golden.json`), the
+candidate and `judge-cache/` land beside the dataset in that state folder,
+outside the store's day folders.
 
 ## Native TUI operator flow
 

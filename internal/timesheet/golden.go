@@ -124,6 +124,10 @@ type GoldenScore struct {
 	ClassificationIntervals int     `json:"classification_intervals"`
 	ClassificationMatches   int     `json:"classification_matches"`
 	ClassificationExactRate float64 `json:"classification_exact_rate"`
+	// ClassificationUnwinnable counts intervals whose accepted answer the
+	// judge could not pick: no candidate set, or not among its set's options.
+	// They stay in the rate as misses; the count says how many were certain.
+	ClassificationUnwinnable int `json:"classification_unwinnable"`
 
 	DescriptionBlocks     int     `json:"description_blocks"`
 	DescriptionAnswered   int     `json:"description_answered"`
@@ -152,8 +156,12 @@ func ScoreGolden(g GoldenDataset, candidate GoldenCandidate) GoldenScore {
 		s.Days++
 		ans := candidate.Days[d.Date]
 		if c := d.Classifications; c != nil {
+			winnable := winnablePicks(c)
 			for _, id := range goldenKeys(c.Truth) {
 				s.ClassificationIntervals++
+				if !winnable[id+"\x00"+c.Truth[id]] {
+					s.ClassificationUnwinnable++
+				}
 				if got := ans.Classifications[id]; got == c.Truth[id] {
 					s.ClassificationMatches++
 				} else {
@@ -180,6 +188,25 @@ func ScoreGolden(g GoldenDataset, candidate GoldenCandidate) GoldenScore {
 		s.DescriptionSimilarity = simSum / float64(s.DescriptionBlocks)
 	}
 	return s
+}
+
+// winnablePicks is every interval_id + "\x00" + classification_id the judge
+// could answer: an option of the set the interval names.
+func winnablePicks(c *GoldenClassifications) map[string]bool {
+	options := map[string][]GoldenOption{}
+	for _, s := range c.Candidates {
+		options[s.Ref] = s.Options
+	}
+	out := map[string]bool{}
+	for _, b := range c.Input {
+		if b.Candidates == "" {
+			continue
+		}
+		for _, o := range options[b.Candidates] {
+			out[b.IntervalID+"\x00"+o.ClassificationID] = true
+		}
+	}
+	return out
 }
 
 // WordJaccard is |A∩B|/|A∪B| over lower-cased word sets; two empty texts are
