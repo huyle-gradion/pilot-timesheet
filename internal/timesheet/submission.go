@@ -687,12 +687,6 @@ func (s *Session) submitPlan(req Request) (SubmissionReceipt, error) {
 			Detail: "current classification validation failed before any dispatch: " + detail,
 		}), nil
 	}
-	// R4F1/R4F8: the fresh proof must still match the choice state this
-	// approval bound. A zero-operation approval carries a legitimate EMPTY
-	// proof, durably encoded as `{}` (never omitted) and reloaded as a
-	// non-nil empty map. Only a missing/null proof — a legacy dev.10/dev.11
-	// row — is nil here, and it still fails closed; non-empty proofs are
-	// compared below exactly as before.
 	if approval.Summary.Choices == nil {
 		return receiptFor(SubmitBlockedBeforeDispatch, Blocker{
 			Code:   CodeStaleApproval,

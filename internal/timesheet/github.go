@@ -97,8 +97,7 @@ type githubRun struct {
 	// issueTargets caches per-run successful issue-document resolutions keyed
 	// by "{repo}#{number}", so the issue-comment family can tell a pull request
 	// conversation comment from an issue comment with one lookup per distinct
-	// number for the whole run. Only conclusive answers are cached; a failed
-	// lookup is retried for later comments under the same lookup ceiling.
+	// number for the whole run.
 	issueTargets map[string]issueTarget
 }
 

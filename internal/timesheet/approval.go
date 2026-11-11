@@ -339,9 +339,6 @@ func (s *Session) revokeApproval(req Request) (ApprovalRevocationReceipt, error)
 	}, nil
 }
 
-// classificationReferences extracts the bound selected-choice reference each
-// operation carries (R4F1) and refuses an internally inconsistent plan (two
-// operations selecting the same id with different stored semantics).
 func classificationReferences(ops []PlanOperation) (map[string]*ClassificationChoice, error) {
 	refs := map[string]*ClassificationChoice{}
 	for _, op := range ops {
