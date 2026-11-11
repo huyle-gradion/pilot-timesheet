@@ -821,8 +821,8 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 	// become one cluster over the union span (issue #183), its intervals carry
 	// the joined description, and every merged-away contributor is reported
 	// instead of staged. The entries ledger keeps the human's overlapping
-	// truth untouched. Each union span is then chunked to the four-hour policy
-	// below.
+	// truth untouched. An overnight entry takes part like any other (issue
+	// #176). Each union span is then chunked to the four-hour policy below.
 	clusters := timesheet.EffectiveEntrySpans(entries.Entries)
 
 	receipt := &StageReceipt{
@@ -836,9 +836,9 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 		Skipped:     []StageSkip{},
 	}
 
-	// One staging unit per interval derivation: a single recorded entry (an
-	// overnight span) or one overlap cluster under its effective id (the entry's
-	// own id for a single entry, the union-derived id for a cluster).
+	// One staging unit per interval derivation: one overlap cluster, same-day
+	// or overnight (issue #176), under its effective id (the entry's own id for
+	// a single entry, the union-derived id for a cluster).
 	type stageUnit struct {
 		id    string
 		text  string
@@ -866,6 +866,16 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 			})
 			continue
 		}
+		if timesheet.EntrySpansADayOrMore(e.Start, e.End) {
+			// Its stamps are 24 hours or more apart: past more than one
+			// midnight, which no interval can express, and its clocks alone
+			// would read as a shorter span. Never truncate it (issue #176).
+			receipt.Skipped = append(receipt.Skipped, StageSkip{
+				BlockID: id,
+				Reason:  fmt.Sprintf("entry spans 24 hours or more (start %q, end %q); an interval crosses at most one midnight and is never truncated to the entry's clocks; times are never invented", e.Start, e.End),
+			})
+			continue
+		}
 		if endMin == startMin {
 			// Zero-duration entry, not an overnight span: the interval op
 			// rejects start == end ("interval duration must be positive"), so
@@ -877,16 +887,6 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 			})
 			continue
 		}
-		if endMin < startMin {
-			// Overnight span: the cluster projection only reasons about
-			// same-day minutes and excludes an end before its start, so this
-			// block is absent from the clusters. Pass the recorded span
-			// through unsplit — the pre-GAP-SPLIT-1 derivation — and let the
-			// interval op resolve the end onto the next day (issue #173).
-			units = append(units, stageUnit{
-				id: id, text: e.Description, spans: [][2]string{{e.Start, e.End}},
-			})
-		}
 	}
 	// Head block_id order keeps the receipt in the documented order for a day
 	// that has no merge at all.
@@ -895,7 +895,7 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 		units = append(units, stageUnit{
 			id:    c.BlockID,
 			text:  c.Description,
-			spans: timesheet.SplitEntrySpans(c.Start, c.End),
+			spans: timesheet.StageSpans(date, summary.Timezone, c.Start, c.End),
 		})
 		for _, merged := range c.BlockIDs[1:] {
 			receipt.Skipped = append(receipt.Skipped, StageSkip{
@@ -1653,9 +1653,9 @@ func stagedBlocks(cfg *timesheet.Config, date string) (map[string]timesheet.Entr
 				Kind: c.Kind, Description: c.Description,
 			}
 		}
-		// Entries the projection excludes (an overnight span the caller passes
-		// through unsplit, an unparsable or zero-duration entry) keep their own
-		// record under their own id.
+		// Entries the projection excludes (an unparsable, zero-duration or
+		// day-or-longer entry, never staged) keep their own record under their
+		// own id.
 		for _, e := range entries.Entries {
 			if _, ok := effective[e.BlockID]; !ok {
 				effective[e.BlockID] = e

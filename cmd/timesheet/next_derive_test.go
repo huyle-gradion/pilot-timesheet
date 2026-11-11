@@ -42,7 +42,7 @@ func nextEntry(blockID, start, end, description string) timesheet.EntryRecord {
 // proofOf is the same content proof the planner uses: the current ledger's
 // units, their stage-map binding and the resulting ledger digest.
 func proofOf(entries []timesheet.EntryRecord, stageMap map[string][]string) ([]ledgerUnit, map[string]timesheet.EntryRecord, string) {
-	units := ledgerUnits(entries, nextDay)
+	units := ledgerUnits(entries, nextDay, "UTC")
 	blocks := stagedBlocksFrom(units, stageMap)
 	return units, blocks, timesheet.StagedLedgerDigest(nextDay, blocks)
 }
@@ -261,7 +261,7 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		o := unclassifiedDay()
 		entries := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "14:00", "Long work")}
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: entries}
-		o.Units = ledgerUnits(entries, nextDay)
+		o.Units = ledgerUnits(entries, nextDay, "UTC")
 		if len(o.Units) != 1 || len(o.Units[0].Spans) != 2 {
 			t.Fatalf("units = %+v, want one unit with two chunk spans", o.Units)
 		}
@@ -331,7 +331,7 @@ func TestDeriveDayNextPipelineOrder(t *testing.T) {
 		o := recordedDay()
 		changed := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "10:00", "Edited after classification")}
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: changed}
-		o.Units = ledgerUnits(changed, nextDay)
+		o.Units = ledgerUnits(changed, nextDay, "UTC")
 		n := deriveDayNext(o)
 		if n.State != stateAction || n.Step != "candidates" {
 			t.Fatalf("state/step = %q/%q, want fresh candidates after a content change", n.State, n.Step)
@@ -486,7 +486,7 @@ func TestDeriveDayNextFinalizedTail(t *testing.T) {
 		o := finalizedDay()
 		changed := []timesheet.EntryRecord{nextEntry("work-1", "09:00", "10:00", "Changed after save")}
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: changed}
-		o.Units = ledgerUnits(changed, nextDay)
+		o.Units = ledgerUnits(changed, nextDay, "UTC")
 		n := deriveDayNext(o)
 		if n.State != stateStopped || n.Human != nil {
 			t.Fatalf("state/human = %q/%+v, want stopped and no human gates for changed content", n.State, n.Human)
@@ -500,7 +500,7 @@ func TestDeriveDayNextFinalizedTail(t *testing.T) {
 		o := finalizedDay()
 		changed := []timesheet.EntryRecord{nextEntry("work-1", "09:30", "10:30", "Synthetic work")}
 		o.Artifacts.Entries = &timesheet.EntriesFile{Date: nextDay, Entries: changed}
-		o.Units = ledgerUnits(changed, nextDay)
+		o.Units = ledgerUnits(changed, nextDay, "UTC")
 		if n := deriveDayNext(o); n.State != stateStopped {
 			t.Fatalf("state = %q, want stopped for a different saved span", n.State)
 		}
@@ -618,7 +618,7 @@ func TestDeriveDayNextNeverEmitsHumanVerbs(t *testing.T) {
 		},
 		func(o *nextObservation) {
 			o.Artifacts.Entries.Entries[0].Description = "Changed"
-			o.Units = ledgerUnits(o.Artifacts.Entries.Entries, nextDay)
+			o.Units = ledgerUnits(o.Artifacts.Entries.Entries, nextDay, "UTC")
 		},
 	}
 	for _, base := range observations {

@@ -99,10 +99,10 @@ func TestEffectiveEntrySpansDuplicateMerges(t *testing.T) {
 		[]string{"dup-a", "dup-b"}, "Same work")
 }
 
-// TestEffectiveEntrySpansExcludesUnusableEntries: zero-duration and overnight
-// entries are not cluster candidates. The caller owns their own skip reasons
-// (zero duration) or passes the overnight span through unsplit, so neither may
-// leak into a cluster.
+// TestEffectiveEntrySpansExcludesUnusableEntries: a zero-duration entry is not
+// a cluster candidate; the caller owns its skip reason, so it may not leak into
+// a cluster. An overnight entry is a candidate (issue #176): its cluster ends
+// on the next day's clock.
 func TestEffectiveEntrySpansExcludesUnusableEntries(t *testing.T) {
 	clusters := timesheet.EffectiveEntrySpans([]timesheet.EntryRecord{
 		{BlockID: "zero-1", Start: "09:00", End: "09:00", Description: "No duration"},
@@ -110,11 +110,13 @@ func TestEffectiveEntrySpansExcludesUnusableEntries(t *testing.T) {
 		{BlockID: "good-1", Start: "10:00", End: "11:00", Description: "Clean block"},
 	})
 	m := clusterByHead(t, clusters)
-	if len(m) != 1 {
-		t.Fatalf("clusters = %+v, want only the clean block", clusters)
+	if len(m) != 2 {
+		t.Fatalf("clusters = %+v, want the clean block and the overnight block", clusters)
 	}
 	assertCluster(t, "good-1", clusterOf(t, m, "good-1"), "10:00", "11:00",
 		[]string{"good-1"}, "Clean block")
+	assertCluster(t, "night-1", clusterOf(t, m, "night-1"), "23:00", "01:00",
+		[]string{"night-1"}, "Overnight watch")
 }
 
 // TestStageDay21ShapeEndToEnd is the live 2026-10-21 ledger shape rewritten

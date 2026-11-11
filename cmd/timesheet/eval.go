@@ -137,7 +137,7 @@ func exportGolden(cfg *timesheet.Config, state *timesheet.State, now time.Time) 
 			continue
 		}
 		day := timesheet.GoldenDay{Date: date}
-		units := ledgerUnits(artifacts.Entries.Entries, date)
+		units := ledgerUnits(artifacts.Entries.Entries, date, state.Days[date].Timezone)
 		var staged map[string]timesheet.EntryRecord
 		if stageMapMatchesUnits(artifacts.StageMap, units) {
 			staged = stagedBlocksFrom(units, artifacts.StageMap)

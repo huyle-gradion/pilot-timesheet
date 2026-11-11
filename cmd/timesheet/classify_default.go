@@ -60,7 +60,7 @@ func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date, projec
 	if artifacts.Entries == nil {
 		return ClassifyReceipt{}, fmt.Errorf("classify: no recorded entries; run record first")
 	}
-	units := ledgerUnits(artifacts.Entries.Entries, date)
+	units := ledgerUnits(artifacts.Entries.Entries, date, summary.Timezone)
 	if !sidecarBinds(date, artifacts.Choices, stagedBlocksFrom(units, artifacts.StageMap)) {
 		return ClassifyReceipt{}, fmt.Errorf("classify: stale classification sidecar; review the current staged content and repair with classify --file")
 	}

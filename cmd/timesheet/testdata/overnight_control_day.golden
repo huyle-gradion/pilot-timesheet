@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-26",
+  "entries_file": "$DIR/entries/2026-10-26.json",
+  "stage_file": "$DIR/entries/2026-10-26.stage.json",
+  "staged": [
+    {
+      "block_id": "work-02:16-13:00",
+      "interval_id": "iv-20261026-1",
+      "chunk": 1,
+      "chunks": 3
+    },
+    {
+      "block_id": "work-02:16-13:00",
+      "interval_id": "iv-20261026-2",
+      "chunk": 2,
+      "chunks": 3
+    },
+    {
+      "block_id": "work-02:16-13:00",
+      "interval_id": "iv-20261026-3",
+      "chunk": 3,
+      "chunks": 3
+    },
+    {
+      "block_id": "work-14:00-15:30",
+      "interval_id": "iv-20261026-4"
+    },
+    {
+      "block_id": "work-20:00-23:59",
+      "interval_id": "iv-20261026-5"
+    }
+  ],
+  "updated": [],
+  "unchanged": [],
+  "removed": [],
+  "skipped": [
+    {
+      "block_id": "work-16:00-16:00",
+      "reason": "entry has zero duration (start \"16:00\", end \"16:00\"); times are never invented"
+    }
+  ],
+  "revision": 0,
+  "staged_intervals": 5
+}
+--- confirmed
+[{"id":"iv-20261026-1","date":"2026-10-26","start":"02:16","end":"06:16","project":"WORK","classification":"DEV","description":"Broad evidence block + Workflow training"},{"id":"iv-20261026-2","date":"2026-10-26","start":"06:16","end":"10:16","project":"WORK","classification":"DEV","description":"Broad evidence block + Workflow training"},{"id":"iv-20261026-3","date":"2026-10-26","start":"10:16","end":"13:00","project":"WORK","classification":"DEV","description":"Broad evidence block + Workflow training"},{"id":"iv-20261026-4","date":"2026-10-26","start":"14:00","end":"15:30","project":"WORK","classification":"DEV","description":"Bridge PRs"},{"id":"iv-20261026-5","date":"2026-10-26","start":"20:00","end":"23:59","project":"WORK","classification":"DEV","description":"Late block"}]
+--- units
+[{"BlockID":"work-02:16-13:00","Date":"2026-10-26","Start":"02:16","End":"13:00","Description":"Broad evidence block + Workflow training","Spans":[["02:16","06:16"],["06:16","10:16"],["10:16","13:00"]]},{"BlockID":"work-14:00-15:30","Date":"2026-10-26","Start":"14:00","End":"15:30","Description":"Bridge PRs","Spans":[["14:00","15:30"]]},{"BlockID":"work-20:00-23:59","Date":"2026-10-26","Start":"20:00","End":"23:59","Description":"Late block","Spans":[["20:00","23:59"]]}]

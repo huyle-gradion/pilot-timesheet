@@ -82,13 +82,17 @@ type WorkflowSnapshot struct {
 	// SubmittedHistory counts other days' provider-confirmed interval
 	// submissions; zero means there is no history to classify from (#235).
 	SubmittedHistory int
+	// Timezone is the day's recorded timezone, or the configured one for a day
+	// with no durable record yet: exactly what open_day reports, so a read-only
+	// derivation chunks overnight spans as stage does (#176).
+	Timezone string
 }
 
 // ReadWorkflowSnapshot reads the day's durable facts. An unparsable durable
 // timestamp is an error: the caller stops with the reason rather than
 // inventing an ordering.
 func ReadWorkflowSnapshot(cfg *Config, store *Store, date string) (WorkflowSnapshot, error) {
-	snap := WorkflowSnapshot{Date: date}
+	snap := WorkflowSnapshot{Date: date, Timezone: cfg.Timezone}
 	state := store.State()
 	snap.ConfiguredDefaultPresent = cfg.Gradion != nil && cfg.Gradion.DefaultClassification != nil
 	if snap.ConfiguredDefaultPresent {
@@ -98,6 +102,7 @@ func ReadWorkflowSnapshot(cfg *Config, store *Store, date string) (WorkflowSnaps
 	}
 	snap.SubmittedHistory = len(submittedSelections(state, date))
 	if day := state.Days[date]; day != nil {
+		snap.Timezone = day.Timezone
 		snap.Revision = day.Revision
 		snap.Confirmed = append([]Interval(nil), day.Confirmed...)
 		snap.Finalized = len(snap.Confirmed) > 0

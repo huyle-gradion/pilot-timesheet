@@ -2,6 +2,18 @@
 
 Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file starts the documented implementation release line; it does not retroactively assign versions to historical commits.
 
+## Unreleased
+
+- Stage overnight entries like same-day ones (#176). An overnight span joins
+  the overlap projection, so a block inside it merges into its cluster at
+  `stage` instead of failing `save` with `overlap`. It is chunked to the
+  four-hour policy in real minutes in the day's timezone (DST-aware), with the
+  midnight-crossing chunk last because every interval starts on its staged
+  date. `next`/`log` derive the same units, so the day is not reported stale.
+  An entry whose RFC 3339 anchors are 24 hours or more apart is skipped with
+  its own reason instead of being truncated to its clocks. Same-day days stage
+  byte for byte as before.
+
 ## 0.2.0-dev.11
 
 The 12-factor redesign (#246): the binary owns its LLM judgments, runs the day
