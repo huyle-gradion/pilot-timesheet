@@ -31,6 +31,13 @@ func derivePipeline(o nextObservation) nextAction {
 	if o.Artifacts.EntriesPresent && len(o.Artifacts.Entries.Entries) > 0 {
 		return deriveRecordedDay(o, n)
 	}
+	// A carry-only day (ADR 0011): segments were carried in, and the day's own
+	// logging has run and has nothing to record (an empty ledger, or a
+	// collected draft with no blocks). Its carried segments stage alone. Before
+	// that, a carry never short-circuits the day's own collect/describe/record.
+	if len(o.Artifacts.CarryIn) > 0 && (o.Artifacts.EntriesPresent || (o.DraftPresent && o.DraftValid && o.DraftBlocks == 0)) {
+		return deriveRecordedDay(o, n)
+	}
 
 	if !o.DraftPresent {
 		return n.withAction("run", o.argv("run"),
@@ -81,15 +88,32 @@ func derivePipeline(o nextObservation) nextAction {
 // the only automatic step is the plan/reconcile/resolve loop, which terminates
 // on durable timestamps.
 func deriveFinalizedDay(o nextObservation, n nextAction) nextAction {
-	if !o.Artifacts.EntriesPresent {
+	if !o.Artifacts.EntriesPresent && len(o.Artifacts.CarryIn) == 0 {
 		return n.withStop("the day is finalized, but its entries ledger is missing; restore the reviewed ledger before next can prove the saved content is current")
 	}
-	if !ledgerDerivesSaved(o.Units, o.Workflow.Confirmed) {
+	revise := "the human decides and runs `stage --revise --date " + o.Day + "`; next will not execute it"
+	current, legacy := ledgerDerivesSaved(o.Units, o.LegacyUnits, o.Workflow.Confirmed)
+	if !current && !legacy {
 		ledger := ledgerContentSpans(o.Units)
 		confirmed := confirmedContentSpans(o.Workflow.Confirmed)
+		if len(o.Artifacts.CarryIn) > 0 {
+			// A carry is never applied to a saved (or submitted) day silently
+			// (ADR 0011): the human decides whether this day takes it in.
+			in := o.Artifacts.CarryIn[0]
+			return n.withStop("the day is finalized, but its entries ledger and the " + strconv.Itoa(len(o.Artifacts.CarryIn)) +
+				" segment(s) carried from " + in.SourceDate + " (first: " + in.Start + "-" + in.End + ", " + strconv.Itoa(in.Minutes) +
+				" min) no longer derive the saved intervals (" + strconv.Itoa(len(ledger)) + " span(s) vs " + strconv.Itoa(len(confirmed)) +
+				" saved). A carry is never applied to a saved day silently; if this day should take it in, " + revise)
+		}
 		return n.withStop("the day is finalized, but the entries ledger no longer derives the saved intervals (" +
-			strconv.Itoa(len(ledger)) + " ledger span(s) vs " + strconv.Itoa(len(confirmed)) + " saved). If that change is intentional, " +
-			"the human decides and runs `stage --revise --date " + o.Day + "`; next will not execute it")
+			strconv.Itoa(len(ledger)) + " ledger span(s) vs " + strconv.Itoa(len(confirmed)) + " saved). If that change is intentional, " + revise)
+	}
+	// The day's own carry record must be what its saved derivation carries: a
+	// day saved under today's rule carries exactly CarryDerived, and a day saved
+	// under a legacy rule carries nothing (ADR 0011).
+	if !carryOutCurrent(current, o.CarryDerived, o.Artifacts.CarryOut) {
+		return n.withStop("the day is finalized, but its carry record into the next date (" + strconv.Itoa(len(o.Artifacts.CarryOut)) +
+			" segment(s)) does not match what its saved derivation carries; " + revise)
 	}
 	if o.Workflow.PlanAmbiguous {
 		return n.withStop("two plan records for " + o.Day + " share the newest created_at, so which one is current " +
@@ -110,6 +134,7 @@ func deriveFinalizedDay(o nextObservation, n nextAction) nextAction {
 			StatusCommand:    shellJoin(append([]string{o.Exe, "submit", "status"}, o.argv("submit")[2:]...)),
 			Unresolved:       o.Workflow.UnresolvedWrites,
 			NativeUnresolved: o.Workflow.NativeUnresolved,
+			Carried:          carriedView(o.Artifacts.CarryIn, o.Artifacts.CarryOut),
 		})
 	case timesheet.PlanBlocked:
 		return deriveFinalizedBlockedPlan(o, n, plan)
@@ -195,6 +220,11 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 			"the stage map does not match the ledger's current derivation ("+strconv.Itoa(len(o.Units))+
 				" stageable unit(s)), so the staged interval ids are not current")
 	}
+	if !timesheet.SameCarries(o.CarryDerived, o.Artifacts.CarryOut) {
+		return n.withAction("stage", o.projectArgv("stage"),
+			"the carry record into the next date ("+strconv.Itoa(len(o.Artifacts.CarryOut))+
+				" segment(s)) does not match the ledger's current derivation ("+strconv.Itoa(len(o.CarryDerived))+"); stage rewrites it")
+	}
 	blocks := stagedBlocksFrom(o.Units, o.Artifacts.StageMap)
 	digest := timesheet.StagedLedgerDigest(o.Day, blocks)
 	// A sidecar that is absent means classification never ran; an explicitly
@@ -251,6 +281,15 @@ func deriveRecordedDay(o nextObservation, n nextAction) nextAction {
 				"no catalog candidates are bound to the current staged ledger; read the catalog once per distinct topic before the classification judgment")
 		}
 		jb := judgmentBlocks(judged)
+		carriedFrom := map[string]string{}
+		for _, u := range o.Units {
+			if u.CarriedFrom != "" {
+				carriedFrom[u.BlockID] = u.CarriedFrom
+			}
+		}
+		for i := range jb {
+			jb[i].CarriedFrom = carriedFrom[jb[i].BlockID]
+		}
 		return n.withJudgment("classify", nextJudgment{
 			Kind:           judgmentClassifications,
 			Day:            o.Day,

@@ -34,7 +34,7 @@ func classifyDefaultDay(h *headlessSession, date, project string) (ClassifyRecei
 	if !ok {
 		return ClassifyReceipt{}, fmt.Errorf("classify: unexpected open_day payload")
 	}
-	if len(summary.Confirmed.Segments) > 0 {
+	if finalizedSummary(summary) {
 		return ClassifyReceipt{}, fmt.Errorf("classify --configured-default refuses finalized/saved days; use a reviewed classify --file decision to change saved classifications")
 	}
 	project, err = resolveProject("classify", h.cfg, project)
@@ -57,10 +57,10 @@ func classifyDefaultCore(h *headlessSession, cfg *timesheet.Config, date, projec
 	if err != nil {
 		return ClassifyReceipt{}, err
 	}
-	if artifacts.Entries == nil {
+	if artifacts.Entries == nil && len(artifacts.CarryIn) == 0 {
 		return ClassifyReceipt{}, fmt.Errorf("classify: no recorded entries; run record first")
 	}
-	units := ledgerUnits(artifacts.Entries.Entries, date, summary.Timezone)
+	units := ledgerUnits(artifactStageEntries(artifacts), date, summary.Timezone)
 	if !sidecarBinds(date, artifacts.Choices, stagedBlocksFrom(units, artifacts.StageMap)) {
 		return ClassifyReceipt{}, fmt.Errorf("classify: stale classification sidecar; review the current staged content and repair with classify --file")
 	}

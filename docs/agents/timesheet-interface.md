@@ -442,6 +442,57 @@ edited on its origin day, not on the day it spills into. An `END` of `00:00`
 with a later start means the interval ends exactly at midnight and is not a
 cross-midnight split.
 
+### Overnight carry into the next day
+
+Stage derives intervals from the entries ledger under these rules
+([ADR 0011](../adr/0011-overnight-carry-into-the-next-day.md), issue #277). A
+recorded overnight span with 240 real minutes or fewer after midnight stages on
+its own date. Its chunks are cut to the four-hour policy, and the chunk that
+crosses midnight is the last one. A longer span keeps the part up to midnight
+plus up to 240 minutes after it. Its last chunk runs a full 240 minutes, and
+the remainder is carried into the next date:
+
+```text
+2026-10-26 23:00-05:00  =>  2026-10-26 23:00-03:00 (240 min, staged on 10-26)
+                            2026-10-27 03:00-05:00 (120 min, carried)
+```
+
+The carry is a derived record, `entries/<source date>.carry.json`. Every
+derivation of the source day (`stage`, `confirm`, `save`, `stage --revise`)
+replaces it whole, and an empty carry removes it. The ledger is never modified.
+The next date stages each carried segment as the block
+`carried-<source date>-<source block id>`, next to its own entries. It takes
+part in overlap claiming and four-hour chunking like they do, and the stage
+receipts list it under `carried_out` and `carried_in`. A block stamped on the
+next date is placed after midnight, not 24 hours early. A block that would run
+past the next date's midnight is skipped with its own reason.
+
+A carry never revises a saved or submitted day. `next` stops on that day and
+names the carry, and `submit --chat` refuses. Only `stage --revise --date
+<target>` takes it in. A carry computed in another timezone is refused.
+
+A carry is consumed only while its source still derives it. If the source
+ledger was edited without a re-stage, every day that would take the carry in
+stops and names `stage --date <source>`. If the source ledger was deleted, it
+stops with its own reason. This covers `stage`, `save`, `classify`, `next` and
+`submit --chat`.
+
+`daily` also logs a non-working day that has a carry-in. Notifications count
+the minutes each day stages. `human_gates` lists the carry under
+`human.carried`.
+
+A cut that does not resolve to one instant makes no carry: the span stages as
+one interval, and `plan` blocks it with `remote_entry_too_long`. This happens
+on DST at midnight (`America/Santiago`, 2026-04-05). It also happens on a
+fall-back night whose cutoff lands in the repeated hour (`Europe/Berlin`
+`2026-10-24 22:00→05:00`). The binary never chooses an occurrence of a repeated
+wall time.
+
+When a carry is made, each interval on the source day is at most 240 minutes.
+With exactly 240 minutes after midnight there is no carry: the source day
+keeps one longer interval, and each of its per-date allocations is at most 240
+minutes.
+
 ### Timezone transitions
 
 Elapsed minutes use absolute time, not the wall-clock difference. With the

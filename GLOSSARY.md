@@ -40,6 +40,10 @@ _Avoid_: Double-counted work, automatic resolution
 A work record prepared for or stored in Gradion, with a date, bounded interval, project or classification, and description. Its local status distinguishes reviewed, approved, and remotely submitted work.
 _Avoid_: Evidence item, topic candidate
 
+**Carried Segment**:
+The part of a long overnight entry that the source day cannot hold within the remote four-hour policy, derived at stage and staged on the next date beside that day's own entries. It is recorded apart from both ledgers and never changes a saved day without the user's explicit revision.
+_Avoid_: Moved entry, split entry, overflow
+
 **Submission Plan**:
 The exact proposed creates and edits against a known remote state for a specific daily record revision.
 _Avoid_: Automatic sync, general write permission

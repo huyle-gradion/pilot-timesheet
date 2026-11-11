@@ -173,6 +173,12 @@ func renderHumanGates(head, list, tail *strings.Builder, a nextAction, status *t
 	labelRow(head, s, "submit", "\n  ", h.SubmitCommand)
 	labelRow(head, s, "status", "\n  ", h.StatusCommand)
 	head.WriteString(s.label.Render("unresolved writes") + " " + strconv.Itoa(h.Unresolved) + " legacy, " + strconv.Itoa(h.NativeUnresolved) + " native\n")
+	// The overnight carry is shown at review (ADR 0011): what this day took in
+	// from the previous date and what it carries into the next.
+	for _, c := range h.Carried {
+		list.WriteString(recorded("  carried %s -> %s  %s-%s (%s min)  %s\n",
+			c.From, c.To, c.Start, c.End, strconv.Itoa(c.Minutes), c.Description))
+	}
 	if status == nil {
 		return
 	}

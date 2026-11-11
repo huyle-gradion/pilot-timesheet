@@ -772,6 +772,34 @@ type StageReceipt struct {
 	Replaced    int    `json:"replaced,omitempty"`
 	Refinalized bool   `json:"refinalized,omitempty"`
 	Note        string `json:"note,omitempty"`
+	// The overnight carry (issue #277, ADR 0011): segments carried in from the
+	// previous date and staged here, and segments this day's derivation
+	// carries into the next date. CarryNote flags a carry into a saved day.
+	CarriedIn  []StageCarry `json:"carried_in,omitempty"`
+	CarriedOut []StageCarry `json:"carried_out,omitempty"`
+	CarryNote  string       `json:"carry_note,omitempty"`
+}
+
+// StageCarry is one carried segment as the stage receipt shows it.
+type StageCarry struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	BlockID     string `json:"block_id"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	Minutes     int    `json:"minutes"`
+	Description string `json:"description"`
+}
+
+func stageCarries(carries []timesheet.CarrySegment) []StageCarry {
+	var out []StageCarry
+	for _, c := range carries {
+		out = append(out, StageCarry{
+			From: c.SourceDate, To: c.Date, BlockID: c.BlockID(), Start: c.Start, End: c.End,
+			Minutes: c.Minutes, Description: c.Description,
+		})
+	}
+	return out
 }
 
 // applyStage converts the day's recorded entries into staged intervals through
@@ -800,22 +828,40 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 			segmentByID[seg.IntervalID] = seg
 		}
 	}
-	entries, err := timesheet.ReadEntries(cfg.StatePath, date)
+	ledger, err := timesheet.ReadEntries(cfg.StatePath, date)
 	if err != nil {
 		return nil, err
 	}
-	if entries == nil {
+	// Segments the previous date carried into this one stage like its own
+	// entries (issue #277, ADR 0011). A carry computed in another timezone is
+	// refused: its clocks are never reinterpreted.
+	carryIn, err := timesheet.ReadCarryInto(cfg.StatePath, date)
+	if err != nil {
+		return nil, err
+	}
+	if err := timesheet.CheckCarryTimezone(carryIn, summary.Timezone); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if err := checkCarryIn(cfg.StatePath, date, carryIn); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if ledger == nil && len(carryIn) == 0 {
 		return nil, fmt.Errorf("%s: no recorded entries file for %s; run record first", name, date)
 	}
+	var own []timesheet.EntryRecord
+	if ledger != nil {
+		own = ledger.Entries
+	}
+	entries := dayStageEntries(own, carryIn)
 	stageMap, err := timesheet.ReadStageMap(cfg.StatePath, date)
 	if err != nil {
 		return nil, err
 	}
 
 	// Deterministic processing order: the recorded blocks sorted by block_id.
-	ids := make([]string, 0, len(entries.Entries))
-	byID := make(map[string]timesheet.EntryRecord, len(entries.Entries))
-	for _, e := range entries.Entries {
+	ids := make([]string, 0, len(entries))
+	byID := make(map[string]timesheet.EntryRecord, len(entries))
+	for _, e := range entries {
 		ids = append(ids, e.BlockID)
 		byID[e.BlockID] = e
 	}
@@ -828,10 +874,14 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 	// instead of staged. The entries ledger keeps the human's overlapping
 	// truth untouched. An overnight entry takes part like any other (issue
 	// #176). Each union span is then chunked to the four-hour policy below.
-	clusters, dayLongIDs := timesheet.ResolveEntrySpans(entries.Entries)
+	clusters, dayLongIDs, pastNextIDs := timesheet.ResolveEntrySpansOn(date, entries)
 	dayLong := make(map[string]bool, len(dayLongIDs))
 	for _, id := range dayLongIDs {
 		dayLong[id] = true
+	}
+	pastNext := make(map[string]bool, len(pastNextIDs))
+	for _, id := range pastNextIDs {
+		pastNext[id] = true
 	}
 
 	receipt := &StageReceipt{
@@ -905,16 +955,34 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 				Reason:  fmt.Sprintf("overlapping entries span 24 hours or more (this entry: start %q, end %q); an interval crosses at most one midnight, so they are never merged or truncated; times are never invented", e.Start, e.End),
 			})
 		}
+		if pastNext[id] {
+			// Stamped on the next date and running past that date's
+			// midnight: a carry crosses at most one midnight (issue #277).
+			receipt.Skipped = append(receipt.Skipped, StageSkip{
+				BlockID: id,
+				Reason:  fmt.Sprintf("entry runs past the next date's midnight (start %q, end %q); a carry crosses at most one midnight, so it is never carried or truncated; times are never invented", e.Start, e.End),
+			})
+		}
 	}
 	// Head block_id order keeps the receipt in the documented order for a day
 	// that has no merge at all.
 	sort.Slice(clusters, func(i, j int) bool { return clusters[i].BlockID < clusters[j].BlockID })
+	var carries []timesheet.CarrySegment
 	for _, c := range clusters {
-		units = append(units, stageUnit{
-			id:    c.BlockID,
-			text:  c.Description,
-			spans: timesheet.StageSpans(date, summary.Timezone, c.Start, c.End),
-		})
+		// The part a source day cannot hold within the four-hour policy is
+		// carried into the next date (issue #277, ADR 0011).
+		spans, carry := timesheet.SplitCluster(date, summary.Timezone, c)
+		if carry != nil {
+			carries = append(carries, *carry)
+		}
+		if len(spans) == 0 {
+			receipt.Skipped = append(receipt.Skipped, StageSkip{
+				BlockID: c.BlockID,
+				Reason:  fmt.Sprintf("starts after midnight (stamped on %s): carried whole into %s as block %s", carry.Date, carry.Date, carry.BlockID()),
+			})
+		} else {
+			units = append(units, stageUnit{id: c.BlockID, text: c.Description, spans: spans})
+		}
 		for _, merged := range c.BlockIDs[1:] {
 			receipt.Skipped = append(receipt.Skipped, StageSkip{
 				BlockID: merged,
@@ -1018,6 +1086,21 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 	if err := timesheet.WriteStageMap(cfg.StatePath, timesheet.AppVersion, date, next, time.Now()); err != nil {
 		return nil, err
 	}
+	// The carry record is replaced whole by every derivation, so re-staging
+	// never duplicates or leaves a stale carry; no carry removes it.
+	if err := timesheet.WriteCarry(cfg.StatePath, timesheet.AppVersion, date, carries, time.Now()); err != nil {
+		return nil, err
+	}
+	receipt.CarriedIn = stageCarries(carryIn)
+	receipt.CarriedOut = stageCarries(carries)
+	if len(carries) > 0 {
+		target := carries[0].Date
+		if day := h.store.State().Days[target]; day != nil && len(day.Confirmed) > 0 {
+			receipt.CarryNote = fmt.Sprintf("%s is already saved; a carry is never applied to a saved day silently: "+
+				"if its saved intervals do not include this carry, next stops on %s until the human runs `stage --revise --date %s`",
+				target, target, target)
+		}
+	}
 	// Re-open the day so the receipt reports the staged set exactly as the
 	// session now sees it (open_day is idempotent within the process).
 	res, err := h.call("open_day", timesheet.Request{Day: date})
@@ -1037,6 +1120,20 @@ func applyStage(h *headlessSession, cfg *timesheet.Config, name, date, project s
 	return receipt, nil
 }
 
+// finalizedSummary reports whether the opened day holds confirmed intervals of
+// its own. The confirmed view also renders locked segments that spill in from
+// an interval the previous date saved across midnight; those belong to that
+// date, so they never make this day finalized (issue #277: the source day's
+// kept part crosses midnight, and the target day must still stage its carry).
+func finalizedSummary(summary timesheet.DaySummary) bool {
+	for _, seg := range summary.Confirmed.Segments {
+		if seg.OriginDate == summary.Date {
+			return true
+		}
+	}
+	return false
+}
+
 // openFinalizeDay opens the day for a stage/confirm/save command and refuses
 // when it already carries confirmed intervals. The staged set is derived from
 // the entries ledger, and a finalized day is never re-derived or silently
@@ -1051,7 +1148,7 @@ func openFinalizeDay(h *headlessSession, name, date string) (timesheet.DaySummar
 	if !ok {
 		return timesheet.DaySummary{}, fmt.Errorf("%s: unexpected open_day payload", name)
 	}
-	if len(summary.Confirmed.Segments) > 0 {
+	if finalizedSummary(summary) {
 		return timesheet.DaySummary{}, fmt.Errorf(
 			"%s: %s already has confirmed intervals; the day is finalized and confirmed work is never restaged", name, date)
 	}
@@ -1103,7 +1200,7 @@ func runStage(args []string) error {
 		return fmt.Errorf("stage: unexpected open_day payload")
 	}
 	var receipt *StageReceipt
-	if len(summary.Confirmed.Segments) > 0 {
+	if finalizedSummary(summary) {
 		if !f.revise {
 			return fmt.Errorf(
 				"stage: %s already has confirmed intervals; the day is finalized and confirmed work is never restaged (stage --revise replaces the finalized set from the entries ledger and re-finalizes at a new revision)", f.date)
@@ -1436,7 +1533,7 @@ func classifyFileDay(h *headlessSession, cfg *timesheet.Config, date, project, a
 	if !ok {
 		return ClassifyReceipt{}, fmt.Errorf("classify: unexpected open_day payload")
 	}
-	if len(summary.Confirmed.Segments) > 0 {
+	if finalizedSummary(summary) {
 		if err := checkSavedClassificationBinding(h, date, data); err != nil {
 			return ClassifyReceipt{}, err
 		}
@@ -1655,29 +1752,25 @@ func applySelections(h *headlessSession, date string, revision int, selections m
 // actually staged. Because the digest covers the whole merged content, changing
 // any contributor of a merged interval fails the replay closed.
 func stagedBlocks(cfg *timesheet.Config, date string) (map[string]timesheet.EntryRecord, error) {
-	entries, err := timesheet.ReadEntries(cfg.StatePath, date)
+	artifacts, err := timesheet.ReadDayArtifacts(cfg.StatePath, date)
 	if err != nil {
 		return nil, err
 	}
-	stageMap, err := timesheet.ReadStageMap(cfg.StatePath, date)
-	if err != nil {
-		return nil, err
-	}
+	stageMap := artifacts.StageMap
+	entries := artifactStageEntries(artifacts)
 	effective := map[string]timesheet.EntryRecord{}
-	if entries != nil {
-		for _, c := range timesheet.EffectiveEntrySpans(entries.Entries) {
-			effective[c.BlockID] = timesheet.EntryRecord{
-				BlockID: c.BlockID, Date: date, Start: c.Start, End: c.End,
-				Kind: c.Kind, Description: c.Description,
-			}
+	for _, c := range timesheet.EffectiveEntrySpansOn(date, entries) {
+		effective[c.BlockID] = timesheet.EntryRecord{
+			BlockID: c.BlockID, Date: date, Start: c.Start, End: c.End,
+			Kind: c.Kind, Description: c.Description,
 		}
-		// Entries the projection excludes (an unparsable, zero-duration or
-		// day-or-longer entry, never staged) keep their own record under their
-		// own id.
-		for _, e := range entries.Entries {
-			if _, ok := effective[e.BlockID]; !ok {
-				effective[e.BlockID] = e
-			}
+	}
+	// Entries the projection excludes (an unparsable, zero-duration or
+	// day-or-longer entry, never staged) keep their own record under their own
+	// id.
+	for _, e := range entries {
+		if _, ok := effective[e.BlockID]; !ok {
+			effective[e.BlockID] = e
 		}
 	}
 	byInterval := map[string]timesheet.EntryRecord{}

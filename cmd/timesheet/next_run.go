@@ -201,8 +201,20 @@ func buildNextObservation(cfg *timesheet.Config, configPath, envFile, day, proje
 		return obs, stoppedAction(day, "cannot read the day's recorded artifacts: "+err.Error()), nil
 	}
 	obs.Artifacts = ledger
-	if ledger.Entries != nil {
-		obs.Units = ledgerUnits(ledger.Entries.Entries, day, snapshot.Timezone)
+	// A carry computed in another timezone is never read in this day's: the
+	// stage verb refuses it, so next stops with the same reason (ADR 0011).
+	if err := timesheet.CheckCarryTimezone(ledger.CarryIn, snapshot.Timezone); err != nil {
+		return obs, stoppedAction(day, err.Error()), nil
+	}
+	// A carry is consumed only while its source ledger still derives it: a
+	// stale or orphaned carry record stops every day that would take it in.
+	if err := checkCarryIn(cfg.StatePath, day, ledger.CarryIn); err != nil {
+		return obs, stoppedAction(day, err.Error()), nil
+	}
+	if ledger.Entries != nil || len(ledger.CarryIn) > 0 {
+		entries := artifactStageEntries(ledger)
+		obs.Units, obs.CarryDerived = deriveLedger(entries, day, snapshot.Timezone)
+		obs.LegacyUnits = legacyDerivations(entries, day, snapshot.Timezone)
 	}
 	if !snapshot.Finalized && snapshot.ConfiguredDefaultPresent && ledger.EntriesPresent && len(ledger.Entries.Entries) > 0 {
 		return obs, nil, nil

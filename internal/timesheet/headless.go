@@ -1093,7 +1093,12 @@ func EntrySpansADayOrMore(start, end string) bool {
 	return okS && okE && e.Sub(s) >= 24*time.Hour
 }
 
-// StageSpans chunks one stage-time span recorded under date to the Gradion
+// LegacyStageSpans is the #176 chunking, kept so a day saved under it stays
+// current after the carry (issue #277, ADR 0011): StageSpans now carries the
+// after-midnight remainder past 240 minutes instead of keeping it in the
+// crossing chunk. It is consulted only to prove finalized content.
+//
+// It chunks one stage-time span recorded under date to the Gradion
 // four-hour policy (issue #167). A same-day span is exactly SplitEntrySpans.
 // An overnight span (end clock before its start clock; issue #176) is chunked
 // in real minutes in the day's timezone, because the local interval model
@@ -1111,7 +1116,7 @@ func EntrySpansADayOrMore(start, end string) bool {
 // allocation). A span whose timezone, anchors or chunk boundaries do not
 // resolve to unique local times returns the single original span, so the
 // interval op validates it honestly.
-func StageSpans(date, timezone, start, end string) [][2]string {
+func LegacyStageSpans(date, timezone, start, end string) [][2]string {
 	sm, okS := draftClock(start)
 	em, okE := draftClock(end)
 	if !okS || !okE || em >= sm {
@@ -1180,6 +1185,11 @@ type EntryCluster struct {
 	Kind        string
 	Start, End  string
 	Description string
+	// NextDay marks a cluster that starts after the date's midnight: only
+	// entries stamped on the next date form one (issue #277). Start and End
+	// are then next-date clocks, and the whole cluster is carried
+	// (SplitCluster); the source date stages none of it.
+	NextDay bool
 }
 
 // EffectiveEntrySpans resolves one day's recorded entries into stage-time
@@ -1207,6 +1217,14 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 	return clusters
 }
 
+// EffectiveEntrySpansOn is EffectiveEntrySpans for a ledger recorded under
+// date: an entry whose RFC 3339 start stamp falls on the next date sits on the
+// extended timeline (ResolveEntrySpansOn). Every stage-time derivation uses it.
+func EffectiveEntrySpansOn(date string, entries []EntryRecord) []EntryCluster {
+	clusters, _, _ := ResolveEntrySpansOn(date, entries)
+	return clusters
+}
+
 // ResolveEntrySpans is EffectiveEntrySpans plus the contributors it drops
 // because their overlapping union spans 24 hours or more (an overnight entry
 // chained with same-day blocks, e.g. 06:00→20:00 and 19:00→08:00). An interval
@@ -1214,9 +1232,26 @@ func EffectiveEntrySpans(entries []EntryRecord) []EntryCluster {
 // clock span would wrap and silently lose the day. dayLong lists those block
 // ids in cluster order; the caller skips them with their own reason.
 func ResolveEntrySpans(entries []EntryRecord) (clusters []EntryCluster, dayLong []string) {
+	clusters, dayLong, _ = ResolveEntrySpansOn("", entries)
+	return clusters, dayLong
+}
+
+// ResolveEntrySpansOn is ResolveEntrySpans for a ledger recorded under date.
+// An entry whose RFC 3339 start stamp falls on the next date is placed 24 hours
+// later on the date's timeline (issue #277), not 24 hours early at its clock:
+// inside an overnight entry it joins that cluster, and on its own it forms a
+// cluster that starts after midnight (EntryCluster.NextDay). pastNext lists the
+// contributors of clusters that would run past the next date's midnight; no
+// carry crosses a second midnight, so the caller skips them with their own
+// reason. An empty date places every entry at its clock, as before.
+func ResolveEntrySpansOn(date string, entries []EntryRecord) (clusters []EntryCluster, dayLong, pastNext []string) {
 	var spans []powSpan
 	var skipped []string
 	byID := map[string]EntryRecord{}
+	next := ""
+	if date != "" {
+		next = nextDate(date)
+	}
 	for _, e := range entries {
 		sm, okS := draftClock(e.Start)
 		em, okE := draftClock(e.End)
@@ -1226,6 +1261,12 @@ func ResolveEntrySpans(entries []EntryRecord) (clusters []EntryCluster, dayLong 
 		}
 		if em < sm {
 			em += minutesPerDay // overnight: the end is on the next date
+		}
+		if st, ok := draftStamp(e.Start); ok && next != "" && st.Format("2006-01-02") == next {
+			// Stamped after midnight: the next date's clock on this date's
+			// extended timeline, never 24 hours early.
+			sm += minutesPerDay
+			em += minutesPerDay
 		}
 		byID[e.BlockID] = e
 		spans = append(spans, powSpan{id: e.BlockID, kind: e.Kind, startM: sm, endM: em})
@@ -1244,9 +1285,20 @@ func ResolveEntrySpans(entries []EntryRecord) (clusters []EntryCluster, dayLong 
 			}
 			continue
 		}
+		if unionEnd > 2*minutesPerDay {
+			for _, i := range cluster {
+				pastNext = append(pastNext, spans[i].id)
+				skipped = append(skipped, spans[i].id)
+			}
+			continue
+		}
 		end := head.endM
 		kind := head.kind
-		c := EntryCluster{Start: clockString(head.startM), End: clockString(head.endM)}
+		c := EntryCluster{
+			Start:   clockString(head.startM % minutesPerDay),
+			End:     clockString(head.endM % minutesPerDay),
+			NextDay: head.startM >= minutesPerDay,
+		}
 		texts := make([]string, 0, len(cluster))
 		for _, i := range cluster {
 			s := spans[i]
@@ -1286,7 +1338,7 @@ func ResolveEntrySpans(entries []EntryRecord) (clusters []EntryCluster, dayLong 
 	for i := range out {
 		out[i].BlockID = ids[i]
 	}
-	return out, dayLong
+	return out, dayLong, pastNext
 }
 
 // StageMapFile is the durable block_id → interval-id sidecar for one day.

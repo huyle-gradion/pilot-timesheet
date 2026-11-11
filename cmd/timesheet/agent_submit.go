@@ -61,11 +61,28 @@ func runAgentSubmit(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !artifacts.EntriesPresent || !snapshot.Finalized {
+	if (!artifacts.EntriesPresent && len(artifacts.CarryIn) == 0) || !snapshot.Finalized {
 		return fmt.Errorf("submit --chat: no saved recorded day; finish logging before reviewing submission")
 	}
-	if !ledgerDerivesSaved(ledgerUnits(artifacts.Entries.Entries, day, snapshot.Timezone), snapshot.Confirmed) {
+	// The proof includes the segments carried in from the previous date: a
+	// carry that reached this day after it was saved is never submitted around
+	// (ADR 0011), and one in another timezone is never reinterpreted.
+	if err := timesheet.CheckCarryTimezone(artifacts.CarryIn, snapshot.Timezone); err != nil {
+		return fmt.Errorf("submit --chat: %w", err)
+	}
+	if err := checkCarryIn(h.cfg.StatePath, day, artifacts.CarryIn); err != nil {
+		return fmt.Errorf("submit --chat: %w", err)
+	}
+	entries := artifactStageEntries(artifacts)
+	units, carryOut := deriveLedger(entries, day, snapshot.Timezone)
+	current, legacy := ledgerDerivesSaved(units, legacyDerivations(entries, day, snapshot.Timezone), snapshot.Confirmed)
+	if !current && !legacy {
 		return fmt.Errorf("submit --chat: recorded ledger differs from saved intervals; review stage --revise and classify before requesting fresh confirmation")
+	}
+	// The day's own carry record must be what its saved derivation carries,
+	// exactly as next checks it, so the next date's minutes are not lost.
+	if !carryOutCurrent(current, carryOut, artifacts.CarryOut) {
+		return fmt.Errorf("submit --chat: the carry record into the next date does not match the saved derivation; review stage --revise --date %s before requesting fresh confirmation", day)
 	}
 	res, err := h.call("preview_plan", timesheet.Request{Day: day})
 	if err != nil {

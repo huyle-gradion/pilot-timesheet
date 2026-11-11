@@ -93,9 +93,14 @@ func runDaily(args []string) error {
 	if err != nil {
 		return err
 	}
+	today, afterCutoff, err := dailyToday(cfg.Timezone, policy, clockNow())
+	if err != nil {
+		return err
+	}
 	receipt := dailyReceipt{Days: []dailyDay{}}
 	var firstErr error
-	for _, day := range days {
+	for i := 0; i < len(days); i++ {
+		day := days[i]
 		f := &nextFlags{configPath: configPath, envFile: envFile, date: day, do: true, auto: true, maxActions: defaultAutoMaxActions}
 		report, runErr := advanceDayReport(f, cfg, configPath, envFile, day)
 		entry := dailyDay{Day: day, State: report.State}
@@ -111,6 +116,15 @@ func runDaily(args []string) error {
 			entry.Notified, entry.NotifyError = notifyOnce(cfg, policy, envFile, day, msg)
 		}
 		receipt.Days = append(receipt.Days, entry)
+		// Logging a day may carry its overnight remainder into the next date
+		// (ADR 0011). That date is logged in this same run even when it is not
+		// a working day, so a carried part is never left unvisited.
+		if next, ok := carryFollowUp(day, today, afterCutoff, days, func(d string) bool {
+			in, err := timesheet.ReadCarryInto(cfg.StatePath, d)
+			return err == nil && len(in) > 0
+		}); ok {
+			days = append(days, next)
+		}
 	}
 	if len(days) == 0 {
 		receipt.Note = "no working day to log at this time"
@@ -146,6 +160,38 @@ func dailyTargets(tz string, policy timesheet.DailyConfig, now time.Time) ([]str
 		days = append(days, local.Format("2006-01-02"))
 	}
 	return days, nil
+}
+
+// dailyToday is the local date now, and whether the local time is at or after
+// log_after (a day is never logged half-finished before it).
+func dailyToday(tz string, policy timesheet.DailyConfig, now time.Time) (string, bool, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return "", false, err
+	}
+	local := now.In(loc)
+	after, err := time.ParseInLocation("15:04", policy.LogAfter, loc)
+	if err != nil {
+		return "", false, err
+	}
+	cutoff := time.Date(local.Year(), local.Month(), local.Day(), after.Hour(), after.Minute(), 0, 0, loc)
+	return local.Format("2006-01-02"), !local.Before(cutoff), nil
+}
+
+// carryFollowUp returns the date after day when day carried segments into it
+// (hasCarry) and it is not already a target: any day, working or not, before
+// today, or today once log_after has passed (ADR 0011; the owner chose to
+// carry automatically, including into non-working days).
+func carryFollowUp(day, today string, afterCutoff bool, targets []string, hasCarry func(string) bool) (string, bool) {
+	t, err := time.Parse("2006-01-02", day)
+	if err != nil {
+		return "", false
+	}
+	next := t.AddDate(0, 0, 1).Format("2006-01-02")
+	if slices.Contains(targets, next) || next > today || (next == today && !afterCutoff) {
+		return "", false
+	}
+	return next, hasCarry(next)
 }
 
 // lockDaily takes a non-blocking exclusive lock next to the store, so two

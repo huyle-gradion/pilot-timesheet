@@ -50,21 +50,29 @@ func dailyMessage(cfg *timesheet.Config, policy timesheet.DailyConfig, day strin
 	return clipNotice(day + " is at " + r.State + "; run: timesheet log --date " + day), true
 }
 
+// dayLedgerTotals counts the day's stage input (its own entries plus segments
+// carried in from the previous date) and the real minutes it stages: the part
+// an overnight entry carries into the next date is counted there, not here
+// (ADR 0011), so "ready to submit" matches what the day's plan submits.
 func dayLedgerTotals(cfg *timesheet.Config, day string) (int, int) {
-	f, err := timesheet.ReadEntries(cfg.StatePath, day)
-	if err != nil || f == nil {
+	a, err := timesheet.ReadDayArtifacts(cfg.StatePath, day)
+	if err != nil || (a.Entries == nil && len(a.CarryIn) == 0) {
 		return 0, 0
 	}
+	loc, err := time.LoadLocation(cfg.Timezone)
+	if err != nil {
+		return 0, 0
+	}
+	entries := artifactStageEntries(a)
 	minutes := 0
-	for _, e := range f.Entries {
-		if s, end, ok := timesheet.EntrySpanBounds(e.Start, e.End); ok {
-			if end < s {
-				end += 24 * 60
+	for _, u := range ledgerUnits(entries, day, cfg.Timezone) {
+		for _, sp := range u.Spans {
+			if m, err := (timesheet.Interval{Date: day, Start: sp[0], End: sp[1]}).Duration(loc); err == nil {
+				minutes += m
 			}
-			minutes += end - s
 		}
 	}
-	return len(f.Entries), minutes
+	return len(entries), minutes
 }
 
 func plural(n int, one, many string) string {

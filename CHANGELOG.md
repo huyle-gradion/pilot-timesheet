@@ -4,6 +4,60 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
 
 ## Unreleased
 
+Carry the after-midnight remainder of long overnight entries into the next day
+(#277, ADR 0011).
+
+- An overnight entry with more than 240 minutes after midnight (for example
+  `23:00→05:00`) no longer stages a next-day allocation that `plan` blocks with
+  `remote_entry_too_long`. The source day keeps the part up to midnight plus up
+  to 240 minutes after it (`23:00→03:00`). When a carry is made, each interval
+  it stages is at most 240 minutes. The remainder (`03:00→05:00`) is carried
+  into the next date. Minutes across both days equal the recorded span
+  exactly. With exactly 240 minutes after midnight there is no carry, as
+  under #176: the source day keeps one longer interval, and each of its
+  per-date allocations is at most 240 minutes.
+- A carry is consumed only while its source ledger still derives it. A source
+  edited without a re-stage, or deleted, stops every day that would take the
+  carry in (`stage`, `save`, `classify`, `next`/`log`, `submit --chat`). The
+  stop names `stage --date <source>`. `submit --chat` also checks a source
+  day's own carry record, as `next` does.
+- `daily` also logs a non-working day that has a carry-in, for example the
+  Saturday after a Friday `20:00→06:00`. The notification counts the minutes
+  each day stages, so Friday reports 4h ready, not 10h. The TUI gate view and
+  the agent skill show `human.carried`.
+- A fall-back night whose cutoff lands in the repeated hour, like DST at
+  midnight, makes no carry and stays loud at `plan`.
+- The carry is a derived record, `entries/<date>.carry.json`. Every
+  derivation of the source day replaces it, and the ledger is never modified.
+  The next date stages each carried segment as
+  `carried-<source date>-<block id>`. The segment takes part in overlap
+  claiming and four-hour chunking like that day's own entries.
+  `next`/`log`, `classify`, `submit --chat` and `stage` all derive it.
+- Review shows the carry: stage receipts list `carried_out` and `carried_in`.
+  The classification judgment labels a carried block `carried_from`, and the
+  `human_gates` report lists `carried` segments.
+- A carry into a day that is already saved or submitted is never applied
+  silently. `next`/`log` on that day stops and names it, and `submit --chat`
+  refuses. The human takes it in with `stage --revise --date <day>`. The
+  source day's stage receipt carries a `carry_note`.
+- A day whose sources were collected but whose draft has no blocks now stages
+  its carried segments alone instead of stopping.
+- A block stamped after midnight on an overnight ledger is placed on the
+  extended timeline. Previously it staged 24 hours early on the source day's
+  early morning. It follows the carry when it falls in the carried part. A
+  block that would run past the next date's midnight is skipped with its own
+  reason.
+- Fix: a day after a saved midnight-crossing interval was refused by `stage`,
+  `confirm`, `save` and `classify` as "already finalized", because the
+  previous day's locked spill segment counted as its own confirmed work.
+- Upgrade note: days saved before this change stay current for `next`/`log`
+  and `submit --chat`, under both the pre-#176 unsplit rule and the #176
+  chunking. No carry exists for them until a human runs `stage --revise`, and
+  `plan` still blocks their over-long allocation as before. A source day
+  staged but not yet saved re-stages with the carry at its next
+  `stage`/`save`. `eval export` derives a carried target day from its full
+  stage input and accepts the legacy derivations.
+
 - Add `timesheet eval run --golden <file> [--out <file>]` (#279): replays
   every golden day through the configured judge with the same owned prompts,
   response cache and per-day token cap as `log`, and writes a candidate file
