@@ -336,6 +336,7 @@ func isSSE(contentType string) bool {
 	return strings.EqualFold(mt, "text/event-stream")
 }
 
+// redact does not detect encoded or split forms of the token.
 func redact(msg, token string) string {
 	if token == "" {
 		return msg

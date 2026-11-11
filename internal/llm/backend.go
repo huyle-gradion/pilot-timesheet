@@ -65,6 +65,9 @@ type CommandBackend struct {
 func (b CommandBackend) Identity() string { return "command:" + strings.Join(b.Argv, "\x1f") }
 
 func (b CommandBackend) Complete(ctx context.Context, prompt string) (string, Usage, error) {
+	if b.Env == nil {
+		return "", Usage{}, fmt.Errorf("%w: the harness command has no filtered environment; build it with CommandEnv so pipeline credentials are never inherited", ErrBackend)
+	}
 	ctx, cancel := context.WithTimeout(ctx, b.Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, b.Argv[0], b.Argv[1:]...)

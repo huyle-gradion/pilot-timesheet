@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestInitialize_CapturesSessionIDAndSendsNotification(t *testing.T) {
@@ -546,7 +549,7 @@ func TestStatusErrorRedactsBeforeBound(t *testing.T) {
 func TestProtocolVersionMismatchRedactsToken(t *testing.T) {
 	const token = "S3CR3T-TOKEN-DO-NOT-LEAK"
 	f := newFakeMCP()
-	f.protocolVersion = token
+	f.protocolVersion = strings.Repeat("v", maxErrorSnippetBytes-6) + token
 	sess, _ := newServerSession(t, f)
 	sess.cfg.Token = token
 
@@ -554,8 +557,47 @@ func TestProtocolVersionMismatchRedactsToken(t *testing.T) {
 	if StableCodeOf(err) != CodeProtocolVersion {
 		t.Fatalf("expected %s, got %v", CodeProtocolVersion, err)
 	}
-	if strings.Contains(err.Error(), token) {
-		t.Errorf("token leaked into the version mismatch: %v", err)
+	for k := 4; k <= len(token); k++ {
+		if strings.Contains(err.Error(), token[:k]) {
+			t.Errorf("token prefix %q leaked into the version mismatch: %v", token[:k], err)
+		}
+	}
+}
+
+func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
+	var targetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(target.Close)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(origin.Close)
+
+	sess := newTestSession(t, Config{Endpoint: origin.URL, Token: "test-token"})
+	_, err := sess.Initialize(context.Background())
+	if !IsKind(err, ErrHTTPStatus) || StableCodeOf(err) != CodeHTTPStatus {
+		t.Fatalf("expected a typed %s error, got %v", CodeHTTPStatus, err)
+	}
+	if n := targetHits.Load(); n != 0 {
+		t.Errorf("redirect target was hit %d time(s); the bearer token must not follow a redirect", n)
+	}
+}
+
+func TestBoundStringKeepsRuneBoundaries(t *testing.T) {
+	const s = "ab€d"
+	for max := 1; max <= len(s); max++ {
+		got := boundString(s, max)
+		if !utf8.ValidString(got) || !strings.HasPrefix(s, got) || len(got) > max {
+			t.Errorf("boundString(%q, %d) = %q, want a valid UTF-8 prefix of at most %d bytes", s, max, got, max)
+		}
+	}
+	for _, max := range []int{3, 4} {
+		if got := boundString(s, max); got != "ab" {
+			t.Errorf("boundString(%q, %d) = %q, want the split rune dropped", s, max, got)
+		}
 	}
 }
 
