@@ -1,25 +1,15 @@
 package timesheet
 
-// R4 native exact-plan approval.
+// The ledger is the only authority: a successful preview is never approval, a
+// plan record carries no authorization flag, and historical imported approvals
+// stay inert audit forever.
 //
-// approve_plan binds an operator decision to the EXACT rendered, current ready
-// plan and returns an opaque approval ID. The ledger is the only authority: a
-// successful preview is never approval, a plan record carries no authorization
-// flag, and historical imported approvals stay inert audit forever.
-//
-// Approval IDs are unique occurrences, never plan-content aliases: approving
-// identical plan content twice yields two distinct IDs, and a new approval can
-// never overwrite or reactivate a consumed or revoked one.
-//
-// These ops run in-process for the local operator's commands (the private
-// stdio protocol that once carried them retired with serve, #272). They are
-// deliberately NOT authenticated presence: a
-// scripted request is not proof a human is physically present, so no security
-// flag such as human:true exists here. R5 removes these operations from model
-// capabilities and provides a local human UI. Nothing in this file performs AI
-// inference, source acknowledgment, work confirmation or a submission: a
-// persisted, unconsumed approval can only ever be used by a later explicit
-// submit request.
+// These ops run in-process for the local operator's commands. They are
+// deliberately NOT authenticated presence: a scripted request is not proof a
+// human is physically present, so no security flag such as human:true exists
+// here. Nothing in this file performs AI inference, source
+// acknowledgment, work confirmation or a submission: a persisted, unconsumed
+// approval can only ever be used by a later explicit submit request.
 
 import (
 	"context"
@@ -30,16 +20,12 @@ import (
 	"time"
 )
 
-// Native approval ledger states.
 const (
 	ApprovalActive    = "active"
 	ApprovalExecuting = "executing"
 	ApprovalRevoked   = "revoked"
 )
 
-// Native submission attempt states. in_flight is the durable pre-dispatch and
-// post-dispatch-unrecorded intent state; it always blocks replay until an
-// explicit resolution clears it.
 const (
 	IntentInFlight     = "in_flight"
 	IntentConfirmed    = "confirmed"
@@ -47,7 +33,6 @@ const (
 	IntentUnidentified = "unidentified"
 )
 
-// Execution states.
 const (
 	ExecutionStarted   = "started"
 	ExecutionCompleted = "completed"
@@ -89,18 +74,9 @@ type ApprovalSummary struct {
 	// reselection and a new approval, never a silently mutated approved body.
 	// Dev.10 approvals predate this field; they never authorize a write and
 	// consumption fails closed for them.
-	//
-	// R4F8: deliberately NOT omitempty. A zero-operation approval has a
-	// legitimate EMPTY proof, and the explicit `{}` encoding must survive
-	// persistence so reload yields an empty (non-nil) map. A legacy
-	// absent/null value still decodes to nil and keeps failing closed; the two
-	// states are never conflated or backfilled.
 	Choices map[string]*ClassificationChoice `json:"choices"`
 }
 
-// ApprovalRecord is one native approval occurrence. State is lifecycle audit
-// (active, executing, revoked); the ledger is the only source of approval
-// authority in this build.
 type ApprovalRecord struct {
 	ApprovalID    string          `json:"approval_id"`
 	PlanID        string          `json:"plan_id"`
@@ -114,7 +90,6 @@ type ApprovalRecord struct {
 	RevokedAt     string          `json:"revoked_at,omitempty"`
 }
 
-// ApprovalReceipt is the approve_plan result.
 type ApprovalReceipt struct {
 	ApprovalID string          `json:"approval_id"`
 	PlanID     string          `json:"plan_id"`
@@ -125,7 +100,6 @@ type ApprovalReceipt struct {
 	Summary    ApprovalSummary `json:"summary"`
 }
 
-// ApprovalRevocationReceipt is the revoke_approval result.
 type ApprovalRevocationReceipt struct {
 	ApprovalID string `json:"approval_id"`
 	PlanID     string `json:"plan_id"`
@@ -134,7 +108,6 @@ type ApprovalRevocationReceipt struct {
 	RevokedAt  string `json:"revoked_at"`
 }
 
-// ApprovalRow is one approval-ledger entry in submission_status output.
 type ApprovalRow struct {
 	ApprovalID  string `json:"approval_id"`
 	PlanID      string `json:"plan_id"`
@@ -195,7 +168,6 @@ func planOperationDigest(op PlanOperation) string {
 	return sha256Hex(data)
 }
 
-// clonePlanOperation deep-copies one operation for a durable intent copy.
 func clonePlanOperation(op PlanOperation) PlanOperation {
 	out := op
 	out.OriginDates = append([]string(nil), op.OriginDates...)
@@ -210,8 +182,6 @@ func clonePlanOperation(op PlanOperation) PlanOperation {
 	return out
 }
 
-// approvalByDateAndID finds one ledger row. An approval bound to a different
-// date is simply not found for this request.
 func approvalByDateAndID(st *State, date, approvalID string) *ApprovalRecord {
 	for i := range st.Approvals {
 		a := &st.Approvals[i]
@@ -225,9 +195,6 @@ func approvalByDateAndID(st *State, date, approvalID string) *ApprovalRecord {
 	return nil
 }
 
-// approvalBoundFor reports whether an unconsumed, unrevoked native approval
-// currently binds planID. It is a LEDGER query: plan records never carry
-// approval authority, and this is only ever a derived display fact.
 func (s *Session) approvalBoundFor(planID string) bool {
 	st := s.store.State()
 	for _, a := range st.Approvals {
@@ -259,11 +226,6 @@ func (s *Session) approvePlan(req Request) (ApprovalReceipt, error) {
 			"local state durability is uncertain; close and restart before approving")
 	}
 
-	// Re-render: approval requires the CURRENT ready preview to be the requested
-	// plan. previewPlan re-observes the remote, rejects dirty/unsaved origins and
-	// re-persists the observation; a changed plan or precondition always produces
-	// a different identity, so this single authoritative render covers source
-	// work, remote content/coverage and readiness blockers.
 	preview, err := s.previewPlan(date)
 	if err != nil {
 		return ApprovalReceipt{}, err
@@ -282,10 +244,6 @@ func (s *Session) approvePlan(req Request) (ApprovalReceipt, error) {
 			"the requested plan is not a stored immutable preview; preview again")
 	}
 
-	// Current classification proof is part of approval: every selected
-	// classification is freshly validated against an authoritative catalog
-	// result. Stored metadata is only a retrieval hint, and a no-show is never
-	// treated as proof that the option is gone, only as non-proof.
 	reader, err := NewGradionReader(s.cfg, s.env)
 	if err != nil {
 		return ApprovalReceipt{}, err
@@ -403,14 +361,10 @@ func classificationReferences(ops []PlanOperation) (map[string]*ClassificationCh
 	return refs, nil
 }
 
-// classificationReader is the read capability shared by the read boundary and
-// the narrowly scoped writer path for fresh catalog validation.
 type classificationReader interface {
 	Classifications(ctx context.Context, query string) (*CatalogRecord, error)
 }
 
-// classificationsProof records the fresh catalog identity and the relevant
-// semantic choice each fresh result proved for every selected classification.
 type classificationsProof struct {
 	Catalogs  map[string]string
 	Choices   map[string]*ClassificationChoice
@@ -459,7 +413,7 @@ func proofClassifications(ctx context.Context, reader classificationReader, remo
 	}
 	seen := map[string]bool{}
 	var targets []target
-	queries := map[string]bool{"": true} // unfiltered fallback query is always available
+	queries := map[string]bool{"": true}
 	for _, op := range ops {
 		id := op.ClassificationID
 		if seen[id] {
@@ -496,8 +450,6 @@ func proofClassifications(ctx context.Context, reader classificationReader, remo
 	}
 	proof := &classificationsProof{Catalogs: map[string]string{}, Choices: map[string]*ClassificationChoice{}}
 	for _, t := range targets {
-		// Prefer the stored hint query, then the unfiltered fallback. A hit
-		// proves the returned option; every miss only proves nothing.
 		order := []string{""}
 		if t.hint != "" {
 			order = []string{t.hint, ""}
@@ -522,10 +474,6 @@ func proofClassifications(ctx context.Context, reader classificationReader, remo
 			return nil, newError(CodeClassificationUnverified,
 				"the fresh catalog results do not establish that the selected classification "+t.id+" still exists; explicit reselection and a new preview are required")
 		}
-		// Compare the relevant selected semantics, not catalog-wide hashes: an
-		// identical relevant option with unrelated result rows/timestamps stays
-		// valid, while any relevant change invalidates the same choice and
-		// requires reselection (R4F1).
 		ref := refs[t.id]
 		if ref == nil {
 			return nil, newError(CodeSelectionUnverifiable,
@@ -556,7 +504,6 @@ func deepCopyIntMap(in map[string]int) map[string]int {
 	return out
 }
 
-// cloneClassChoiceMap deep-copies a bound-choice map for durable copies.
 func cloneClassChoiceMap(in map[string]*ClassificationChoice) map[string]*ClassificationChoice {
 	if in == nil {
 		return nil

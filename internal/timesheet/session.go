@@ -61,7 +61,6 @@ type Response struct {
 	Error  *ProtocolError `json:"error,omitempty"`
 }
 
-// DaySummary is returned after opening or mutating a day.
 type DaySummary struct {
 	Date          string `json:"date"`
 	Timezone      string `json:"timezone"`
@@ -72,7 +71,6 @@ type DaySummary struct {
 	Staged        View   `json:"staged"`
 }
 
-// IntervalMutation is returned after staging an add, edit, or removal.
 type IntervalMutation struct {
 	Date          string `json:"date"`
 	Revision      int    `json:"revision"`
@@ -106,7 +104,6 @@ type SaveReceipt struct {
 	Confirmed     View   `json:"confirmed"`
 }
 
-// CrossMidnight explains where both dates' minutes are recorded.
 type CrossMidnight struct {
 	IntervalID   string       `json:"interval_id"`
 	Start        string       `json:"start"`
@@ -134,7 +131,6 @@ type Review struct {
 	Notes         []string        `json:"notes,omitempty"`
 }
 
-// EvidenceReview is the local review surface for R2 collection state.
 type EvidenceReview struct {
 	Sources  []ComposedSourceStatus `json:"sources"`
 	Topics   []TopicCandidate       `json:"topics"`
@@ -151,7 +147,6 @@ type DaySourceStatus struct {
 	CollectionID string `json:"collection_id,omitempty"`
 }
 
-// DayStatus is a compact status entry for one loaded day.
 type DayStatus struct {
 	Date               string            `json:"date"`
 	Timezone           string            `json:"timezone"`
@@ -201,7 +196,6 @@ type Session struct {
 	days  map[string]*Day
 }
 
-// NewSession creates a session over an opened store.
 func NewSession(cfg *Config, env map[string]string, store *Store) *Session {
 	return &Session{
 		cfg: cfg, env: env, store: store,
@@ -945,8 +939,6 @@ func (s *Session) save(req Request) (SaveReceipt, error) {
 	if err != nil {
 		return SaveReceipt{}, err
 	}
-	// The persisted history entry for the revision being saved must agree with
-	// the durable view, not with an earlier session-only spill calculation.
 	if n := len(day.History); n > 0 && day.History[n-1].Revision == day.Revision {
 		day.History[n-1].TotalMinutes = view.TotalMinutes
 	}
@@ -1281,8 +1273,6 @@ func indexOf(intervals []Interval, id string) int {
 }
 
 func (d *Day) nextIntervalID() string {
-	// Prefix with the origin day so IDs stay unambiguous across cross-midnight
-	// segments and multi-day overlap diagnostics.
 	prefix := "iv-" + strings.ReplaceAll(d.Date, "-", "") + "-"
 	for {
 		id := fmt.Sprintf("%s%d", prefix, d.NextInterval)
@@ -1292,8 +1282,6 @@ func (d *Day) nextIntervalID() string {
 		}
 	}
 }
-
-// --- R2 evidence collection operations ----------------------------------------
 
 // CollectResult is the compact collect receipt: per-source status, detail, and
 // counts. Structured topics and proposed meetings stay in the persisted
@@ -1306,7 +1294,6 @@ type CollectResult struct {
 	Sources      []SourceResultSummary `json:"sources"`
 }
 
-// SourceResultSummary is one source's visible result state.
 type SourceResultSummary struct {
 	Source       string `json:"source"`
 	Status       string `json:"status"`
@@ -1443,8 +1430,6 @@ func (s *Session) collectDay(req Request) (CollectResult, error) {
 	}, nil
 }
 
-// attemptAcknowledged reports whether the source's latest recorded attempt is
-// acknowledged.
 func attemptAcknowledged(ev *DayEvidence, source string) bool {
 	if ev == nil {
 		return false
@@ -1670,10 +1655,6 @@ func attemptCollectionID(a *SourceAttempt) string {
 	return a.CollectionID
 }
 
-// --- composed source view and the incomplete-source review gate -----------------
-
-// composedEvidenceReview merges stored attempts with configuration-disabled
-// sources into one review surface.
 func composedEvidenceReview(cfg *Config, ev *DayEvidence) *EvidenceReview {
 	if ev == nil {
 		ev = &DayEvidence{}
@@ -1786,8 +1767,6 @@ func (s *Session) checkSourceGate(date string) error {
 	return nil
 }
 
-// --- R3 explicit migration and read-only remote operations -------------------
-
 // migrationPreview validates a complete explicit date selection without
 // activating anything. It returns bounded counts and conflicts; a conflicted or
 // already-imported candidate is never applied. It stores nothing: the
@@ -1839,10 +1818,6 @@ func (s *Session) migrationApply(req Request) (MigrationApplyReceipt, error) {
 		return MigrationApplyReceipt{}, newError(CodeSessionOpen,
 			"no day may be open during migration activation; run migration before open_day in a fresh process")
 	}
-	// Revalidation always precedes a successful no-change return: the fresh
-	// candidate must reproduce the reviewed id exactly and clear the conflict
-	// check before a no-change receipt may restate the previously imported
-	// result.
 	fresh, err := buildMigrationCandidate(s.cfg, s.store.State(), dates)
 	if err != nil {
 		return MigrationApplyReceipt{}, err
@@ -1930,8 +1905,6 @@ func pruneCatalogs(catalogs map[string]*CatalogRecord, pinnedID string) {
 	}
 }
 
-// ClassificationSelection is the staged result of one explicit reviewed remote
-// classification choice.
 type ClassificationSelection struct {
 	Date             string `json:"date"`
 	IntervalID       string `json:"interval_id"`

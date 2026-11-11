@@ -101,9 +101,6 @@ func TestBuildDraftIntervalOutsideMeetingsBecomesWorkBlock(t *testing.T) {
 	}
 }
 
-// TestBuildDraftUnallocatedTopicsFormEvidenceBlock: an evening-only topic that
-// no meeting and no confirmed interval owns becomes its own evidence block over
-// the span ending at its proof of work.
 func TestBuildDraftUnallocatedTopicsFormEvidenceBlock(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T09:30:00+07:00", Title: "Standup"}},
@@ -173,7 +170,6 @@ func TestRecordEntriesWritesMergesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("read after first: %+v %v", f1, err)
 	}
 
-	// Same block with a new description updates in place; a new block adds.
 	second := reviewed(
 		ReviewedBlock{
 			DraftBlock:  DraftBlock{BlockID: "meeting-09:00-10:00", Kind: "meeting", Start: "09:00", End: "10:00"},
@@ -283,11 +279,6 @@ func TestDraftJSONRoundTripThroughReviewedSchema(t *testing.T) {
 	}
 }
 
-// --- DRAFT-COMPACT-1: compacted AI-visible draft (issue #148) ----------------
-
-// busyDayReview is a synthetic mechanical day: 1 meeting, 20 per-PR topics
-// across two repositories (acme/api #10–#19, acme/web #20–#29), 3 evidence
-// items per topic — 60 items in total, all outside the meeting.
 func busyDayReview() Review {
 	var topics []TopicCandidate
 	for repoIdx, repo := range []string{"acme/api", "acme/web"} {
@@ -326,9 +317,6 @@ func evidenceBlock(t *testing.T, d Draft) DraftBlock {
 	return DraftBlock{}
 }
 
-// Synthetic busy day: the draft stays under the 3,000-byte budget, per-PR
-// topics collapse into one grouped line per repository, prs_inline carries
-// every PR label exactly once, and no source URLs leak into the AI draft.
 func TestBuildDraftBusyDayCompactBoundedAndURLFree(t *testing.T) {
 	d := BuildDraft(busyDayReview(), "test")
 	raw, err := json.Marshal(d)
@@ -350,8 +338,6 @@ func TestBuildDraftBusyDayCompactBoundedAndURLFree(t *testing.T) {
 	if len(eb.TopicCandidates) != 2 {
 		t.Fatalf("topic candidates = %+v, want 2 grouped lines", eb.TopicCandidates)
 	}
-	// PRS-COMPACT-1: the inline list states each repository once and every PR
-	// number exactly once, as contiguous numeric ranges per repository.
 	if eb.PRsInline != "PRs: acme/api: #10–#19; acme/web: #20–#29" {
 		t.Fatalf("prs_inline = %q, want the compact per-repo ranges", eb.PRsInline)
 	}
@@ -387,8 +373,6 @@ func TestBuildDraftBusyDayCompactBoundedAndURLFree(t *testing.T) {
 	}
 }
 
-// prs_inline is deterministic: the same input twice yields byte-identical
-// draft JSON, and the inline list orders PRs numerically ("#2" before "#10").
 func TestBuildDraftPRsInlineDeterministicAndNumeric(t *testing.T) {
 	a, err := json.Marshal(BuildDraft(busyDayReview(), "test"))
 	if err != nil {
@@ -414,12 +398,6 @@ func TestBuildDraftPRsInlineDeterministicAndNumeric(t *testing.T) {
 	}
 }
 
-// PRS-COMPACT-1 acceptance: the worst realistic case — 20 PRs in one ~60-rune
-// repository, contiguous #88–#107 — renders in well under 200 runes, so a
-// ~95-rune prose description composed with it stays under the 500-rune
-// interval limit and ParseInterval accepts the line. The old full-label
-// rendering ("#N repo" repeated per PR) provably blew the budget: it is also
-// asserted to exceed the limit for the same prose.
 func TestPRsInlineCompactFitsIntervalDescriptionLimit(t *testing.T) {
 	longRepo := "huyle-gradion/" + strings.Repeat("p", 45) // 60 runes
 	var prs []string
@@ -446,17 +424,11 @@ func TestPRsInlineCompactFitsIntervalDescriptionLimit(t *testing.T) {
 	if _, err := ParseInterval("2026-10-20 10:00-11:00 "+composed, "2026-10-20", loc); err != nil {
 		t.Fatalf("ParseInterval rejected the composed description: %v", err)
 	}
-	// Determinism: the same input twice is byte-identical.
 	if again := prsInline(prs); again != inline {
 		t.Fatalf("prs_inline not deterministic:\n%s\n%s", inline, again)
 	}
 }
 
-// PRS-COMPACT-1 acceptance: every PR number appears exactly once, contiguous
-// runs collapse to "#a–#b" while numeric gaps stay comma-listed, each
-// repository is stated once in its own alphabetically ordered segment, and
-// labels that do not parse as "#N repo" are carried verbatim and
-// deterministically.
 func TestPRsInlineRangesGapsAndMultiRepoSegments(t *testing.T) {
 	got := prsInline([]string{
 		"#14 acme/api", "#10 acme/web", "#10 acme/api", "#11 acme/api", "#11 acme/web", "#88 acme/api",
@@ -485,7 +457,6 @@ func TestPRsInlineRangesGapsAndMultiRepoSegments(t *testing.T) {
 	if strings.Count(got, "acme/api") != 1 || strings.Count(got, "acme/web") != 1 {
 		t.Fatalf("each repository must be stated exactly once: %q", got)
 	}
-	// Unparseable labels survive verbatim, deterministically sorted.
 	if got := prsInline([]string{"weird", "#3 x/y", "alpha"}); got != "PRs: x/y: #3; alpha; weird" {
 		t.Fatalf("prs_inline = %q, want parsed segments then sorted verbatim labels", got)
 	}
@@ -494,9 +465,6 @@ func TestPRsInlineRangesGapsAndMultiRepoSegments(t *testing.T) {
 	}
 }
 
-// Simple day (1 meeting, 1 PR): the draft matches a hand-computed fixture. The
-// meeting keeps its calendar span, and the evidence starts at the workday and is
-// carved at the meeting, so one 11:10 commit renders as 10:00-11:10.
 func TestBuildDraftSimpleDayMatchesHandComputedFixture(t *testing.T) {
 	review := draftReview(
 		[]ProposedMeeting{{Ref: "m1", Start: "2026-10-26T09:00:00+07:00", End: "2026-10-26T10:00:00+07:00", Title: "Standup"}},
@@ -531,7 +499,6 @@ func TestBuildDraftSimpleDayMatchesHandComputedFixture(t *testing.T) {
 	}
 }
 
-// The draft's date is always the requested --date, past dates included.
 func TestBuildDraftDateEqualsRequestedDate(t *testing.T) {
 	for _, date := range []string{"2026-10-20", "2026-10-26", "2025-01-02"} {
 		r := draftReview(nil, nil, nil, nil)
@@ -542,9 +509,6 @@ func TestBuildDraftDateEqualsRequestedDate(t *testing.T) {
 	}
 }
 
-// The topic_candidates cap is honest ("+N more" counts the omitted lines),
-// repeated identical titles collapse, PR ranges stay per-repository and split
-// on numeric gaps, and genuinely distinct titles are never collapsed.
 func TestBuildDraftTopicCandidatesCollapseAndCap(t *testing.T) {
 	var topics []TopicCandidate
 	add := func(title string, prResource string) {
@@ -556,17 +520,14 @@ func TestBuildDraftTopicCandidatesCollapseAndCap(t *testing.T) {
 		}
 		topics = append(topics, TopicCandidate{Title: title, FirstAt: ts, LastAt: ts, Items: []EvidenceItem{item}})
 	}
-	// Three identical mechanical commit titles collapse into one line.
 	add("Commits (acme/api)", "")
 	add("Commits (acme/api)", "")
 	add("Commits (acme/api)", "")
-	// PR topics: a numeric gap splits ranges; two repositories never merge.
 	add("Pull request #10 (acme/api)", "pr:acme/api:10")
 	add("Pull request #11 (acme/api)", "pr:acme/api:11")
 	add("Pull request #14 (acme/api)", "pr:acme/api:14")
 	add("Pull request #10 (acme/web)", "pr:acme/web:10")
 	add("Pull request #11 (acme/web)", "pr:acme/web:11")
-	// Fifteen genuinely distinct titles stay verbatim.
 	for i := 0; i < 15; i++ {
 		add(fmt.Sprintf("Distinct topic %d", i), "")
 	}
@@ -606,8 +567,6 @@ func TestBuildDraftTopicCandidatesCollapseAndCap(t *testing.T) {
 	}
 }
 
-// A pathological day of hundreds of distinct titles keeps the draft bounded:
-// the rendered list is capped at the fixed constant plus one honest line.
 func TestBuildDraftPathologicalDistinctTitlesStayBounded(t *testing.T) {
 	var topics []TopicCandidate
 	for i := 0; i < 150; i++ {
@@ -634,9 +593,6 @@ func TestBuildDraftPathologicalDistinctTitlesStayBounded(t *testing.T) {
 	}
 }
 
-// record accepts a reviewed draft whose description ends with the exact
-// prs_inline string; a dropped PRs list is still rejected (covered further by
-// TestRecordEntriesValidation).
 func TestRecordEntriesAcceptsVerbatimPRsInline(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
@@ -661,9 +617,6 @@ func TestRecordEntriesAcceptsVerbatimPRsInline(t *testing.T) {
 		t.Fatalf("recorded description = %q", f.Entries[0].Description)
 	}
 }
-
-// --- DRAFT-COMPACT-1 amendment (orchestrator-authorized): record re-attaches
-// audit-only source references from the day's durable evidence. ---------------
 
 // writeStateDay writes the durable slices record recomputes the draft from: one
 // day's collected evidence, its confirmed intervals projected to the
@@ -708,10 +661,6 @@ func writeStateEvidence(t *testing.T, statePath, date string, topics []TopicCand
 	writeStateDay(t, statePath, date, "Asia/Ho_Chi_Minh", DayEvidence{Topics: topics}, nil)
 }
 
-// record on a day whose durable evidence has items for a block: the recorded
-// EntryRecord carries the same sources (kind/repo/title/time/URL) the
-// pre-change draft would have echoed, with sources_truncated set past the
-// 8-item cap and the topic→block span mapping respected.
 func TestRecordEntriesReattachesSourcesFromDurableState(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
@@ -785,9 +734,6 @@ func TestRecordEntriesReattachesSourcesFromDurableState(t *testing.T) {
 	}
 }
 
-// The new normal (reviewed file without sources) records identically to the
-// old echo style, because the durable evidence is authoritative, and
-// pre-existing entries in the file are untouched by a later record.
 func TestRecordEntriesSourcesIdenticalWithAndWithoutEcho(t *testing.T) {
 	topics := []TopicCandidate{
 		{Title: "Evening evidence", FirstAt: "2026-10-26T20:00:00+07:00", LastAt: "2026-10-26T21:00:00+07:00",
@@ -812,8 +758,6 @@ func TestRecordEntriesSourcesIdenticalWithAndWithoutEcho(t *testing.T) {
 	if _, err := RecordEntries(statePath, "test", newNormal, false, time.Now()); err != nil {
 		t.Fatalf("record without echoed sources: %v", err)
 	}
-	// A later record of the same block in the old echo style must produce the
-	// same recorded sources (state wins over the stale echo).
 	if _, err := RecordEntries(statePath, "test", echoed, false, time.Now()); err != nil {
 		t.Fatalf("record with echoed sources: %v", err)
 	}
@@ -827,7 +771,6 @@ func TestRecordEntriesSourcesIdenticalWithAndWithoutEcho(t *testing.T) {
 		t.Fatalf("recorded sources = %+v", e.Sources)
 	}
 
-	// Pre-existing entries are untouched by a record that writes other blocks.
 	other := reviewed(ReviewedBlock{
 		DraftBlock:  DraftBlock{BlockID: "work-13:00-15:00", Kind: "work", Start: "13:00", End: "15:00"},
 		Description: "Deep work",
@@ -849,8 +792,6 @@ func TestRecordEntriesSourcesIdenticalWithAndWithoutEcho(t *testing.T) {
 	}
 }
 
-// Determinism: two record runs with the same input and timestamp produce a
-// byte-identical entries file.
 func TestRecordEntriesSourcesFileDeterministic(t *testing.T) {
 	record := func(statePath string, now time.Time) {
 		t.Helper()
@@ -884,10 +825,6 @@ func TestRecordEntriesSourcesFileDeterministic(t *testing.T) {
 	}
 }
 
-// F1 pinning (review finding): record-time source re-attachment must use the
-// exact same topic→block mapping as BuildDraft. Demonstrated divergence case:
-// a work block that starts BEFORE a later meeting, with the evidence item inside
-// the work block while the topic's own anchors span both blocks.
 func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 	topic := TopicCandidate{
 		Title:   "Spanning topic",
@@ -904,8 +841,6 @@ func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 	)
 	d := BuildDraft(review, "test")
 
-	// Draft side: the 08:00 work block holds the item's minute, so the topic and
-	// its source attach to the work block, never to the later meeting.
 	var work, meeting *DraftBlock
 	for i := range d.Blocks {
 		switch d.Blocks[i].BlockID {
@@ -925,9 +860,6 @@ func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 		t.Fatalf("BuildDraft attached the topic to the meeting block: %+v", meeting)
 	}
 
-	// Record side: the same blocks reviewed and recorded against the same
-	// durable evidence must land the source on the same block BuildDraft
-	// attached it to (matched by block_id).
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
 	writeStateDay(t, statePath, "2026-10-26", "Asia/Ho_Chi_Minh",
@@ -964,10 +896,6 @@ func TestRecordSourcesLandOnSameBlockBuildDraftAttached(t *testing.T) {
 	}
 }
 
-// --- DESC-ONLY-1: descriptions-only judgment step (issue #152) ---------------
-
-// composeDraft is a synthetic draft with one meeting block carrying PRs (so
-// prs_inline applies) and one evidence block without them.
 func composeDraft() Draft {
 	return Draft{
 		Date:     "2026-10-26",
@@ -1023,16 +951,11 @@ func TestComposeReviewedAppliesDescriptionsAndAppendsPRsInline(t *testing.T) {
 	if e.Description != "Evening research notes" {
 		t.Fatalf("evidence description = %q, want unchanged prose", e.Description)
 	}
-	// The composed reviewed draft passes the exact existing record validation.
 	if _, err := RecordEntries(filepath.Join(t.TempDir(), "state.json"), "test", composed, false, time.Now()); err != nil {
 		t.Fatalf("composed reviewed draft rejected by record: %v", err)
 	}
 }
 
-// A description that already ends with the block's prs_inline text is left
-// untouched: the append is idempotent and never duplicates the PRs list. A
-// description ending in a prefix-sharing PR list ("#123" contains "#12" as a
-// substring) is NOT idempotent: the block's own "#12" list must be appended.
 func TestComposeReviewedPRsInlineAppendIsIdempotent(t *testing.T) {
 	composed, err := ComposeReviewed(composeDraft(), DescriptionsFile{
 		Descriptions: map[string]string{
@@ -1128,9 +1051,6 @@ func TestParseDescriptionsNotesMustBeString(t *testing.T) {
 	}
 }
 
-// The equivalence proof: recording via --draft + --descriptions composition
-// and recording via --file with the equivalently hand-composed reviewed JSON
-// write byte-identical entries files (same date, same clock).
 func TestRecordComposedMatchesFileComposedByteForByte(t *testing.T) {
 	draft := composeDraft()
 	desc := DescriptionsFile{
@@ -1145,9 +1065,6 @@ func TestRecordComposedMatchesFileComposedByteForByte(t *testing.T) {
 		t.Fatalf("compose: %v", err)
 	}
 
-	// The equivalently hand-composed reviewed JSON the pre-change judgment
-	// step would have written: every draft field copied, description prose
-	// with the prs_inline suffix appended by hand, one notes string.
 	handJSON := `{
   "date": "2026-10-26",
   "timezone": "Asia/Ho_Chi_Minh",
@@ -1204,13 +1121,6 @@ func TestRecordComposedMatchesFileComposedByteForByte(t *testing.T) {
 	}
 }
 
-// --- FLOW-GAP-1: record --replace (issue #162) --------------------------------
-
-// TestRecordEntriesReplaceSupersedesGeneration pins --replace semantics: the
-// reviewed draft is the day's complete content — blocks absent from it are
-// removed, present block_ids are replaced in place — while merge mode
-// (replace=false) keeps preserving unmentioned blocks, and a merge run after a
-// replace is still idempotent per block.
 func TestRecordEntriesReplaceSupersedesGeneration(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	now := time.Now()
@@ -1229,7 +1139,6 @@ func TestRecordEntriesReplaceSupersedesGeneration(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	// Replace with B',C: B replaced per block_id, A removed.
 	next := reviewed(
 		ReviewedBlock{
 			DraftBlock:  DraftBlock{BlockID: "meeting-15:30-15:45", Kind: "meeting", Start: "15:30", End: "15:45"},
@@ -1262,14 +1171,11 @@ func TestRecordEntriesReplaceSupersedesGeneration(t *testing.T) {
 		t.Fatalf("replace content wrong: %+v", byID)
 	}
 
-	// Re-running the same replace changes nothing (idempotent within replace).
 	again, err := RecordEntries(statePath, "test", next, true, now)
 	if err != nil || again.EntriesTotal != 2 || again.Written != 2 || again.Removed != 0 {
 		t.Fatalf("second replace = %+v err %v", again, err)
 	}
 
-	// Merge mode after a replace is unchanged: unmentioned blocks survive and
-	// a second identical merge run stays idempotent.
 	merge := reviewed(ReviewedBlock{
 		DraftBlock:  DraftBlock{BlockID: "evidence-20:00-21:00", Kind: "evidence", Start: "20:00", End: "21:00"},
 		Description: "Evening notes",
@@ -1285,10 +1191,6 @@ func TestRecordEntriesReplaceSupersedesGeneration(t *testing.T) {
 	}
 }
 
-// TestRecordEntriesUsesStoredDayTimezoneWhenFileOmitsIt: a reviewed file may be
-// recovered without its timezone key. The day's stored timezone is the
-// authority, so topic anchors must still resolve on the local clock and attach
-// to the same block the draft attached them to (review finding on #174).
 func TestRecordEntriesUsesStoredDayTimezoneWhenFileOmitsIt(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")

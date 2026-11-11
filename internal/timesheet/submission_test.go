@@ -2,15 +2,16 @@ package timesheet
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/huyle-gradion/pilot-timesheet/internal/mcp"
 )
 
-// createReadyFixture is a classed, saved day with an EMPTY remote day, so the
-// fresh preview is ready with exactly one create operation.
 func createReadyFixture(t *testing.T) (*Session, *fakeMCP, *Store, string) {
 	t.Helper()
 	fake := &fakeMCP{
@@ -62,8 +63,6 @@ func createReadyFixture(t *testing.T) (*Session, *fakeMCP, *Store, string) {
 	return s, fake, store, date
 }
 
-// openFixtureStore builds a session over a private state file and a loopback
-// provider, without any work content.
 func openFixtureStore(t *testing.T, fake *fakeMCP) (*Session, *Store, string) {
 	t.Helper()
 	return newSessionFixture(t, fake, "2026-10-20")
@@ -92,7 +91,6 @@ func newSessionFixture(t *testing.T, fake *fakeMCP, date string) (*Session, *Sto
 	return NewSession(cfg, env, store), store, date
 }
 
-// restartSession reopens the durable store to emulate a clean process restart.
 func restartSession(s *Session) (*Session, error) {
 	if err := s.store.Close(); err != nil {
 		return nil, err
@@ -104,7 +102,6 @@ func restartSession(s *Session) (*Session, error) {
 	return NewSession(s.cfg, s.env, store), nil
 }
 
-// errSyntheticFault is a deterministic durability fault used by tests.
 var errSyntheticFault = &AppError{Code: CodeWriteFailed, Message: "synthetic durability fault"}
 
 func TestSubmitCreateVerifiesReadBackAndPersists(t *testing.T) {
@@ -130,8 +127,6 @@ func TestSubmitCreateVerifiesReadBackAndPersists(t *testing.T) {
 		t.Fatalf("write row mismatch: %+v", res.Writes[0])
 	}
 
-	// The dispatched body is exactly the approved operation content: five
-	// approved fields and nothing else (no task/billable/derived activity type).
 	if len(fake.writeBodies) != 1 {
 		t.Fatalf("writes performed: %d", len(fake.writeBodies))
 	}
@@ -142,7 +137,6 @@ func TestSubmitCreateVerifiesReadBackAndPersists(t *testing.T) {
 		t.Fatalf("dispatched body is not the exact approved body: %v (op %+v)", body, op)
 	}
 
-	// The verified observed content, not planned state, is durable.
 	st := store.State()
 	if len(st.Remote.Bindings) != 1 {
 		t.Fatalf("bindings: %+v", st.Remote.Bindings)
@@ -177,13 +171,11 @@ func TestSubmitConsumedOnceIncludingAcrossRestart(t *testing.T) {
 		t.Fatalf("expected exactly one write: %+v", fake.writeCalls)
 	}
 
-	// A restart never duplicates: reopening the store, the spent approval stays
-	// spent and replay is blocked with zero new mutations.
 	s2, err := restartSession(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake2 := fake // same server
+	fake2 := fake
 	res, err := s2.submitPlan(Request{ID: "s2", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
 		t.Fatal(err)
@@ -192,12 +184,10 @@ func TestSubmitConsumedOnceIncludingAcrossRestart(t *testing.T) {
 		t.Fatalf("a spent approval must never re-dispatch: %+v", res)
 	}
 
-	// Identical content can be reapproved only with a DISTINCT fresh approval.
 	rec2 := approveReadyPlan(t, s2, date)
 	if rec2.ApprovalID == rec.ApprovalID {
 		t.Fatal("a new approval must be a new occurrence")
 	}
-	// The first approval is still immutable audit in the ledger.
 	if len(s2.store.State().Approvals) < 2 {
 		t.Fatalf("ledger: %+v", s2.store.State().Approvals)
 	}
@@ -225,8 +215,6 @@ func TestSubmitToolFailurePersistsUncertainAndBlocksReplay(t *testing.T) {
 		t.Fatal("no binding may exist for an unverified write")
 	}
 
-	// Restart: the uncertainty is durable and blocks replay; the spent approval
-	// cannot be reused and no automatic retry happens.
 	s2, err := restartSession(s)
 	if err != nil {
 		t.Fatal(err)
@@ -249,8 +237,6 @@ func TestSubmitToolFailurePersistsUncertainAndBlocksReplay(t *testing.T) {
 		t.Fatalf("a spent approval with unresolved writes must stay blocked: %+v", res)
 	}
 
-	// Explicit recovery: not_applied with the current complete observation
-	// clears exactly this blocker with zero mutation calls, preserving audit.
 	ref := status.Unresolved[0].WriteRef
 	obs := store.State().Remote.Observations[date]
 	if obs == nil || !obs.Complete {
@@ -285,8 +271,6 @@ func TestSubmitAppliedThenResetIsRecoverableNotReplayed(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 	rec := approveReadyPlan(t, s, date)
 
-	// The effect applies remotely and then the connection corrupts the
-	// response: uncertain, never confirmed, never retried.
 	fake.failMode = "reset"
 	res, err := s.submitPlan(Request{ID: "s1", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
@@ -302,7 +286,6 @@ func TestSubmitAppliedThenResetIsRecoverableNotReplayed(t *testing.T) {
 		t.Fatal("synthetic effect missing")
 	}
 
-	// Restart: still blocked, still no replay.
 	s2, err := restartSession(s)
 	if err != nil {
 		t.Fatal(err)
@@ -323,8 +306,6 @@ func TestSubmitMalformedAckNeverConfirms(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 	rec := approveReadyPlan(t, s, date)
 
-	// No mutation happens and no id can be decoded: unidentified, never
-	// confirmed.
 	fake.failMode = "malformed"
 	res, err := s.submitPlan(Request{ID: "s1", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
@@ -341,8 +322,6 @@ func TestSubmitMalformedAckNeverConfirms(t *testing.T) {
 		t.Fatalf("unidentified intent audit: %+v", intent)
 	}
 
-	// A not_applied attestation against the current complete observation (the
-	// effect provably absent) clears exactly this reference.
 	obs := store.State().Remote.Observations[date]
 	rr, err := s.resolveWrite(Request{ID: "r1", Op: "resolve_write", WriteRef: intent.WriteRef,
 		ObservationID: obs.ObservationID, Decision: DecisionWriteNotApplied})
@@ -353,8 +332,6 @@ func TestSubmitMalformedAckNeverConfirms(t *testing.T) {
 		t.Fatalf("resolution: %+v", rr)
 	}
 
-	// A contradictory not_applied is refused: an effect matching the intended
-	// write is visible in the current observation.
 	s2, fake2, _, date2 := createReadyFixture(t)
 	rec2 := approveReadyPlan(t, s2, date2)
 	fake2.failMode = "reset"
@@ -369,8 +346,6 @@ func TestSubmitMalformedAckNeverConfirms(t *testing.T) {
 	if len(status.Unresolved) != 1 {
 		t.Fatalf("expected one unresolved write: %+v", status.Unresolved)
 	}
-	// The store still holds the pre-write observation; reconcile first, then
-	// the matching effect makes not_applied impossible and adopt exact.
 	rec3, err := s2.reconcileDate(date2)
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +358,6 @@ func TestSubmitMalformedAckNeverConfirms(t *testing.T) {
 		ObservationID: rec3.ObservationID, Decision: DecisionWriteAdopt, RemoteID: "wrong-id"}); err == nil {
 		t.Fatal("adopt must require an explicitly selected observed id present in the observation")
 	}
-	// A stale observation id cannot carry a resolution.
 	if _, err := s2.resolveWrite(Request{ID: "t6", Op: "resolve_write", WriteRef: status.Unresolved[0].WriteRef,
 		ObservationID: st2.Remote.Observations[date2].ObservationID, Decision: DecisionWriteNotApplied}); err == nil {
 		t.Fatal("a stale observation must never carry a resolution")
@@ -420,8 +394,6 @@ func TestSubmitIntentPersistenceFailureIsZeroMutation(t *testing.T) {
 		t.Fatalf("the approval was never consumed: %+v", got)
 	}
 
-	// With durability restored, the STILL-ACTIVE approval can be consumed by a
-	// real submit; authorization was never silently lost or duplicated.
 	storeFaultHook = nil
 	fake.failMode = ""
 	res, err = s.submitPlan(Request{ID: "s2", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
@@ -436,7 +408,6 @@ func TestSubmitIntentPersistenceFailureIsZeroMutation(t *testing.T) {
 func TestSubmitExternalDriftStopsLaterOperations(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 
-	// A second, independent allocation on the same date: two create operations.
 	if _, err := s.addInterval(Request{ID: "9", Op: "add_interval", Day: date, Revision: intPtr(2),
 		Text: date + " 11:00-12:00 Second task"}); err != nil {
 		t.Fatal(err)
@@ -481,8 +452,6 @@ func TestSubmitExternalDriftStopsLaterOperations(t *testing.T) {
 	}
 	rec := approveReadyPlan(t, s, date)
 
-	// Between the first dispatch's read-back and the second operation's drift
-	// check, an outside actor adds an unexpected remote entry.
 	fake.injectWeek = func() {
 		if len(fake.writeCalls) > 0 && len(fake.days[date]) == 1 {
 			fake.days[date] = append(fake.days[date], map[string]any{
@@ -516,8 +485,6 @@ func TestSubmitExternalDriftStopsLaterOperations(t *testing.T) {
 func TestResolveMigratedOutcomeClearsOnlyItsOwnBlocker(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 
-	// Inject one migrated unresolved outcome row (uncertain legacy write that
-	// matches the local intended content) plus its durable observation.
 	obs := &RemoteObservation{
 		ObservationID: "obs-mig", Date: date, ObservedAt: "2026-10-21T00:00:00Z", Complete: true,
 		Entries: []RemoteEntry{{RemoteID: "r-mig", Date: date, StartTime: "09:00", EndTime: "10:00",
@@ -537,7 +504,6 @@ func TestResolveMigratedOutcomeClearsOnlyItsOwnBlocker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The migrated row is addressable by a stable reference and blocks.
 	status, err := s.submissionStatus(Request{ID: "1", Op: "submission_status", Day: date})
 	if err != nil {
 		t.Fatal(err)
@@ -547,10 +513,6 @@ func TestResolveMigratedOutcomeClearsOnlyItsOwnBlocker(t *testing.T) {
 		t.Fatalf("migrated unresolved rows: %+v", status.Unresolved)
 	}
 
-	// adopt requires content that matches the intended write AND the actual
-	// timezone-resolved allocation (R4F6): the observed legacy entry matches
-	// the outcome's intended content and the local interval's allocation, so
-	// it can be bound.
 	rr, err := s.resolveWrite(Request{ID: "2", Op: "resolve_write", WriteRef: "mw-legacy-op-1",
 		ObservationID: obs.ObservationID, Decision: DecisionWriteAdopt, RemoteID: "r-mig"})
 	if err != nil {
@@ -578,7 +540,6 @@ func TestResolveMigratedOutcomeClearsOnlyItsOwnBlocker(t *testing.T) {
 		t.Fatalf("the addressed blocker must clear: %+v", status.Unresolved)
 	}
 
-	// Ordinary migrated confirmed/failed history is never treated as pending.
 	st = store.State()
 	st.Remote.Outcomes = append(st.Remote.Outcomes, WriteOutcome{
 		OperationKey: "legacy-op-2", LocalID: "iv-20261020-2", Status: "confirmed",
@@ -596,11 +557,6 @@ func TestResolveMigratedOutcomeClearsOnlyItsOwnBlocker(t *testing.T) {
 	}
 }
 
-// TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit (R4F2): an open staged
-// draft on the origin day must not silently affect the plan's affected day.
-// The guard uses each open session's saved AND staged allocation footprint, so
-// a prior-day spill draft blocks both approval and consumption; discarding
-// the draft restores eligibility. Zero writes are made while blocked.
 func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 
@@ -618,7 +574,6 @@ func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 	// draft's process ending.
 	cancelDraft := func() { delete(s.days, "2026-10-19") }
 
-	// Approval is refused while the affected draft exists.
 	draft()
 	if _, err := s.previewPlan(date); err == nil {
 		t.Fatal("an open session whose staged allocations touch the plan's affected dates must block the preview")
@@ -630,11 +585,9 @@ func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 		t.Fatalf("no writes may happen on the blocked path: %+v", fake.writeCalls)
 	}
 
-	// Cancellation restores eligibility.
 	cancelDraft()
 	rec := approveReadyPlan(t, s, date)
 
-	// Consumption re-renders under the same guard: blocked before dispatch.
 	draft()
 	res, err := s.submitPlan(Request{ID: "2", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
@@ -647,7 +600,6 @@ func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 		t.Fatalf("blocked consumption must make zero writes: %+v", fake.writeCalls)
 	}
 
-	// Cancelling the draft again restores a confirmed submission.
 	cancelDraft()
 	res, err = s.submitPlan(Request{ID: "3", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
@@ -658,9 +610,6 @@ func TestDirtyAffectedSpillDraftBlocksApprovalAndSubmit(t *testing.T) {
 	}
 }
 
-// TestUnrelatedDirtySessionKeepsSubmissionEligible (R4F2 control): a dirty
-// session whose saved and staged allocations do NOT touch the plan's affected
-// dates never blocks approval or consumption.
 func TestUnrelatedDirtySessionKeepsSubmissionEligible(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 	if _, err := s.openDay(Request{ID: "d0", Op: "open_day", Day: "2026-10-21"}); err != nil {
@@ -680,10 +629,6 @@ func TestUnrelatedDirtySessionKeepsSubmissionEligible(t *testing.T) {
 	}
 }
 
-// TestChangedExistingEntryStopsLaterOperations (R4F3): the batch precondition
-// is exact content, not just id membership. An existing baseline entry that an
-// outside actor changes before a later dispatch stops the batch after exactly
-// one write; the fresh snapshot is never absorbed over the baseline.
 func TestChangedExistingEntryStopsLaterOperations(t *testing.T) {
 	date := "2026-10-20"
 	fake := &fakeMCP{
@@ -734,8 +679,6 @@ func TestChangedExistingEntryStopsLaterOperations(t *testing.T) {
 	}
 	rec := approveReadyPlan(t, s, date)
 
-	// Between the first read-back and the second operation, an outside actor
-	// moves the pre-existing baseline entry.
 	fake.injectWeek = func() {
 		if len(fake.writeCalls) > 0 {
 			for _, e := range fake.days[date] {
@@ -766,12 +709,6 @@ func TestChangedExistingEntryStopsLaterOperations(t *testing.T) {
 	}
 }
 
-// TestEditAcknowledgingDifferentIdentityStaysUnresolved (R4F4): when the
-// provider acknowledges a different entry id than the edit's approved bound
-// identity, the write stays unresolved and never reports confirmed, even when
-// other entries carry matching content. The attempted and acknowledged
-// identities stay distinct audit, the durable binding and LastObserved are not
-// touched, and the unresolved state survives a restart so no replay happens.
 func TestEditAcknowledgingDifferentIdentityStaysUnresolved(t *testing.T) {
 	s, fake, _, date := editReadyFixture(t)
 	fake.setWriteMultiDays(map[string][]map[string]any{
@@ -805,14 +742,11 @@ func TestEditAcknowledgingDifferentIdentityStaysUnresolved(t *testing.T) {
 		it.RemoteID != before.Operations[0].RemoteID || it.AcknowledgedID != "r-other" {
 		t.Fatalf("identity audit must keep the attempted and acknowledged ids distinct: %+v", it)
 	}
-	// The durable binding is untouched: neither confirmed content nor
-	// LastObserved may claim a confirmed effect from an unresolved write.
 	bs := st.Remote.Bindings
 	if len(bs) != 1 || bs[0].RemoteID != "r-1" || bs[0].LastObserved == nil ||
 		bs[0].LastObserved.StartTime != "08:00" {
 		t.Fatalf("binding must keep its adoption-time state: %+v", bs)
 	}
-	// The provider's own entry WAS mutated but nothing may claim it confirmed.
 	still, err := s.submissionStatus(Request{ID: "2", Op: "submission_status", Day: date})
 	if err != nil {
 		t.Fatal(err)
@@ -821,7 +755,6 @@ func TestEditAcknowledgingDifferentIdentityStaysUnresolved(t *testing.T) {
 		t.Fatalf("native unresolved rows: %+v", still.Unresolved)
 	}
 
-	// Restart: the unresolved intent is durable, blocks, and cannot replay.
 	s2, err := restartSession(s)
 	if err != nil {
 		t.Fatal(err)
@@ -842,10 +775,6 @@ func TestEditAcknowledgingDifferentIdentityStaysUnresolved(t *testing.T) {
 	}
 }
 
-// TestEditSubmissionConfirmsWithExactBody (R4F4 control): the normal edit path
-// still confirms against exactly the approved bound identity, with the exact
-// approved body (including the rendered reason) and a durable one-to-one
-// binding.
 func TestEditSubmissionConfirmsWithExactBody(t *testing.T) {
 	s, fake, _, date := editReadyFixture(t)
 	fake.setWriteMultiDays(map[string][]map[string]any{
@@ -882,9 +811,6 @@ func TestEditSubmissionConfirmsWithExactBody(t *testing.T) {
 	}
 }
 
-// TestResolveMigratedOutcomeRejectsWrongAllocationDate (R4F6): a row whose
-// recorded write date is not a timezone-resolved allocation of its local
-// interval cannot be bound; the blocker remains visible.
 func TestResolveMigratedOutcomeRejectsWrongAllocationDate(t *testing.T) {
 	s, fake, store, _ := createReadyFixture(t)
 	wrongDate := "2026-10-21"
@@ -922,9 +848,6 @@ func TestResolveMigratedOutcomeRejectsWrongAllocationDate(t *testing.T) {
 	}
 }
 
-// TestResolveMigratedOutcomeRejectsUnknownCrosswalk (R4F6): a row claiming a
-// migration that no durable receipt backs is insufficient legacy provenance
-// and stays a visible blocker.
 func TestResolveMigratedOutcomeRejectsUnknownCrosswalk(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 	obs := &RemoteObservation{
@@ -958,12 +881,6 @@ func TestResolveMigratedOutcomeRejectsUnknownCrosswalk(t *testing.T) {
 	}
 }
 
-// TestUnsavedFinalRemovalCannotAuthorizeSavedPlan (R4F2 continuation): an
-// unsaved confirmation that removes the final interval empties BOTH session
-// lists while the preview still renders the durable saved work. The saved
-// footprint of the dirty origin is part of the guard, so neither approval nor
-// consumption may authorize the stale saved view, and the durable state is
-// untouched.
 func TestUnsavedFinalRemovalCannotAuthorizeSavedPlan(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 	rec := approveReadyPlan(t, s, date)
@@ -1001,10 +918,6 @@ func TestUnsavedFinalRemovalCannotAuthorizeSavedPlan(t *testing.T) {
 	}
 }
 
-// TestUnsavedPriorDaySpillRemovalCannotAuthorizeSavedPlan (R4F2 continuation,
-// prior-day spill): removing the final interval of a prior-day interval whose
-// allocation rendered on the planned date leaves empty current origin lists,
-// but the saved spill footprint still guards the planned date.
 func TestUnsavedPriorDaySpillRemovalCannotAuthorizeSavedPlan(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 	const origin = "2026-10-19"
@@ -1033,9 +946,6 @@ func TestUnsavedPriorDaySpillRemovalCannotAuthorizeSavedPlan(t *testing.T) {
 	}
 	rec := approveReadyPlan(t, s, date)
 
-	// Remove the final interval of the prior day and confirm revision 2 without
-	// saving: the spill allocation on the planned date is gone from the session
-	// but still present in the durable saved day.
 	if _, err := s.removeInterval(Request{ID: "o7", Op: "remove_interval", Day: origin,
 		Revision: intPtr(1), IntervalID: "iv-20261019-1"}); err != nil {
 		t.Fatal(err)
@@ -1065,10 +975,6 @@ func TestUnsavedPriorDaySpillRemovalCannotAuthorizeSavedPlan(t *testing.T) {
 	}
 }
 
-// TestZeroOperationConsumptionPreActivationFailureIsHonest (R4F7): the local
-// commit that consumes a zero-operation approval fails BEFORE activation. The
-// receipt must not claim consumption or a durable execution, the approval stays
-// active, and an explicit later submit consumes it exactly once.
 func TestZeroOperationConsumptionPreActivationFailureIsHonest(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 	first := approveReadyPlan(t, s, date)
@@ -1129,7 +1035,6 @@ func TestZeroOperationConsumptionPreActivationFailureIsHonest(t *testing.T) {
 		t.Fatal("a failure before activation must not become sticky uncertainty")
 	}
 
-	// Explicit resubmission consumes the same approval exactly once.
 	res, err = s.submitPlan(Request{ID: "s2", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
 		t.Fatal(err)
@@ -1148,7 +1053,6 @@ func TestZeroOperationConsumptionPreActivationFailureIsHonest(t *testing.T) {
 		t.Fatalf("consumption must still dispatch nothing: %v", fake.writeCalls)
 	}
 
-	// Restart: consumed once, never again.
 	s2, err := restartSession(s)
 	if err != nil {
 		t.Fatal(err)
@@ -1162,9 +1066,6 @@ func TestZeroOperationConsumptionPreActivationFailureIsHonest(t *testing.T) {
 	}
 }
 
-// TestZeroOperationApprovalProofSurvivesRestart (R4F8): a legitimate EMPTY
-// choice proof is encoded explicitly, reloads as a non-nil empty map, and the
-// persisted approval consumes durably with zero writes after a clean restart.
 func TestZeroOperationApprovalProofSurvivesRestart(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 	first := approveReadyPlan(t, s, date)
@@ -1223,7 +1124,6 @@ func TestZeroOperationApprovalProofSurvivesRestart(t *testing.T) {
 		t.Fatalf("a second consumption must be refused: %+v", replay)
 	}
 
-	// Restart again: the consumption and the refusal both survive.
 	s3, err := restartSession(s2)
 	if err != nil {
 		t.Fatal(err)
@@ -1237,9 +1137,6 @@ func TestZeroOperationApprovalProofSurvivesRestart(t *testing.T) {
 	}
 }
 
-// TestMissingLegacyChoiceProofStillCannotAuthorize (R4F8 gate): deleting the
-// established proof from a persisted row reproduces a pre-proof dev.10 shape.
-// It reloads as nil, remains inert and is never reconstructed as approval.
 func TestMissingLegacyChoiceProofStillCannotAuthorize(t *testing.T) {
 	s, fake, _, date := createReadyFixture(t)
 	rec := approveReadyPlan(t, s, date)
@@ -1291,10 +1188,6 @@ func TestMissingLegacyChoiceProofStillCannotAuthorize(t *testing.T) {
 	}
 }
 
-// TestZeroOperationConsumptionPostRenameUncertaintyStaysSticky (R4F7 control):
-// the pre-existing post-rename uncertainty behavior is unchanged. An activated
-// file whose directory sync failed is reported as durability_uncertain, blocks
-// further claims in-process, and loads as the activated consumption on restart.
 func TestZeroOperationConsumptionPostRenameUncertaintyStaysSticky(t *testing.T) {
 	s, fake, store, date := createReadyFixture(t)
 	first := approveReadyPlan(t, s, date)
@@ -1336,7 +1229,6 @@ func TestZeroOperationConsumptionPostRenameUncertaintyStaysSticky(t *testing.T) 
 		t.Fatalf("zero-operation uncertainty must not dispatch: %v", fake.writeCalls)
 	}
 
-	// Further claims are refused in-process.
 	res, err = s.submitPlan(Request{ID: "s2", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
 	if err != nil {
 		t.Fatal(err)
@@ -1345,7 +1237,6 @@ func TestZeroOperationConsumptionPostRenameUncertaintyStaysSticky(t *testing.T) 
 		t.Fatalf("the sticky store must refuse further claims: %+v", res)
 	}
 
-	// The activated file is the durable consumption: restart loads it.
 	s2, err := restartSession(s)
 	if err != nil {
 		t.Fatal(err)
@@ -1363,5 +1254,110 @@ func TestZeroOperationConsumptionPostRenameUncertaintyStaysSticky(t *testing.T) 
 	}
 	if replay.Status != SubmitBlockedBeforeDispatch || len(fake.writeCalls) != writes {
 		t.Fatalf("the consumed approval must not be consumable after restart: %+v", replay)
+	}
+}
+
+func TestSubmitRefusesApprovalAfterCredentialChange(t *testing.T) {
+	s, fake, _, date := createReadyFixture(t)
+	rec := approveReadyPlan(t, s, date)
+	s.env[DefaultGradionTokenEnv] = "another-synthetic-token"
+	res, err := s.submitPlan(Request{ID: "s1", Op: "submit_plan", Day: date, ApprovalID: rec.ApprovalID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != SubmitBlockedBeforeDispatch || !hasBlocker(res.Blockers, CodeStaleApproval) {
+		t.Fatalf("an approval bound to another credential context must not be consumed: %+v", res)
+	}
+	if len(fake.writeCalls) != 0 {
+		t.Fatalf("a refused consumption must never dispatch: %v", fake.writeCalls)
+	}
+}
+
+func TestApprovePlanRefusesAnEarlierStoredPlan(t *testing.T) {
+	s, _, store, date := createReadyFixture(t)
+	earlier, err := s.previewPlan(date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.addInterval(Request{ID: "1", Op: "add_interval", Day: date, Revision: intPtr(2),
+		Text: date + " 11:00-12:00 Extra"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.confirm(Request{ID: "2", Op: "confirm", Day: date, Revision: intPtr(2)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.save(Request{ID: "3", Op: "save", Day: date, Revision: intPtr(3)}); err != nil {
+		t.Fatal(err)
+	}
+	cat, err := s.classifications(Request{ID: "4", Op: "classifications"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.selectClassification(Request{ID: "5", Op: "select_classification", Day: date,
+		Revision: intPtr(3), IntervalID: "iv-20261020-2", CatalogID: cat.CatalogID,
+		ClassificationID: "cat-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.confirm(Request{ID: "6", Op: "confirm", Day: date, Revision: intPtr(3)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.save(Request{ID: "7", Op: "save", Day: date, Revision: intPtr(4)}); err != nil {
+		t.Fatal(err)
+	}
+	if current, err := s.previewPlan(date); err != nil || current.State != PlanReady || current.PlanID == earlier.PlanID {
+		t.Fatalf("precondition: a different ready plan must now be current: %+v %v", current, err)
+	}
+	if _, err := s.approvePlan(Request{ID: "8", Op: "approve_plan", Day: date, PlanID: earlier.PlanID}); err == nil {
+		t.Fatal("a stored plan that is no longer the current render must not be approved")
+	}
+	if len(store.State().Approvals) != 0 {
+		t.Fatalf("a refused approval must leave no ledger row: %+v", store.State().Approvals)
+	}
+}
+
+func TestApprovePlanRefusesABlockedPlan(t *testing.T) {
+	s, _, store, date := planFixture(t)
+	if _, err := s.reconcileDate(date); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := s.previewPlan(date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.State == PlanReady {
+		t.Fatalf("precondition: an unclassified day must not be ready: %+v", preview)
+	}
+	if _, err := s.approvePlan(Request{ID: "1", Op: "approve_plan", Day: date, PlanID: preview.PlanID}); err == nil {
+		t.Fatal("a blocked plan must not be approved")
+	}
+	if len(store.State().Approvals) != 0 {
+		t.Fatalf("a refused approval must leave no ledger row: %+v", store.State().Approvals)
+	}
+}
+
+func TestClassifyWriteAttemptTransportFailureIsUncertain(t *testing.T) {
+	got := classifyWriteAttempt(errors.New("synthetic transport failure"), mcp.CallResult{})
+	if got.Status != IntentUncertain || got.RemoteID != "" {
+		t.Fatalf("a transport failure leaves the effect unknown: %+v", got)
+	}
+}
+
+func TestInFlightIntentBlocksUntilResolved(t *testing.T) {
+	if !(&WriteIntent{Status: IntentInFlight}).unresolved() {
+		t.Fatal("an in_flight intent must stay unresolved")
+	}
+	if (&WriteIntent{Status: IntentInFlight, Resolved: true}).unresolved() {
+		t.Fatal("only an explicit resolution clears an in_flight intent")
+	}
+}
+
+func TestRevokeApprovalRefusesAnotherDate(t *testing.T) {
+	s, _, store, date := createReadyFixture(t)
+	rec := approveReadyPlan(t, s, date)
+	if _, err := s.revokeApproval(Request{ID: "r1", Op: "revoke_approval", Day: "2026-10-21", ApprovalID: rec.ApprovalID}); err == nil {
+		t.Fatal("an approval bound to one date must not be found for another")
+	}
+	if got := store.State().Approvals[0].State; got != ApprovalActive {
+		t.Fatalf("a refused revocation must leave the approval active: %s", got)
 	}
 }
