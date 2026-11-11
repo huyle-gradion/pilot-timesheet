@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). This file s
   plan, its approval and any new submit after a restart.
 - `cmd/timesheet` comments are removed (#258). New tests pin the constraints
   they stated, including that the judge command never gets a nil environment.
+- `internal/timesheet` constraints that only a comment stated are now pinned
+  by tests (#296): strict request decoding, spill-day replay blocking,
+  copy-on-write review decisions, issue-lookup caching, review search bounds,
+  classification proof consistency, legacy zero-operation approvals, carried
+  block ids, and calendar recurrence, timezone and window expansion.
 
 ## 0.3.0
 

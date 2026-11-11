@@ -28,10 +28,6 @@ type CarrySegment struct {
 
 const carriedPrefix = "carried-"
 
-// BlockID is the carried segment's block id on the target day:
-// carried-<source date>-<source block id>. It names the source, so the target
-// day's stage map, receipts and classification binding show where it came
-// from, and it never collides with a ledger block id the draft assigns.
 func (c CarrySegment) BlockID() string {
 	return carriedPrefix + c.SourceDate + "-" + c.SourceBlockID
 }
