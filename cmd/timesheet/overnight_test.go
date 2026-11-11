@@ -73,8 +73,11 @@ func TestStageSpansOvernightArithmetic(t *testing.T) {
 		// whole span; each local-day allocation (the remote entry) is <= 240.
 		{"post-midnight part at the policy", testDate, overnightTZ, "22:00", "04:00",
 			[][2]string{{"22:00", "04:00"}}},
+		// More than 240 minutes after midnight: the crossing chunk runs a full
+		// 240 minutes and the rest (03:00→05:00) is carried into the next date
+		// (issue #277, ADR 0011; TestSplitClusterCarry pins the carry).
 		{"post-midnight part beyond the policy", testDate, overnightTZ, "15:00", "05:00",
-			[][2]string{{"15:00", "19:00"}, {"19:00", "23:00"}, {"23:00", "05:00"}}},
+			[][2]string{{"15:00", "19:00"}, {"19:00", "23:00"}, {"23:00", "03:00"}}},
 		// Europe/Berlin springs forward at 02:00 on 2026-03-29: 21:00→04:00 is
 		// 360 real minutes, not 420, and the crossing chunk is 240 real minutes.
 		{"DST-adjacent spring forward", "2026-03-28", "Europe/Berlin", "21:00", "04:00",
@@ -520,7 +523,7 @@ func TestStageOvernightUnionOverADaySkipped(t *testing.T) {
 				t.Fatal(err)
 			}
 			units := ledgerUnits(entries, testDate, overnightTZ)
-			if !stageMapMatchesUnits(stageMap, units) || !ledgerDerivesSaved(units, day.Confirmed) {
+			if !stageMapMatchesUnits(stageMap, units) || !currentDerives(units, day.Confirmed) {
 				t.Fatalf("next units %+v do not match the staged/saved day", units)
 			}
 		})
@@ -562,12 +565,14 @@ func TestFinalizedLegacyOvernightDayStaysCurrent(t *testing.T) {
 	o := finalizedDay()
 	o.Artifacts.Entries = &timesheet.EntriesFile{Date: testDate, Entries: entries}
 	o.Units = ledgerUnits(entries, testDate, overnightTZ)
+	o.LegacyUnits = legacyDerivations(entries, testDate, overnightTZ)
 	o.Workflow.Confirmed = confirmed
 	if n := deriveDayNext(o); n.State == stateStopped && strings.Contains(n.Reason, "no longer derives") {
 		t.Fatalf("legacy finalized day stopped: %s", n.Reason)
 	}
 	changed := []timesheet.EntryRecord{overnightEntry("night-1", "work", "21:00", "02:00", "Release night")}
 	o.Units = ledgerUnits(changed, testDate, overnightTZ)
+	o.LegacyUnits = legacyDerivations(changed, testDate, overnightTZ)
 	if n := deriveDayNext(o); n.State != stateStopped || !strings.Contains(n.Reason, "no longer derives") {
 		t.Fatalf("changed ledger = %q/%q, want the no-longer-derives stop", n.State, n.Reason)
 	}

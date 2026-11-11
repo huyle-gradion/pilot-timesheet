@@ -61,10 +61,16 @@ func runAgentSubmit(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !artifacts.EntriesPresent || !snapshot.Finalized {
+	if (!artifacts.EntriesPresent && len(artifacts.CarryIn) == 0) || !snapshot.Finalized {
 		return fmt.Errorf("submit --chat: no saved recorded day; finish logging before reviewing submission")
 	}
-	if !ledgerDerivesSaved(ledgerUnits(artifacts.Entries.Entries, day, snapshot.Timezone), snapshot.Confirmed) {
+	// The proof includes the segments carried in from the previous date: a
+	// carry that reached this day after it was saved is never submitted around
+	// (ADR 0011), and one in another timezone is never reinterpreted.
+	if err := timesheet.CheckCarryTimezone(artifacts.CarryIn, snapshot.Timezone); err != nil {
+		return fmt.Errorf("submit --chat: %w", err)
+	}
+	if !dayDerivesSaved(artifactStageEntries(artifacts), day, snapshot.Timezone, snapshot.Confirmed) {
 		return fmt.Errorf("submit --chat: recorded ledger differs from saved intervals; review stage --revise and classify before requesting fresh confirmation")
 	}
 	res, err := h.call("preview_plan", timesheet.Request{Day: day})

@@ -117,6 +117,8 @@ type nextBlock struct {
 	// Candidates is the ref of this interval's set in judgment.candidates;
 	// empty when the interval has no candidates.
 	Candidates string `json:"candidates"`
+	// CarriedFrom labels a block carried in from that date (ADR 0011).
+	CarriedFrom string `json:"carried_from,omitempty"`
 }
 
 // nextHumanGates is the terminal state: the two human-only commands, the
@@ -135,6 +137,34 @@ type nextHumanGates struct {
 	// Status is the read-only submission_status result, attached only when
 	// `next --do` reaches the gates so the caller needs no extra turn.
 	Status *timesheet.SubmissionStatusResult `json:"status,omitempty"`
+	// Carried lists the day's overnight carry for review (ADR 0011): segments
+	// carried in from the previous date and out into the next one.
+	Carried []nextCarried `json:"carried,omitempty"`
+}
+
+// nextCarried is one carried segment as review shows it: carried from one date
+// into the next, with its clocks on the target date and its real minutes.
+type nextCarried struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	BlockID     string `json:"block_id"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	Minutes     int    `json:"minutes"`
+	Description string `json:"description"`
+}
+
+func carriedView(carries ...[]timesheet.CarrySegment) []nextCarried {
+	var out []nextCarried
+	for _, list := range carries {
+		for _, c := range list {
+			out = append(out, nextCarried{
+				From: c.SourceDate, To: c.Date, BlockID: c.BlockID(), Start: c.Start, End: c.End,
+				Minutes: c.Minutes, Description: c.Description,
+			})
+		}
+	}
+	return out
 }
 
 // nextObservation is every fact the derivation may read. Each field is
@@ -191,9 +221,15 @@ type nextObservation struct {
 
 	// Artifacts is the ledger and its sidecars, one validated parse each.
 	Artifacts timesheet.DayArtifacts
-	// Units is the current ledger's stage-time content projection.
-	Units    []ledgerUnit
-	Workflow timesheet.WorkflowSnapshot
+	// Units is the current ledger's stage-time content projection, including
+	// the segments carried in from the previous date (ADR 0011).
+	Units []ledgerUnit
+	// LegacyUnits are the pre-carry derivations a finalized day may have been
+	// saved with (legacyDerivations); CarryDerived is the carry into the next
+	// date the current derivation makes, compared with Artifacts.CarryOut.
+	LegacyUnits  [][]ledgerUnit
+	CarryDerived []timesheet.CarrySegment
+	Workflow     timesheet.WorkflowSnapshot
 
 	// Project is the exact project id the staged/classified/saved commands
 	// carry; ProjectBlocked means the configuration has several projects and

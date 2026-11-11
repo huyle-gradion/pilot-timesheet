@@ -21,7 +21,8 @@ import (
 // the span(s) a fresh stage would turn into intervals. It mirrors applyStage's
 // unit selection (headless.go): each overlap-projection cluster, same-day or
 // overnight, becomes one unit under its cluster id, split by the four-hour
-// policy (timesheet.StageSpans).
+// policy and cut at its carry (timesheet.SplitCluster, ADR 0011). A cluster
+// carried whole into the next date is no unit of this day.
 type ledgerUnit struct {
 	BlockID     string
 	Date        string
@@ -29,32 +30,89 @@ type ledgerUnit struct {
 	End         string
 	Description string
 	Spans       [][2]string
+	// CarriedFrom is the source date when the unit holds a segment carried
+	// in from the previous date (issue #277); review labels it.
+	CarriedFrom string `json:",omitempty"`
+}
+
+// dayStageEntries is a day's stage input: its own recorded entries plus each
+// segment carried in from the previous date as one entry (ADR 0011). The
+// ledger slice is not modified.
+func dayStageEntries(entries []timesheet.EntryRecord, carryIn []timesheet.CarrySegment) []timesheet.EntryRecord {
+	if len(carryIn) == 0 {
+		return entries
+	}
+	out := make([]timesheet.EntryRecord, 0, len(entries)+len(carryIn))
+	out = append(out, entries...)
+	for _, c := range carryIn {
+		out = append(out, c.Entry())
+	}
+	return out
+}
+
+// artifactStageEntries is dayStageEntries over a day's loaded artifacts; a day
+// without a ledger contributes only its carried segments.
+func artifactStageEntries(a timesheet.DayArtifacts) []timesheet.EntryRecord {
+	var own []timesheet.EntryRecord
+	if a.Entries != nil {
+		own = a.Entries.Entries
+	}
+	return dayStageEntries(own, a.CarryIn)
+}
+
+// clusterCarriedFrom is the source date of the first carried contributor.
+func clusterCarriedFrom(blockIDs []string) string {
+	for _, id := range blockIDs {
+		if d := timesheet.CarriedSourceDate(id); d != "" {
+			return d
+		}
+	}
+	return ""
 }
 
 // ledgerBlocks derives the current ledger's stage-time units without their
 // chunk spans: the content binding (stagedBlocksFrom) needs only each unit's
-// id and effective content, which do not depend on the day's timezone.
+// id and effective content, which do not depend on the day's timezone. A unit
+// carried whole is listed too; it is in no stage map, so nothing binds to it.
 func ledgerBlocks(entries []timesheet.EntryRecord, date string) []ledgerUnit {
 	var units []ledgerUnit
-	for _, c := range timesheet.EffectiveEntrySpans(entries) {
+	for _, c := range timesheet.EffectiveEntrySpansOn(date, entries) {
 		units = append(units, ledgerUnit{
 			BlockID: c.BlockID, Date: date, Start: c.Start, End: c.End,
-			Description: c.Description,
+			Description: c.Description, CarriedFrom: clusterCarriedFrom(c.BlockIDs),
 		})
 	}
 	return units
 }
 
-// ledgerUnits derives the current ledger's stage-time units with the chunk
-// spans applyStage would stage. timezone is the day's recorded timezone (the
-// one open_day reports): an overnight span is chunked in real minutes. It
-// allocates no interval ids: it is the content projection, enough to prove the
-// stored stage map and the saved content are current.
-func ledgerUnits(entries []timesheet.EntryRecord, date, timezone string) []ledgerUnit {
-	units := ledgerBlocks(entries, date)
-	for i := range units {
-		units[i].Spans = timesheet.StageSpans(date, timezone, units[i].Start, units[i].End)
+// deriveLedger derives the stage-time units with the chunk spans applyStage
+// would stage, and the segments it would carry into the next date. timezone is
+// the day's recorded timezone (the one open_day reports): an overnight span is
+// chunked and cut in real minutes. It allocates no interval ids: it is the
+// content projection, enough to prove the stored stage map, the carry record
+// and the saved content are current.
+func deriveLedger(entries []timesheet.EntryRecord, date, timezone string) ([]ledgerUnit, []timesheet.CarrySegment) {
+	var units []ledgerUnit
+	var carries []timesheet.CarrySegment
+	for _, c := range timesheet.EffectiveEntrySpansOn(date, entries) {
+		spans, carry := timesheet.SplitCluster(date, timezone, c)
+		if carry != nil {
+			carries = append(carries, *carry)
+		}
+		if len(spans) == 0 {
+			continue
+		}
+		units = append(units, ledgerUnit{
+			BlockID: c.BlockID, Date: date, Start: c.Start, End: c.End,
+			Description: c.Description, Spans: spans, CarriedFrom: clusterCarriedFrom(c.BlockIDs),
+		})
 	}
+	return units, carries
+}
+
+// ledgerUnits is deriveLedger's units.
+func ledgerUnits(entries []timesheet.EntryRecord, date, timezone string) []ledgerUnit {
+	units, _ := deriveLedger(entries, date, timezone)
 	return units
 }
 
@@ -75,13 +133,43 @@ func legacyUnits(units []ledgerUnit) []ledgerUnit {
 	return out
 }
 
-// ledgerDerivesSaved is the finalized-day content proof: the ledger derives the
-// saved intervals under the current rule, or under the legacy unsplit
-// overnight rule the day may have been saved with (legacyUnits).
-func ledgerDerivesSaved(units []ledgerUnit, confirmed []timesheet.Interval) bool {
+// legacyDerivations are the rules a finalized day may have been saved with
+// before the carry (issue #277): the pre-#176 unsplit overnight span and the
+// #176 chunking whose crossing chunk keeps the whole after-midnight remainder.
+// Both place every entry at its clock (no next-date placement) and have no
+// carry out. The entries include any carried-in segments: a carry that reaches
+// a day saved without it must still fail the proof.
+func legacyDerivations(entries []timesheet.EntryRecord, date, timezone string) [][]ledgerUnit {
+	var chunked []ledgerUnit
+	for _, c := range timesheet.EffectiveEntrySpans(entries) {
+		chunked = append(chunked, ledgerUnit{
+			BlockID: c.BlockID, Date: date, Start: c.Start, End: c.End, Description: c.Description,
+			Spans: timesheet.LegacyStageSpans(date, timezone, c.Start, c.End),
+		})
+	}
+	return [][]ledgerUnit{legacyUnits(chunked), chunked}
+}
+
+// ledgerDerivesSaved is the finalized-day content proof. current reports that
+// the units derive the saved intervals under today's rule; legacy that one of
+// the legacy derivations does (legacyDerivations).
+func ledgerDerivesSaved(units []ledgerUnit, legacy [][]ledgerUnit, confirmed []timesheet.Interval) (current, legacyOK bool) {
 	saved := confirmedContentSpans(confirmed)
-	return sameContent(ledgerContentSpans(units), saved) ||
-		sameContent(ledgerContentSpans(legacyUnits(units)), saved)
+	if sameContent(ledgerContentSpans(units), saved) {
+		return true, false
+	}
+	for _, l := range legacy {
+		if sameContent(ledgerContentSpans(l), saved) {
+			return false, true
+		}
+	}
+	return false, false
+}
+
+// dayDerivesSaved is ledgerDerivesSaved over one day's stage entries.
+func dayDerivesSaved(entries []timesheet.EntryRecord, date, timezone string, confirmed []timesheet.Interval) bool {
+	current, legacy := ledgerDerivesSaved(ledgerUnits(entries, date, timezone), legacyDerivations(entries, date, timezone), confirmed)
+	return current || legacy
 }
 
 // stageMapMatchesUnits proves the stored stage map was derived from the current

@@ -61,6 +61,7 @@ Name each failed/incomplete source and the missing coverage. Permit explicit hum
 - Classification suggestions are not applied silently. Persist explicit selections; verify destination identifiers before submission.
 - Optional AI changes titles/descriptions only, never time, attendance, project/classification, evidence links, confirmation, or approval.
 - Use configured timezone and calendrical day windows. Surface cross-midnight work explicitly rather than losing or duplicating minutes.
+- An overnight entry with more than 240 minutes after midnight keeps the part up to midnight plus up to 240 minutes after it. The remainder is carried into the next date's timesheet as a derived record, shown at that day's review and submitted only through its own approval. It never silently revises a saved day ([ADR 0011](adr/0011-overnight-carry-into-the-next-day.md)).
 
 The concrete typed grammar and error codes are part of the public interface and must be documented when implemented.
 

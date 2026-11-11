@@ -244,6 +244,10 @@ type DayArtifacts struct {
 	StageMap        map[string][]string
 	ChoicesPresent  bool
 	Choices         map[string]ClassificationChoiceEntry
+	// CarryOut is the day's own carry record (entries/<date>.carry.json) and
+	// CarryIn the segments the previous date carried into it (issue #277).
+	CarryOut []CarrySegment
+	CarryIn  []CarrySegment
 }
 
 // ReadDayArtifacts loads the day's ledger and sidecars through the same readers
@@ -268,6 +272,13 @@ func ReadDayArtifacts(statePath, date string) (DayArtifacts, error) {
 		return DayArtifacts{}, err
 	}
 	out.Choices, out.ChoicesPresent = choices, choices != nil
+
+	if out.CarryOut, err = ReadCarry(statePath, date); err != nil {
+		return DayArtifacts{}, err
+	}
+	if out.CarryIn, err = ReadCarryInto(statePath, date); err != nil {
+		return DayArtifacts{}, err
+	}
 	return out, nil
 }
 
